@@ -1,0 +1,68 @@
+name: Release Desktop
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+# softprops/action-gh-release 需要写权限把安装包挂到 tag 对应的 Release 上。
+permissions:
+  contents: write
+
+# 同一个 ref 重复触发（删 tag 重打）时不并发跑两份打包，避免产物互相覆盖。
+concurrency:
+  group: release-desktop-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build-windows-x64:
+    name: Build Windows x64 installer
+    runs-on: windows-latest
+    timeout-minutes: 120
+    env:
+      # 生产身份出包：productName 为 ZCode，产物文件名不带 _TEST 后缀。
+      ZCODE_ENV: production
+      # 安装包运行时从 CDN 拉取 remote 资产，打包阶段不需要准备 mock-cdn 远程资源。
+      ZCODE_SKIP_REMOTE_ASSETS: "1"
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24.14.0
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+        env:
+          # CI 里不需要安装 git hooks，跳过 husky 的 prepare 脚本。
+          HUSKY: "0"
+
+      - name: Build Windows x64 installer
+        run: pnpm bundle:desktop -- --os win --arch x64 --skip-prepare
+        env:
+          # GitHub runner 访问官方 electron-builder-binaries 更稳定；
+          # 404 时 bundle.mjs 会自动切回 npmmirror，无需在这里做 fallback。
+          ELECTRON_BUILDER_BINARIES_MIRROR: https://github.com/electron-userland/electron-builder-binaries/releases/download/
+
+      - name: Upload installer artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-x64-installer
+          path: packages/desktop/dist/ZCode-*-win-x64.exe
+          if-no-files-found: error
+
+      # workflow_dispatch（无 tag）调试运行只出 artifact，不碰 Release。
+      - name: Attach installer to GitHub release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: packages/desktop/dist/ZCode-*-win-x64.exe
+          fail_on_unmatched_files: true
+          generate_release_notes: true
