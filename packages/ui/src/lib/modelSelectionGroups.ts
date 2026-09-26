@@ -55,11 +55,7 @@ export function buildRegistryModelSelectGroups(
           key: `registry-provider:${provider.providerId}:${modelId}`,
           value: encodeCustomModelValue(provider.providerId, modelId),
           name: modelId,
-          ...(shouldShowModelVisionBadge(
-            modelId,
-            config.properties?.inputFormat?.supportsImage,
-            provider.config.access,
-          )
+          ...(shouldShowModelVisionBadge(config.properties?.inputFormat?.supportsImage)
             ? { supportsVisionInput: true }
             : {}),
         })),

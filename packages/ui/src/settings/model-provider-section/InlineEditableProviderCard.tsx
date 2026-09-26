@@ -746,7 +746,8 @@ export function InlineEditableProviderCard({
   }, [onDelete]);
 
   const headerProviderName = providerDisplayName;
-  const isAccountProvider = provider.config.access?.type === "zhipu-account";
+  // P2：账号 Provider 类型已删除；所有 Provider 都按普通可开关 Provider 渲染。
+  const isAccountProvider = false;
   const isApiKeyProvider = isApiKeyAccess(provider.config.access);
   const effectiveHeaderVisible = headerVisible && statusSection === undefined;
 
@@ -845,7 +846,6 @@ export function InlineEditableProviderCard({
           providerId={provider.providerId}
           providerName={getProviderFormLabel(provider)}
           providerEnabled={provider.enabled}
-          providerAccess={provider.config.access}
           models={models}
           onTestModel={onTestModel ? handleTestModel : undefined}
           onModelCommit={handleModelCommit}

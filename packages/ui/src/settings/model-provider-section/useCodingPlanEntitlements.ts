@@ -1,12 +1,7 @@
 import { buildStartPlanEntitlementOptions } from "@/lib/startPlanEntitlementOptions.js";
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import type { ProviderSettingsView } from "@zcode/services";
-import {
-  getModelProviderFamilySpec,
-  type ModelProviderFamilySpec,
-  type ZCodeAccountAccess,
-  type ZCodeProviderAccountAccess,
-} from "@zcode/shared";
+import { getModelProviderFamilySpec, type ModelProviderFamilySpec } from "@zcode/shared";
 import {
   useUsageEntitlement,
   type UsageEntitlementRefreshOptions,
@@ -66,7 +61,8 @@ function useProviderFamilyEntitlements(params: {
     ? JSON.stringify([params.providerSettingsView?.revision, accountAccess])
     : "";
   const startProviderFingerprint = startOptions.enabled ? (startOptions.cacheKey ?? "") : "";
-  const entitlementAccess = resolveEntitlementAccountAccess(accountAccess?.access);
+  // P2：Registry 静态账号 Access 已删除；展示查询身份直接沿用解析结果（P3 重建）。
+  const entitlementAccess = accountAccess?.access;
   // Team 查询身份还包含 product/org/project。只使用 Registry 静态 Access
   // 会让切换团队后复用上一项目的权益缓存，因此 cache identity 必须包含执行期账号上下文。
   const codingFingerprint = registryFingerprint
@@ -120,15 +116,6 @@ function useProviderFamilyEntitlements(params: {
       startProviderFingerprint,
     ],
   );
-}
-
-function resolveEntitlementAccountAccess(
-  access: ZCodeProviderAccountAccess | undefined,
-): ZCodeProviderAccountAccess | ZCodeAccountAccess | undefined {
-  // 展示查询针对这个套餐自身，不让执行期的 current 解析器改成当前另一套餐。
-  return access && (access.mode === "start-plan" || access.mode === "individual-coding-plan")
-    ? { type: "zhipu-account", family: access.accountType, planKind: access.mode }
-    : access;
 }
 
 export function useCodingPlanAccessRefresh({

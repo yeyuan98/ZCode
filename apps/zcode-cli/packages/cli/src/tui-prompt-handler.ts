@@ -19,12 +19,6 @@ import {
 } from "./tui-prompt-handler-runtime.js";
 import { DEFAULT_CLI_CLEANUP_TIMEOUT_MS, runCliCleanupWithTimeout } from "./shutdown.js";
 import {
-  configureApiKeyForTui,
-  loginBigmodelForTui,
-  loginForTui,
-  logoutForTui,
-} from "./tui-auth.js";
-import {
   listCustomCommandsForTui,
   listSessionsForTui,
   listSkillsForTui,
@@ -150,11 +144,6 @@ export function createTuiSubmitPrompt(
         projectConfigPath: deps.projectConfigPath,
         providerRegistry: providerRegistryRuntime.runtime.registryService,
         configuredDefaultModelSelection,
-        ...(providerRegistryRuntime.providerRuntimeHeadersPort
-          ? {
-              providerRuntimeHeadersPort: providerRegistryRuntime.providerRuntimeHeadersPort,
-            }
-          : {}),
         resume: sessionId !== undefined,
         runtimeConfig: {
           ...(modeState.override ? { mode: modeState.override } : {}),
@@ -264,9 +253,7 @@ export function createTuiSubmitPrompt(
     listCustomCommands: () => listCustomCommandsForTui(deps),
     listSessions: () => listSessionsForTui(deps),
     listSkills: () => listSkillsForTui(deps),
-    configureApiKey: (options) => configureApiKeyForTui(deps, options),
-    login: (options) => loginForTui(deps, options),
-    loginBigmodel: (options) => loginBigmodelForTui(deps, options),
+    // P2：Coding Plan 登录/登出已删除；命令中心回落到“当前客户端不可用”文案（P3 重建登录面）。
     loadCustomCommand: (name) => loadCustomCommandForTui(deps, name),
     newApp,
     recordInputHistory: async (input, kind) => {
@@ -280,7 +267,6 @@ export function createTuiSubmitPrompt(
       }
       await runtime.modelSelectionConfigRepository.saveConfiguredDefault(selection);
     },
-    logout: () => logoutForTui(deps),
     setLocale: async (locale) => {
       if (app?.setLocale) {
         const result = await app.setLocale(locale);

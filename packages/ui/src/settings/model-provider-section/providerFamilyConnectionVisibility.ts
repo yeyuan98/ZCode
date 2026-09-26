@@ -6,7 +6,6 @@ import type {
 } from "@zcode/shared";
 import {
   getModelProviderFamilySpec,
-  isIndividualCodingPlanModelProviderId,
   isStartPlanModelProviderId,
   MODEL_PROVIDER_FAMILY_SPECS,
   resolveModelProviderFamilySpecByProviderId,
@@ -55,24 +54,18 @@ interface ResolvedCodingPlanEntitlementState {
 export function resolveCodingPlanEntitlementState({
   providerId,
   accountEntitled,
-  accountAvailability,
-  accountUnavailableReason,
   entitlement,
   modelProvidersLoading,
 }: {
   providerId: string;
   /** 当前账号是否明确拥有该 Provider 对应的产品权益。 */
   accountEntitled: boolean;
-  accountAvailability?: import("@zcode/provider").AccountProviderState["availability"];
-  accountUnavailableReason?: import("@zcode/provider").AccountProviderState["unavailableReason"];
   entitlement?: CodingPlanEntitlementState;
   modelProvidersLoading: boolean;
 }): ResolvedCodingPlanEntitlementState {
   // Start 校验失败是未知，仍允许读取/重试，不能回退为未登录。
-  const canInspect =
-    accountEntitled ||
-    accountAvailability === "pending" ||
-    (isStartPlanModelProviderId(providerId) && accountAvailability === "unknown");
+  // P2：accountState（availability/unavailableReason）已删除；可检视性只由账号权益集合决定。
+  const canInspect = accountEntitled;
   if (!canInspect && modelProvidersLoading) {
     return {
       // 新 Host 启动时 Account Overlay 的首份 View 可能晚于旧
@@ -87,51 +80,12 @@ export function resolveCodingPlanEntitlementState({
     };
   }
   if (!canInspect) {
-    // entitled=false 不等于"没连上"。provider-refactor 之后 Account Overlay 只发布
-    // entitled 布尔值，"已登录且服务端明确回答没有个人套餐"与"未连接"被合并渲染成
-    // "未连接 + 连接按钮"（不由权益快照的 no_plan 判定为"未开通"），且不可用 provider
-    // 不会再发起权益查询，UI 无法自行还原原因，只能依赖随 State 下发的原因分流。
-    // Start 常驻后同样按原因展示；Team Plan 继续由团队权益快照组装。
-    // 原因只在 availability === "unavailable" 时成立，unknown 表示本轮无法判定。
-    if (
-      accountAvailability === "unavailable" &&
-      (isIndividualCodingPlanModelProviderId(providerId) || isStartPlanModelProviderId(providerId))
-    ) {
-      if (accountUnavailableReason === "not-entitled") {
-        return {
-          // 服务端明确无个人套餐：这是"未开通"，不是连接故障。
-          status: "notPurchased",
-          ...(isStartPlanModelProviderId(providerId) && entitlement?.snapshot?.startPlanExpired
-            ? { statusLabelId: "settings.modelProvider.startPlan.status.expired" }
-            : {}),
-          planLevel: null,
-          currentProductId: null,
-          subscriptionBillingCycle: null,
-          subscriptionRenewTime: null,
-          subscriptionExpireTime: null,
-          quotaLimits: [],
-        };
-      }
-      if (accountUnavailableReason === "credential-failed") {
-        return {
-          // 凭据失效属于权益同步失败，不是未购买；保持可重试/重新登录入口。
-          status: "unavailable",
-          planLevel: null,
-          currentProductId: null,
-          subscriptionBillingCycle: null,
-          subscriptionRenewTime: null,
-          subscriptionExpireTime: null,
-          quotaLimits: [],
-        };
-      }
-    }
+    // P2：Account Overlay 已删除；无账号权益时统一按未连接展示（P3 重建原因分流）。
+    void providerId;
     return {
       // 套餐连接是 Account Overlay 事实，不是 Renderer 能读取的
       // API Key 事实。新 Host 明确传入 false 后，旧 Key 不得再点亮连接态。
-      status:
-        isStartPlanModelProviderId(providerId) && accountAvailability === "unknown"
-          ? "unavailable"
-          : "disconnected",
+      status: "disconnected",
       planLevel: null,
       currentProductId: null,
       subscriptionBillingCycle: null,

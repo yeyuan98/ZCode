@@ -13,20 +13,13 @@ export const providerProvisioningTriggerSchema = z.enum([
 export type ProviderProvisioningTrigger = z.infer<typeof providerProvisioningTriggerSchema>;
 
 /** Provisioning 中允许跨 Environment 传输的凭据类别。 */
-export const providerProvisioningCredentialScopeSchema = z.enum([
-  "oauth-session",
-  "account-provider",
-]);
+export const providerProvisioningCredentialScopeSchema = z.enum(["oauth-session"]);
 
 export type ProviderProvisioningCredentialScope = z.infer<
   typeof providerProvisioningCredentialScopeSchema
 >;
 
-/** 只允许同步 Account Provider 的请求期 API key，不同步账号身份或未来其它扩展字段。 */
-export function isProviderProvisioningAccountCredentialKey(key: string): boolean {
-  const normalized = key.trim();
-  return normalized === key && /^account-provider:.+:api-key$/.test(normalized);
-}
+// P2：account-provider 凭据 scope 已随 vendor 账号访问删除；Provisioning 只同步 OAuth 会话凭据。
 
 /** Personal Config 的 Envelope；具体字段由 @zcode/provider 在目标 Environment 再校验。 */
 export const providerProvisioningPersonalConfigSchema = z

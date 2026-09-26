@@ -88,8 +88,6 @@ export function useModelProviderNavigation({
         const state = resolveCodingPlanEntitlementState({
           providerId: spec.id,
           accountEntitled,
-          accountAvailability: provider?.accountState?.availability,
-          accountUnavailableReason: provider?.accountState?.unavailableReason,
           entitlement,
           modelProvidersLoading,
         });
