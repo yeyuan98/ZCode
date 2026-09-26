@@ -64,19 +64,3 @@ export function readSidebarUsageCodingPlanSourcePreference():
     return undefined;
   }
 }
-
-export function writeSidebarUsageCodingPlanProviderPreference(
-  providerId: SidebarUsageCodingPlanSourceId,
-): void {
-  const storage = getLocalStorage();
-  if (!storage) {
-    return;
-  }
-  try {
-    storage.setItem(SIDEBAR_USAGE_CODING_PLAN_PROVIDER_STORAGE_KEY, providerId);
-  } catch (error) {
-    logger.warn("[sidebarUsageCodingPlanProviderPreference] 写入偏好失败", {
-      error: error instanceof Error ? error.message : String(error),
-    });
-  }
-}

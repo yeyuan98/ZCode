@@ -29,32 +29,7 @@ import {
   resolveSidebarFooterProfilePlanBadge,
 } from "@/WorkspaceSidebarFooterPlanBadgeHelpers.js";
 
-export {
-  resolveSidebarFooterPlanBadgeLabel,
-  resolveSidebarFooterProfilePlanBadge,
-} from "@/WorkspaceSidebarFooterPlanBadgeHelpers.js";
-
 const TID_SIDEBAR_CODING_PLAN_UPGRADE_BUTTON = "sidebar-coding-plan-upgrade-button";
-
-export function WorkspaceSidebarFooterUsageSummary({
-  enabled,
-  onUsageClick,
-  onUpgradeClick,
-}: {
-  enabled: boolean;
-  onUsageClick?: () => void;
-  onUpgradeClick?: (providerId: SidebarUsageCodingPlanProviderId) => void;
-}) {
-  // P1：连接选择字段已删除，footer 汇总不再需要 workspace 定位选中供应商。
-  const state = useWorkspaceSidebarFooterUsageSummaryState({ enabled });
-  return (
-    <WorkspaceSidebarFooterUsageSummaryContent
-      state={state}
-      onUsageClick={onUsageClick}
-      onUpgradeClick={onUpgradeClick}
-    />
-  );
-}
 
 export function useWorkspaceSidebarFooterUsageSummaryState({ enabled }: { enabled: boolean }) {
   const providerSettingsRead = useProviderSettingsView();
