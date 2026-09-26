@@ -1,7 +1,5 @@
 import {
   decodeCustomModelValue,
-  migrateLegacyModelProviderId,
-  migrateLegacyOfficialGlmModelId,
   modelSelectionSchema,
   ZCODE_AGENT_PROVIDER,
   type ModelSelection,
@@ -18,16 +16,8 @@ function migrateSelection(options: Record<string, unknown>): ModelSelection | un
     // Bug 根因：旧 thoughtLevel 曾覆盖已保存的新档位；新字段存在时禁止回读旧字段。
     const parsed = modelSelectionSchema.safeParse(options.modelSelection);
     if (!parsed.success) return undefined;
-    const selection = parsed.data;
-    if (!selection.providerId.startsWith("builtin:")) return selection;
-    const providerId = migrateLegacyModelProviderId(selection.providerId);
-    return providerId
-      ? {
-          ...selection,
-          providerId,
-          modelId: migrateLegacyOfficialGlmModelId(selection.providerId, selection.modelId),
-        }
-      : undefined;
+    // builtin: 前缀只剩已废弃的 GLM 旧身份且无迁移目标，直接丢弃，不把死 ID 写进 v3。
+    return parsed.data.providerId.startsWith("builtin:") ? undefined : parsed.data;
   }
   const value = typeof options.model === "string" ? options.model.trim() : "";
   const custom = decodeCustomModelValue(value);
@@ -36,15 +26,15 @@ function migrateSelection(options: Record<string, unknown>): ModelSelection | un
     custom?.providerId ?? (separator > 0 ? value.slice(0, separator) : undefined);
   const modelId = custom?.modelName ?? (separator > 0 ? value.slice(separator + 1) : undefined);
   if (!oldProviderId || !modelId) return undefined;
-  const providerId = migrateLegacyModelProviderId(oldProviderId);
   // 仅接受明确身份，不再按模型名唯一匹配其他供应商，也不把裸模型名解释为 Agent Provider。
   // Bug 根因：候选为空时曾把明确旧选择永久写空到 v3；迁移只搬意图，不能检查当前可用性。
-  if (!providerId) return undefined;
+  // builtin: 前缀只剩已废弃的 GLM 旧身份且无迁移目标，直接丢弃。
+  if (oldProviderId.startsWith("builtin:")) return undefined;
   const reasoningLevel =
     typeof options.thoughtLevel === "string" ? options.thoughtLevel.trim() : "";
   return {
-    providerId,
-    modelId: migrateLegacyOfficialGlmModelId(oldProviderId, modelId),
+    providerId: oldProviderId,
+    modelId,
     ...(reasoningLevel ? { options: { reasoningLevel } } : {}),
   };
 }
