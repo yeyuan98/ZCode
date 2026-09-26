@@ -94,7 +94,7 @@
 
 - Agent core (tools/runtime/session UI/provider overlay) is provider-agnostic; BYO-API-key path exists end-to-end (16 templates + custom baseURL).
 - Gateway rewrite adds nothing client-side (URL rewrite only; auth headers identical; OAuth merely minted a normal console key) → zai/bigmodel endpoints work with plain API keys via the standard templates.
-- `packages/server` auth is self-issued (`ZCODE_SERVER_TOKEN`); IM bot relays are third-party clouds with local pairing; no proprietary relay ships in-repo.
+- `packages/server` auth is self-issued (`ZCODE_SERVER_AUTH_TOKEN`; `ZCODE_SERVER_TOKEN` only affects the advertised `authRequired`); IM bot relays are third-party clouds with local pairing; no proprietary relay ships in-repo.
 
 ---
 
@@ -150,8 +150,8 @@
 
 1. New startup gate: proceed iff ≥1 usable provider configured; else welcome wizard. Remove `providerFamilyDomain`-based gating (`useProviderAvailabilityLoginEntryGuard.ts:57`, `rootStartupGate.ts:18-21,57-58`) — full field deletion happens in P1; here we stop reading it.
 2. Welcome wizard: provider picker from catalog templates (zai/bigmodel as ordinary entries + kimi/deepseek/openai/anthropic/… + custom + Ollama), per-template API-key entry with "test key" probe. Reuse `ProviderTemplatePicker`, `LoginApiKeyForm`, onboarding dialog shell.
-3. `/remote` web login: server URL + token (self-hosted `packages/server`, `ZCODE_SERVER_TOKEN`), replacing the `zcodejwttoken` read in `remoteWorkspaceServiceCollection.ts:84`.
-4. Feedback → anonymous GitHub Issues link (drop `feedbackService.ts` JWT auth dependency). Update `config/default.json`: `feedback_url` → GitHub Issues; replace the zh-CN Feishu `community_urls` entry (only zh-CN is Feishu; the en-US Discord link is third-party and stays).
+3. Self-hosted web login (P2 revision, source-verified): token-only login page served by `packages/server` itself (enforcement var is `ZCODE_SERVER_AUTH_TOKEN`, not `ZCODE_SERVER_TOKEN` — the latter only affects the advertised `authRequired` when the server is created programmatically without options). The `zcodejwttoken` read at `remoteWorkspaceServiceCollection.ts:84` was mislabeled in this plan: it is conversation-share publish auth and dies with share in P5 item 4. `providerFamilyDomainMigration.ts` deletion moved from P1 item 2 into P2 item 1 (startup-path writer; sole importer is the Root startup effect P2 removes).
+4. Feedback → anonymous GitHub Issues link (`https://github.com/yeyuan98/ZCode/issues/new`, context prefilled; user decisions D-P2: delete the whole in-app feedback center now — UI, `IFeedbackService`, vendor HTTP client, local ticket store, device-id plumbing; zh-CN `community_urls` → `https://github.com/yeyuan98/ZCode/discussions`; en-US Discord stays). Help config (feedback/community URLs) resolves local-only; the remote help-config fetch dies here (context-prompt rollout stays until P3).
 
 **Why / consequence / UX / alternative:**
 
@@ -167,7 +167,7 @@
 **Changes:**
 
 1. `config/provider/zcode-builtin.json`: convert zai/bigmodel templates to plain `api-key` access (delete `zhipu-coding-plan-api-key` type usage); delete 8 `account:*` providers; delete ALL GLM-id-keyed rules (24 modelRules + template/builtin provider rules); delete `supportsNativeWebSearch` capability rules (tool itself dies in P4 — flags die here with the catalog); keep the 16 generic templates; **add `ollama` template** (`openai-chat-completions`, `http://localhost:11434/v1`).
-2. Schema excision: `zhipu-account`/`zhipu-coding-plan-api-key` from zod (`provider-data-schema.ts:32,43`), `ZhipuAccountAccessConfig` (`provider-config.ts`) + overlay layer, protocol schemas (`zcode-protocol/index.ts:812-850`, `provider-family-connection-selection.ts`, `usage-quota.ts`, `usage-stats.ts`, `plan-identity.ts`, `coding-plan-subscription.ts`), `model-provider-family.ts` family plumbing, `model-provider-types.ts` vendor ids, `providerFamilyDomain` AppSettings field + validation + `providerFamilyDomainMigration.ts` + `normalizeSettingsPatch.ts`/`protocol.ts` writes, `modelVisionBadge.ts` coding-plan exception.
+2. Schema excision: `zhipu-account`/`zhipu-coding-plan-api-key` from zod (`provider-data-schema.ts:32,43`), `ZhipuAccountAccessConfig` (`provider-config.ts`) + overlay layer, protocol schemas (`zcode-protocol/index.ts:812-850`, `provider-family-connection-selection.ts`, `usage-quota.ts`, `usage-stats.ts`, `plan-identity.ts`, `coding-plan-subscription.ts`), `model-provider-family.ts` family plumbing, `model-provider-types.ts` vendor ids, `providerFamilyDomain` AppSettings field + validation + `normalizeSettingsPatch.ts`/`protocol.ts` writes (its startup migration file moved to P2), `modelVisionBadge.ts` coding-plan exception.
 3. History deletion (hard-cut): migrations `0020-provider-model-selection.ts`, `0021-official-glm-selection.ts`, `0022-backfilled-session-reasoning.ts`, `services/src/session/tasksDatabase/official-glm-selection-v3.ts`, `official-glm-model-id.ts`, `legacyZCodeConfigProviderReader.ts` vendor parts, `legacyAccountConnectionSettings.ts`, `telemetryRedaction.ts` vendor whitelist.
 4. **NEW: model auto-discovery** — net-new HTTP client querying standard listing routes (openai-compat `GET /v1/models`, anthropic `GET /v1/models`; nothing exists today — `ListModels` tool is in-memory only), merged into provider views; doubles as P2's "test key" probe. Covers the risk that a plain key may not call every model on zai/bigmodel anthropic endpoints (external product behavior — validate at runtime, never promise).
 
@@ -259,6 +259,11 @@
 ---
 
 ## 5. Versioning & release runbook (verified against installed release-it 19.2.4)
+
+**Alpha policy (user ruling, binding for all phases):** between alphas and until the final
+3.14.3, the program is development-first — code completeness/robustness/cleanliness take
+priority; alpha-user experience may break; reinstall/re-initialization of settings may be
+required; NO compatibility or migration code for alpha→alpha upgrades.
 
 Source-verified mechanics (installed `node_modules/release-it` + `@release-it/conventional-changelog`):
 

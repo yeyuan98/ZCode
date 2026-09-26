@@ -147,13 +147,7 @@ function modelSelectionWithOptionFallback(
   return {
     providerId: selection.providerId,
     modelId: selection.modelId,
-    ...(reasoningLevel !== undefined
-      ? {
-          options: {
-            ...(reasoningLevel !== undefined ? { reasoningLevel } : {}),
-          },
-        }
-      : {}),
+    ...(reasoningLevel !== undefined ? { options: { reasoningLevel } } : {}),
   };
 }
 

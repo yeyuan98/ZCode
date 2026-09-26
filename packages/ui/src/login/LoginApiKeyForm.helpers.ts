@@ -1,49 +1,13 @@
-import {
-  BUILTIN_PROVIDER_TEMPLATE_IDS,
-  type AppSettings,
-  type Locale,
-  type ProviderFamilyDomain,
-} from "@zcode/shared";
-import type { ModelSelectionView } from "@zcode/services";
-import { encodeCustomModelValue } from "@/lib/zcodeCustomModelValue.js";
+import { type AppSettings } from "@zcode/shared";
 
-export type ApiKeyProviderChoice = "zai" | "bigmodel";
-
-export function resolveLoginApiKeyDefaultProvider(locale: Locale): ApiKeyProviderChoice {
-  return locale === "zh-CN" ? "bigmodel" : "zai";
-}
-
-export function resolveLoginApiKeyTemplateId(
-  choice: ApiKeyProviderChoice,
-): "zai-api" | "bigmodel-api" {
-  return choice === "zai"
-    ? BUILTIN_PROVIDER_TEMPLATE_IDS.zai
-    : BUILTIN_PROVIDER_TEMPLATE_IDS.bigmodel;
-}
-
-export function resolveLoginApiKeyProviderLabel(choice: ApiKeyProviderChoice): string {
-  // Welcome Screen API Key 错误提示需要使用 BigModel 品牌固定写法。
-  return choice === "zai" ? "Z.ai" : "BigModel";
-}
-
-function resolveLoginApiKeyProviderFamilyDomain(
-  choice: ApiKeyProviderChoice,
-): ProviderFamilyDomain {
-  return choice;
-}
-
-export function buildLoginApiKeySkipSettings(
-  choice: ApiKeyProviderChoice,
-  now: number,
-): Pick<
-  AppSettings,
-  "providerFamilyDomain" | "providerFamilyDomainUpdatedAt" | "providerFamilyDomainMigrated"
-> {
-  return {
-    providerFamilyDomain: resolveLoginApiKeyProviderFamilyDomain(choice),
-    providerFamilyDomainUpdatedAt: now,
-    providerFamilyDomainMigrated: true,
-  };
+/**
+ * 向导“跳过”写入 settings 的内容：只记录跳过时间，让启动门禁不再自动弹出向导。
+ * 不能写入空 API Key 或触发 API Key 登录成功事件，否则后续模型选择会误以为已有可用凭据。
+ */
+export function buildWizardSkipSettings(
+  now: Date,
+): Pick<AppSettings, "providerOnboardingDismissedAt"> {
+  return { providerOnboardingDismissedAt: now.toISOString() };
 }
 
 export function shouldShowLoginApiKeyLink(
@@ -51,13 +15,4 @@ export function shouldShowLoginApiKeyLink(
   apiKeyUrl: string | undefined,
 ): boolean {
   return Boolean(apiKeyUrl) && apiKeyValue.trim().length === 0;
-}
-
-export function buildLoginApiKeyDefaultModelPreferenceFromSelection(
-  view: ModelSelectionView,
-  providerId: string,
-): string | null {
-  const firstModel = view.providers.find((provider) => provider.providerId === providerId)
-    ?.models[0]?.modelId;
-  return firstModel ? encodeCustomModelValue(providerId, firstModel) : null;
 }

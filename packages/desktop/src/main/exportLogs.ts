@@ -19,11 +19,9 @@ import { pipeline } from "node:stream/promises";
 import { ZipFile } from "yazl";
 
 import {
-  createFeedbackDiagnosticArchive,
   getAppConfigDir,
   getExportLogDir as getDefaultExportLogDir,
   getExportLogStageDir as getDefaultExportLogStageDir,
-  getFeedbackLogArchiveDir as getDefaultFeedbackLogArchiveDir,
 } from "@zcode/services/node";
 import { createAboutSnapshot, formatAboutDetail, readBuildMetadata } from "./about.js";
 import { logger } from "./logger.js";
@@ -94,13 +92,6 @@ interface ExportLogsDependencies {
 
 interface WriteLogArchiveZipOptions {
   stageRootDir?: string;
-}
-
-interface CreateFeedbackLogArchiveFromExportLogsOptions {
-  now?: () => Date;
-  outputRootDir?: string;
-  stageRootDir?: string;
-  onProgress?: (event: { processedBytes: number; totalBytes: number }) => void;
 }
 
 function formatTimestamp(now: Date = new Date()): string {
@@ -1134,25 +1125,8 @@ async function writeLogArchiveDirectory(
   await writeFile(join(outputPath, "about.txt"), artifacts.aboutContent, "utf-8");
 }
 
-export async function createFeedbackLogArchiveFromExportLogs(
-  sourceDir: string,
-  options: CreateFeedbackLogArchiveFromExportLogsOptions = {},
-): Promise<{ path: string; size: number }> {
-  return createFeedbackDiagnosticArchive({
-    sources: [
-      { directory: join(sourceDir, "logs"), archivePrefix: "logs" },
-      { directory: getZCodeCliLogDir(), archivePrefix: ".zcode/cli/log" },
-      {
-        directory: getCuaHelperRunDir(),
-        archivePrefix: ".zcode/computer-use/run",
-        exitLogsOnly: true,
-      },
-    ],
-    outputRootDir: options.outputRootDir ?? getDefaultFeedbackLogArchiveDir(),
-    now: options.now,
-    onProgress: options.onProgress,
-  });
-}
+// P2：createFeedbackLogArchiveFromExportLogs（问题反馈完整日志归档）随内置反馈中心删除；
+// 这里只保留用户手动“导出日志”链路，排障时用户可在 GitHub Issues 中自行附上导出包。
 
 export async function exportLogs(
   dependencies: ExportLogsDependencies = {},

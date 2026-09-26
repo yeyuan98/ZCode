@@ -16,6 +16,7 @@ import {
 import { AnchorIcon, CopyIcon, InfoIcon, RocketIcon, SettingsIcon, X } from "lucide-react";
 import { useZCodeIntl } from "./i18n/IntlProvider.js";
 import type { IntlInstance } from "./i18n/IntlProvider.js";
+import { usePlatform } from "@/hooks/usePlatform.js";
 import { Button } from "./components/ui/button.js";
 import {
   Dialog,
@@ -26,9 +27,8 @@ import {
 } from "./components/ui/dialog.js";
 import { cn } from "./components/lib/utils.js";
 import { toast } from "./components/ui/toast.js";
-import { useFeedbackStore } from "@/feedback/feedbackStore.js";
+import { buildErrorFeedbackContext } from "@/lib/externalFeedbackContext.js";
 import { getProviderBusinessErrorMessageId } from "@/lib/providerBusinessError.js";
-import { buildErrorFeedbackDescription } from "@/lib/errorFeedbackDraft.js";
 import {
   isSuspiciousEmptyModelResultMessage,
   resolveOffPeakTicketExpiredBusinessCode,
@@ -121,7 +121,7 @@ export function ChatErrorBanner({
   onOpenUpgrade?: () => void;
 }) {
   const { intl } = useZCodeIntl();
-  const openFeedbackSubmit = useFeedbackStore((state) => state.openSubmit);
+  const platform = usePlatform();
   const [detailsDialogOpen, setDetailsDialogOpen] = useState(false);
   const actionButtonClassName = "shrink-0";
   const iconButtonClassName = "shrink-0";
@@ -133,21 +133,13 @@ export function ChatErrorBanner({
   }
 
   const handleOpenFeedback = async () => {
-    openFeedbackSubmit({
-      title: localizedErrorMessage.slice(0, 80),
-      type: "bug",
-      module: "模型调用报错",
-      severity: "P2-中",
-      includeLogs: false,
-      description: buildErrorFeedbackDescription({
-        message: localizedErrorMessage,
-        detail: error.detail,
-        traceId: error.traceId,
-        formatMessage: (id: string, values?: Record<string, string>) =>
-          intl.formatMessage({ id }, values),
-      }),
-      screenshots: [],
+    // P2：错误横幅反馈改为外部 GitHub Issues，预填脱敏后的报错摘要、TraceID 与详情。
+    const context = buildErrorFeedbackContext({
+      message: localizedErrorMessage,
+      detail: error.detail,
+      traceId: error.traceId,
     });
+    await platform.openFeedback(context);
     toast(intl.formatMessage({ id: "chat.error.feedbackOpened" }));
   };
 
@@ -341,16 +333,15 @@ function buildErrorCopyText({
   traceId?: string;
   formatMessage: (id: string, values?: Record<string, string>) => string;
 }) {
+  // P2：复制报错文案的标签随 feedback.* 模板键一起迁移到 chat.error.copy.* 中性键。
   return [
-    formatMessage("feedback.submit.template.section.copyErrorHeading"),
+    formatMessage("chat.error.copy.heading"),
     "",
-    formatMessage("feedback.submit.template.section.errorSummary"),
+    formatMessage("chat.error.copy.summaryLabel"),
     message,
     "",
-    traceId ? formatMessage("feedback.submit.template.section.errorTraceId", { traceId }) : null,
-    detail
-      ? ["", formatMessage("feedback.submit.template.section.errorDetail"), detail].join("\n")
-      : null,
+    traceId ? formatMessage("externalFeedback.errorTraceId", { traceId }) : null,
+    detail ? ["", formatMessage("externalFeedback.errorDetailLabel"), detail].join("\n") : null,
   ]
     .filter((line): line is string => line != null)
     .join("\n");

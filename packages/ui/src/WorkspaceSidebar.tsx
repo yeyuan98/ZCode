@@ -220,7 +220,6 @@ function resolveSidebarTaskViewMode(params: {
 
 export const WorkspaceSidebar = memo(function WorkspaceSidebarComponent({
   workspacePath,
-  workspaceRemoteSessionId,
   activePreviewPath,
   onSelectTask,
   onStartDraftInWorkspace,
@@ -262,7 +261,6 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebarComponent({
   onFileTreeOpenChange,
 }: {
   workspacePath: string;
-  workspaceRemoteSessionId?: string;
   activePreviewPath?: string | null;
   onSelectTask: (
     targetWorkspacePath: string,
@@ -334,7 +332,6 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebarComponent({
     [onSelectTask],
   );
   const { openCodingPlanUpgrade } = useCodingPlanUpgradeDialog();
-  const bumpTaskListVersion = useZCodeSessionStore((state) => state.bumpTaskListVersion);
   const workspaceIdentity = useTabStore((state) => {
     if (!state.activeTabId) {
       return undefined;
@@ -1648,8 +1645,6 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebarComponent({
             user={user}
             workspacePath={workspacePath}
             workspaceIdentity={workspaceIdentity}
-            workspaceRemoteSessionId={workspaceRemoteSessionId}
-            activeTaskId={activeTaskId}
             isDesktop={isDesktop}
           />
         </div>

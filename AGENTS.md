@@ -21,9 +21,9 @@
 | 提交前检查       | `pnpm verify:pre-push`（Lint 与架构检查） |
 | 架构检查         | `pnpm architecture:check --changed`       |
 | 模块阅读包       | `pnpm architecture:context <module-id>`   |
-| 未使用依赖与导出 | `pnpm knip`                                  |
-| 导出引用查询     | `pnpm dep:refs --list-exports <file>`       |
-| Windows 打包冒烟 | `pnpm smoke:windows-bundle`                 |
+| 未使用依赖与导出 | `pnpm knip`                               |
+| 导出引用查询     | `pnpm dep:refs --list-exports <file>`     |
+| Windows 打包冒烟 | `pnpm smoke:windows-bundle`               |
 
 测试入口以目标包当前的 `package.json` 和实际测试文件为准，不假定存在统一的单测或 E2E 命令。
 

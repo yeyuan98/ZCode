@@ -1,0 +1,10 @@
+{
+  // 根仓库 .oxlintrc.json 的 400 行上限通过向上查找意外套到 CLI（根配置的 ignorePatterns
+  // 本意就是排除 apps/zcode-cli，但 oxlint 从包目录启动时会继承根配置且忽略列表失效）。
+  // CLI 各模块（协议网关、投影等）天然是千行级文件，拆分属 P6+ 债务，这里先显式关闭，
+  // 使 CLI lint 行为不再依赖调用位置。其余规则保持默认，不额外覆盖。
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "rules": {
+    "max-lines": "off"
+  }
+}

@@ -16,7 +16,7 @@ interface FallbackWorkspaceCreateState {
 }
 
 interface ProviderStartupSyncState {
-  providerFamilyDomainMigrationComplete: boolean;
+  settingsHydrated: boolean;
   modelSelectionViewHydrated: boolean;
 }
 
@@ -55,5 +55,7 @@ export function shouldOpenFallbackWorkspaceAfterCreate(
 }
 
 export function isProviderStartupSyncPending(state: ProviderStartupSyncState): boolean {
-  return !state.providerFamilyDomainMigrationComplete || !state.modelSelectionViewHydrated;
+  // 门禁一次性检查必须同时等待 settings 水化：跳过标志（providerOnboardingDismissedAt）
+  // 存在 settings 中，settings 未加载完就判定会把已跳过的用户误弹向导。
+  return !state.settingsHydrated || !state.modelSelectionViewHydrated;
 }
