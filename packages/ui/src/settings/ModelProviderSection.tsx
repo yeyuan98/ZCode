@@ -60,12 +60,6 @@ import {
 } from "@/lib/settingsNavigation.js";
 import { useEnterpriseCodingPlanProducts } from "@/settings/model-provider-section/useEnterpriseCodingPlanProducts.js";
 
-export {
-  fuzzyMatch,
-  handleEndpointSuggestionPopoverOpenAutoFocus,
-  resolveEndpointSuggestionOpenRequest,
-} from "./model-provider-section/utils.js";
-
 type CodingPlanConnectionNavItem = Extract<
   ModelProviderNavGroup["items"][number],
   { type: "codingPlan" | "teamPlan" }

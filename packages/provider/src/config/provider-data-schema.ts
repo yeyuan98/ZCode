@@ -21,7 +21,9 @@ const nonBlankRequiredString = z.string().refine((value) => value.trim().length 
   params: { configIssueCode: "required-field-missing" },
 });
 
-export const apiKeyAccessDataSchema = z
+// P2 vendor 访问类型删除后两个历史名称指向同一 schema；
+// 拆出未导出的本地定义再分别导出，避免 knip 把别名判定为重复导出。
+const apiKeyAccessSchema = z
   .object({
     // P2：vendor 账号访问类型已删除；磁盘/信封里残留的 zhipu-account 等类型在 schema 边界整份拒绝。
     type: z.literal("api-key"),
@@ -29,11 +31,12 @@ export const apiKeyAccessDataSchema = z
     apiKeyManagementUrl: z.string().url().nullable().optional(),
   })
   .strict();
-export const completeApiKeyAccessDataSchema = apiKeyAccessDataSchema.extend({
+export const apiKeyAccessDataSchema = apiKeyAccessSchema;
+export const providerAccessDataSchema = apiKeyAccessSchema;
+export const completeApiKeyAccessDataSchema = apiKeyAccessSchema.extend({
   apiKey: nonBlankRequiredString,
 });
 
-export const providerAccessDataSchema = apiKeyAccessDataSchema;
 const completeProviderAccessDataSchema = completeApiKeyAccessDataSchema;
 
 export const completeProviderApiDataSchema = z

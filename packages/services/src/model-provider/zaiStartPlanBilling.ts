@@ -7,39 +7,6 @@ const ZAI_START_PLAN_BALANCE_URL = buildRuntimeZCodeEndpointUrls(
   process.env,
 ).zcodePlanBillingBalanceUrl;
 
-// 余额接口只回小写模型名；按官方规范大小写归一，供配额展示与可用性匹配使用。
-const startPlanCanonicalModelIds = [
-  "GLM-5.3",
-  "GLM-5.3-Flash",
-  "GLM-5V-Turbo",
-  "GLM-5.2",
-  "GLM-5.1",
-  "GLM-5.1-Highspeed",
-  "GLM-5",
-  "GLM-5-Turbo",
-  "GLM-4.7",
-  "GLM-4.7-FlashX",
-  "GLM-4.7-Flash",
-  "GLM-4.6",
-  "GLM-4.5-Air",
-  "GLM-4.5",
-  "GLM-4.6V",
-  "GLM-4.6V-Flash",
-  "GLM-4.6V-FlashX",
-  "GLM-4.1V-Thinking-FlashX",
-  "GLM-4.1V-Thinking-Flash",
-  "GLM-4-FlashX-250414",
-  "GLM-4-Flash-250414",
-  "GLM-4V-Flash",
-];
-const startPlanModelIdByLowercase = new Map(
-  startPlanCanonicalModelIds.map((id) => [id.toLowerCase(), id]),
-);
-
-function normalizeStartPlanModelId(modelId: string): string {
-  return startPlanModelIdByLowercase.get(modelId.toLowerCase()) ?? modelId;
-}
-
 export interface ZaiStartPlanPlan {
   // user_plan_id 标识用户套餐实例；额度提醒用它关联同一实例的 entitlement 周期类型。
   user_plan_id?: string;
@@ -153,34 +120,6 @@ export async function fetchZaiStartPlanBalanceEnvelope(
 
   requests.set(requestKey, request);
   return request;
-}
-
-export function resolveZaiStartPlanBalanceModelIds(payload: ZaiStartPlanBalanceEnvelope): string[] {
-  const seen = new Set<string>();
-  const modelIds: string[] = [];
-
-  for (const balance of payload.data?.balances ?? []) {
-    const fromCapabilities = (balance.capabilities ?? [])
-      .map((capability) => {
-        const normalized = capability.trim();
-        return normalized.toLowerCase().startsWith("model:")
-          ? normalized.slice("model:".length).trim()
-          : "";
-      })
-      .filter(Boolean);
-    const candidates = fromCapabilities.length > 0 ? fromCapabilities : [balance.show_name ?? ""];
-    for (const candidate of candidates) {
-      const modelId = normalizeStartPlanModelId(candidate.trim());
-      const key = modelId.toLowerCase();
-      if (!modelId || seen.has(key)) {
-        continue;
-      }
-      seen.add(key);
-      modelIds.push(modelId);
-    }
-  }
-
-  return modelIds;
 }
 
 /** HTTP Date 与本次响应配对，避免旧 JSON 时间让过期 active 记录继续提供权益。 */
