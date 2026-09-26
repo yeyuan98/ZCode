@@ -616,7 +616,8 @@ export function AutomationsSection({
     offPeakGrayConfig?.codingPlanActive === false ||
     (offPeakGrayConfig?.codingPlanActive === undefined &&
       !offPeakStoreLoading &&
-      !isCurrentOffPeakCodingPlanSupported(offPeakCodingPlanSupport, sharedSettings));
+      // P1：providerFamilyDomain / providerFamilyConnectionSelections 已删除，无当前连接可校验。
+      !isCurrentOffPeakCodingPlanSupported(offPeakCodingPlanSupport));
   const offPeakVisible =
     !currentWorkspaceIsRemote && (offPeakGrayEnabled || offPeakTasks.length > 0);
   const hasAnyTasks = automations.length > 0 || offPeakTasks.length > 0;
@@ -826,15 +827,12 @@ export function AutomationsSection({
   }, [currentWorkspaceIsRemote]);
 
   const handleOpenCodingPlanUpgrade = useCallback(() => {
-    const providerId =
-      sharedSettings?.providerFamilyDomain === "bigmodel"
-        ? BUILTIN_MODEL_PROVIDER_IDS.bigmodelIndividualCodingPlan
-        : BUILTIN_MODEL_PROVIDER_IDS.zaiIndividualCodingPlan;
+    // P1：providerFamilyDomain 已删除，无运行域可判断品牌时默认 Z.ai 入口。
     openCodingPlanUpgrade({
-      providerId,
+      providerId: BUILTIN_MODEL_PROVIDER_IDS.zaiIndividualCodingPlan,
       initialAudience: "personal",
     });
-  }, [openCodingPlanUpgrade, sharedSettings?.providerFamilyDomain]);
+  }, [openCodingPlanUpgrade]);
 
   const showCodingPlanRequiredToast = useCallback(() => {
     toast(entryLabel ?? intl.formatMessage({ id: "offPeak.create.codingPlanToast" }), {

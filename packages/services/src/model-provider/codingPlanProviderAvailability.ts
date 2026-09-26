@@ -1,22 +1,13 @@
 /* eslint-disable max-lines -- Coding Plan 登录、订阅与 Start/Coding 互斥校验需要集中维护，拆散会让系统禁用原因更难追踪。 */
 import {
   ApiError,
-  BIGMODEL_PROVIDER_ID,
   buildBigModelApiUrl,
   buildRuntimeZaiBusinessUrl,
-  resolveBigModelApiOrigin,
-  ZAI_PROVIDER_ID,
   type ApiClient,
   type ProviderFamilyDomain,
-  type ProviderFamilyConnectionSelectionSettings,
 } from "@zcode/shared";
-import { type BigModelTeamPlanBizContext } from "#src/bigmodel/teamPlanApiKey.js";
-import {
-  fetchPersonalCodingPlanEntitlement,
-  fetchTeamCodingPlanEntitlement,
-} from "#src/bigmodel/codingPlanEntitlement.js";
+import { fetchPersonalCodingPlanEntitlement } from "#src/bigmodel/codingPlanEntitlement.js";
 import { createServiceLogger } from "#src/logger/serviceLogger.js";
-import { readApiJson } from "../providers/api/apiJson.js";
 import { normalizeApiKeyForHeader } from "../providers/api/index.js";
 import { resolveBigModelStartPlanZcodeJwt } from "./bigmodelStartPlanZcodeJwt.js";
 import {
@@ -25,10 +16,6 @@ import {
   resolveZaiStartPlanBalanceModelIds,
   type ZaiStartPlanBalanceEnvelope,
 } from "./zaiStartPlanBilling.js";
-import {
-  createBigModelLoginAuthHeaders,
-  createZaiLoginAuthHeaders,
-} from "../coding-plan-subscription/bigmodelCodingPlanSubscriptionProvider.js";
 
 const REQUEST_TIMEOUT_MS = 15_000;
 const log = createServiceLogger("coding-plan-availability");
@@ -55,24 +42,6 @@ interface CodingPlanAvailabilityCredentialService {
 interface CodingPlanAvailabilityContext {
   apiClient?: ApiClient;
   credentialService?: CodingPlanAvailabilityCredentialService;
-  providerFamilyConnectionSelections?: ProviderFamilyConnectionSelectionSettings;
-}
-
-interface BigModelCustomerInfoEnvelope {
-  code?: number;
-  success?: boolean;
-  msg?: string;
-  data?: BigModelCustomerInfo | null;
-}
-
-interface BigModelCustomerInfo {
-  organizations?: Array<{
-    organizationId?: string | null;
-    projects?: Array<{
-      projectId?: string | null;
-      projectType?: number | string | null;
-    }> | null;
-  }> | null;
 }
 
 interface ZaiStartPlanPlan {
@@ -186,7 +155,6 @@ async function validateFamilyAccountProviders(params: {
     if (provider) result[provider.providerId] = unavailable;
   }
 
-  const selection = params.context.providerFamilyConnectionSelections?.[params.family];
   // Start Plan 是独立权益：即使当前连接仍是个人/Team Coding Plan，也必须单独查询，
   // 否则领取后待生效或已拥有的 Start Plan 会被错误地当成“未连接”，设置页无法展示。
   if (params.startProvider) {
@@ -195,175 +163,18 @@ async function validateFamilyAccountProviders(params: {
       params.context,
     );
   }
-  // 个人订阅和 Start 独立查询，不以当前选中状态代替权益。Team 必须有具体项目身份。
+  // 个人订阅和 Start 独立查询，不以当前选中状态代替权益。
   if (params.individualProvider) {
     result[params.individualProvider.providerId] = await validateCodingPlanProviderAvailability(
       params.individualProvider,
       params.context,
     );
   }
-  if (selection?.kind === "team-coding-plan" && params.teamProvider) {
-    result[params.teamProvider.providerId] = await validateSelectedTeamPlanAvailability(
-      params.family,
-      params.context,
-    );
-  } else if (params.teamProvider) {
+  // P1：providerFamilyConnectionSelections 已删除，Team 失去选中项目身份，只能落到 unknown（P3 重建）。
+  if (params.teamProvider) {
     result[params.teamProvider.providerId] = { kind: "unknown" };
   }
   return result;
-}
-
-// zai/bigmodel Team Plan 对称化。原硬编码 bigmodel host/token/header，
-// zai team plan 永远不校验 customerInfo（被移出团队也不禁用）。
-// 泛化为 family-aware：按 family 选 host（zai 用配置的 ZAI Business origin）、token（oauth:zai:）、header（Bearer）。
-// 已验证 zai 域名 getCustomerInfo 返回结构与 bigmodel 同构（organizations/projects）。
-async function validateSelectedTeamPlanAvailability(
-  family: ProviderFamilyDomain,
-  context: CodingPlanAvailabilityContext,
-): Promise<CodingPlanAvailabilityResult> {
-  if (!context.apiClient) {
-    return { kind: "unknown" };
-  }
-  const selectedTeamContext = resolveSelectedTeamContext(
-    family,
-    context.providerFamilyConnectionSelections,
-  );
-  if (!selectedTeamContext) {
-    return { kind: "unknown" };
-  }
-  const { projectId } = selectedTeamContext;
-  const oauthProvider = family === "zai" ? ZAI_PROVIDER_ID : BIGMODEL_PROVIDER_ID;
-  const token = (
-    await context.credentialService?.load(`oauth:${oauthProvider}:access_token`)
-  )?.trim();
-  if (!token) {
-    return { kind: "unavailable", reason: "coding_plan_not_connected" };
-  }
-  const zcodeJwtToken = (await context.credentialService?.load(ZCODE_JWT_TOKEN_KEY))?.trim();
-  // BigModel 旧版本可能把 zcodejwttoken 误写进 oauth access token；
-  // 但 Z.ai 的 business JWT 本身就是合法 Bearer token，不能套用这个 stale-token 防御。
-  if (family === "bigmodel" && zcodeJwtToken && token === zcodeJwtToken) {
-    return { kind: "unavailable", reason: "coding_plan_not_connected" };
-  }
-
-  try {
-    // zai 走 buildRuntimeZaiBusinessUrl（测试环境配置的 ZAI Business origin），
-    // bigmodel 走 resolveBigModelApiOrigin。路径 /api/biz/customer/getCustomerInfo 两边同构。
-    const host =
-      family === "zai"
-        ? buildRuntimeZaiBusinessUrl(process.env, "")
-        : resolveBigModelApiOrigin(process.env);
-    const authHeaders =
-      family === "zai" ? createZaiLoginAuthHeaders(token) : createBigModelLoginAuthHeaders(token);
-    const payload = await readApiJson<BigModelCustomerInfoEnvelope>(
-      context.apiClient!,
-      `${host}/api/biz/customer/getCustomerInfo`,
-      {
-        method: "GET",
-        timeoutMs: REQUEST_TIMEOUT_MS,
-        headers: authHeaders,
-      },
-    );
-    if (!isSuccessfulBusinessEnvelope(payload)) return { kind: "unknown" };
-    if (!Array.isArray(payload.data?.organizations)) return { kind: "unknown" };
-    const resolvedTeamContext = resolveBigModelTeamProjectContext(
-      payload.data,
-      selectedTeamContext,
-    );
-    log.info(undefined, "Team Plan 入口项目校验完成", {
-      family,
-      projectId,
-      organizationId: selectedTeamContext.organizationId,
-      hasSelectedTeamProject: Boolean(resolvedTeamContext),
-      organizationCount: payload.data?.organizations?.length ?? 0,
-    });
-    if (!resolvedTeamContext) {
-      return { kind: "unavailable", reason: "coding_plan_not_entitled" };
-    }
-    return validateTeamPlanSubscriptionAvailability({
-      apiClient: context.apiClient,
-      authorization: token,
-      family,
-      host,
-      teamContext: resolvedTeamContext,
-    });
-  } catch (error) {
-    log.warn(undefined, "Team Plan 入口项目校验失败", {
-      family,
-      error: error instanceof Error ? error.message : String(error),
-      projectId,
-      status: error instanceof ApiError ? error.status : null,
-    });
-    return classifyAvailabilityError(error);
-  }
-}
-
-async function validateTeamPlanSubscriptionAvailability(params: {
-  apiClient: ApiClient;
-  authorization: string;
-  family: ProviderFamilyDomain;
-  host: string;
-  teamContext: BigModelTeamPlanBizContext;
-}): Promise<CodingPlanAvailabilityResult> {
-  try {
-    const result = await fetchTeamCodingPlanEntitlement({
-      ...params,
-      authorization:
-        params.family === "zai" ? `Bearer ${params.authorization}` : params.authorization,
-      timeoutMs: REQUEST_TIMEOUT_MS,
-    });
-    return result.kind === "unavailable"
-      ? { kind: "unavailable", reason: "coding_plan_not_entitled" }
-      : { kind: result.kind };
-  } catch (error) {
-    return classifyAvailabilityError(error);
-  }
-}
-
-// zai/bigmodel Team Plan 对称化。原仅解析 bigmodel selectedKey，
-// zai team key 永远返回 null（availability 不校验 zai team project）。
-// 泛化为 family-aware，按 family 读对应 selectedKey bucket + family-aware parse。
-function resolveSelectedTeamContext(
-  family: ProviderFamilyDomain,
-  selections: ProviderFamilyConnectionSelectionSettings | null | undefined,
-): {
-  organizationId: string | null;
-  projectId: string;
-} | null {
-  const selection = selections?.[family];
-  if (selection?.kind !== "team-coding-plan") return null;
-  return {
-    organizationId: selection.organizationId,
-    projectId: selection.projectId,
-  };
-}
-
-function resolveBigModelTeamProjectContext(
-  customerInfo: BigModelCustomerInfo | null | undefined,
-  selectedContext: {
-    organizationId: string | null;
-    projectId: string;
-  },
-): BigModelTeamPlanBizContext | null {
-  for (const organization of customerInfo?.organizations ?? []) {
-    const organizationId = organization.organizationId?.trim() ?? "";
-    if (selectedContext.organizationId && organizationId !== selectedContext.organizationId) {
-      continue;
-    }
-    for (const project of organization.projects ?? []) {
-      if (
-        project.projectId?.trim() === selectedContext.projectId &&
-        String(project.projectType ?? "").trim() === "2" &&
-        organizationId
-      ) {
-        return {
-          organizationId,
-          projectId: selectedContext.projectId,
-        };
-      }
-    }
-  }
-  return null;
 }
 
 async function validateSubscriptionListAvailability(

@@ -52,7 +52,7 @@ export function useProviderAvailabilityLoginEntryGuard({
         : modelSelectionView;
       const availability = resolveProviderAvailabilityState({ modelSelectionView: refreshedView });
       const { hasUsableProvider, providerCount } = availability;
-      // P2 起供应商域名字段（providerFamilyDomain）不再参与启动门禁（字段本身在 P1 删除）；
+      // P2 起旧供应商运行域字段不再参与启动门禁（字段已在 P1 删除）；
       // 按 alpha 策略也不再为旧 OAuth 用户保留 user 项，恢复中的 OAuth 用户可能短暂看到向导，
       // 由向导在可用 provider 出现时自动关闭兜底。
       const shouldOpenLoginEntry = !hasUsableProvider && !onboardingDismissed;

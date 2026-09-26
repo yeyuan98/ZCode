@@ -1,7 +1,5 @@
 import { create } from "zustand";
 import {
-  normalizeProviderFamilyDomain,
-  type AppSettings,
   type OffPeakCodingPlanSupport,
   type OffPeakTaskCreateResult,
   type OffPeakTakeNumberAvailability,
@@ -99,22 +97,10 @@ function toErrorMessage(error: unknown): string {
 /** support 必须仍对应 renderer 当前选择；切换连接后的旧 true 快照不能短暂放开创建。 */
 export function isCurrentOffPeakCodingPlanSupported(
   support: OffPeakCodingPlanSupport | null,
-  settings:
-    | Pick<AppSettings, "providerFamilyConnectionSelections" | "providerFamilyDomain">
-    | null
-    | undefined,
 ): boolean {
-  if (!support?.supported || !settings) return false;
-  const providerFamily = normalizeProviderFamilyDomain(settings.providerFamilyDomain);
-  if (!providerFamily || providerFamily !== support.providerFamily) return false;
-  const selection = settings.providerFamilyConnectionSelections?.[providerFamily];
-  if (selection?.kind === "individual-coding-plan") {
-    return support.kind === `${providerFamily}-personal`;
-  }
-  if (selection?.kind === "team-coding-plan") {
-    return support.kind === `${providerFamily}-team`;
-  }
-  return false;
+  // P1：providerFamilyDomain / providerFamilyConnectionSelections 已删除，
+  // 闲时权益失去“当前连接套餐”校验来源，恒按未开通处理（P3 重建）。
+  return Boolean(support?.supported) && false;
 }
 
 /** 服务端 3103（取号超限）只按结构化分类识别，不再解析跨 RPC 的错误文本。 */

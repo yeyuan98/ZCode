@@ -3788,12 +3788,11 @@ export function SessionPane({
   }, [openSettingsTab]);
   const handleOpenModelUpgrade = useCallback(() => {
     if (!codingPlanUpgradeDialog) return;
-    const providerId =
-      sharedSettings?.providerFamilyDomain === "bigmodel"
-        ? BUILTIN_MODEL_PROVIDER_IDS.bigmodelIndividualCodingPlan
-        : BUILTIN_MODEL_PROVIDER_IDS.zaiIndividualCodingPlan;
-    codingPlanUpgradeDialog.openCodingPlanUpgrade({ providerId });
-  }, [codingPlanUpgradeDialog, sharedSettings?.providerFamilyDomain]);
+    // P1：providerFamilyDomain 已删除，无运行域可判断品牌时默认 Z.ai 入口。
+    codingPlanUpgradeDialog.openCodingPlanUpgrade({
+      providerId: BUILTIN_MODEL_PROVIDER_IDS.zaiIndividualCodingPlan,
+    });
+  }, [codingPlanUpgradeDialog]);
   const handleOpenQuotaUpgrade = useCallback(() => {
     const providerId = quotaBanner.upgradeProviderId;
     if (!providerId || !codingPlanUpgradeDialog) return;

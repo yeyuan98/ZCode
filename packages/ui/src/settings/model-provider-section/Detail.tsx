@@ -5,7 +5,6 @@ import {
   BUILTIN_MODEL_PROVIDER_IDS,
   ZAI_PROVIDER_ID,
   type BuiltinModelProviderId,
-  type ProviderFamilyConnectionSelectionSettings,
   type StartPlanPreviewConfig,
   isStartPlanModelProviderId,
   isIndividualCodingPlanModelProviderId,
@@ -223,8 +222,6 @@ function resolvePlanSettingsProvider({
 export function ModelProviderSectionDetail({
   selectedNavItem,
   navigationItems = selectedNavItem ? [selectedNavItem] : [],
-  connectionSettingsFailed = false,
-  connectionSelections,
   startPlanSubscriptionCount = 0,
   presetLoading,
   codingPlanPurchaseTokenAuthenticatedByProviderId,
@@ -251,8 +248,6 @@ export function ModelProviderSectionDetail({
 }: {
   selectedNavItem: ModelProviderNavItem | null;
   navigationItems?: ModelProviderNavItem[];
-  connectionSettingsFailed?: boolean;
-  connectionSelections?: ProviderFamilyConnectionSelectionSettings;
   startPlanSubscriptionCount?: number;
   presetLoading: boolean;
   codingPlanPurchaseTokenAuthenticatedByProviderId: Partial<
@@ -375,8 +370,6 @@ export function ModelProviderSectionDetail({
     <ProviderFamilyPlanModeSwitch
       selectedNavItem={selectedNavItem}
       navigationItems={navigationItems}
-      connectionSettingsFailed={connectionSettingsFailed}
-      connectionSelections={connectionSelections}
       startPlanSubscriptionCount={startPlanSubscriptionCount}
       onSelectNavItem={onSelectNavItem}
     />

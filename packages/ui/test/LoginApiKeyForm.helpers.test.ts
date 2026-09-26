@@ -9,7 +9,7 @@ import {
 
 test("wizard skip writes providerOnboardingDismissedAt as an ISO string", () => {
   const now = new Date("2026-01-02T03:04:05.678Z");
-  // 跳过只记录跳过时间，不写 providerFamilyDomain 等旧字段（P1 删除）或空 API Key。
+  // 跳过只记录跳过时间，不写旧连接字段（P1 已删除）或空 API Key。
   const patch = buildWizardSkipSettings(now);
   assert.deepEqual(patch, { providerOnboardingDismissedAt: "2026-01-02T03:04:05.678Z" });
 });
