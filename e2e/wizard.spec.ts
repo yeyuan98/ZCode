@@ -80,7 +80,10 @@ test.describe("welcome wizard", () => {
     await expect(page.getByTestId(TEMPLATE_PICKER)).toHaveCount(0);
   });
 
-  test("template test & discover shows failure state on wrong key", async ({ page, wizardApp }) => {
+  test("template test & discover shows failure state on wrong key, save still allowed", async ({
+    page,
+    wizardApp,
+  }) => {
     await page.goto(wizardApp.origin);
     await page.getByTestId(MOCK_TEMPLATE_ITEM).click();
 
@@ -89,6 +92,12 @@ test.describe("welcome wizard", () => {
     // mock provider 返回 401，发现失败态带 HTTP 状态；文案同时说明仍可保存。
     await expect(page.getByRole("status")).toContainText("Test failed");
     await expect(page.getByRole("status")).toContainText("401");
+
+    // spec 验收：发现失败不阻断保存——Continue 仍可保存 provider 并关闭向导
+    //（零模型 provider 属既定行为：下次启动向导重开，靠 skip/手工加模型脱困）。
+    await page.getByTestId(API_KEY_CONTINUE_BUTTON).click();
+    await expect(page.getByTestId(TEMPLATE_PICKER)).toBeHidden();
+    await expectAppShell(page);
   });
 
   test("skip persists dismissal across reload", async ({ page, wizardApp }) => {
