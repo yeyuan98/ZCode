@@ -1,5 +1,6 @@
 /**
- * RPC 调用网络遥测：记录 channel.command 级成功率与耗时，供桌面主进程聚合上报 ARMS。
+ * RPC 调用网络遥测中间件：记录 channel.command 级成功率与耗时。
+ * 已移除厂商 ARMS 上报：当前无 sink 消费（emit 为 no-op），保留装饰器以维持 channel 结构。
  */
 import type { IChannelServer, IChannelClient, IChannel, IServerChannel } from "./channels.js";
 import type { CancellationToken } from "./foundation.js";

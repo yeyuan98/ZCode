@@ -1,12 +1,13 @@
 import { randomBytes } from "node:crypto";
 import { availableParallelism, totalmem } from "node:os";
-import {
-  ZCODE_CLI_RESOURCE_SAMPLE_INTERVAL_MS,
-  type ZCodeProcessResourceSample,
-} from "@zcode/shared";
+import { type ZCodeProcessResourceSample } from "@zcode/shared";
 
-/** 采样周期与 app 侧聚合共用 shared 的同一个常量，避免两侧节拍各自漂移。 */
-const ZCODE_PROCESS_RESOURCE_SAMPLE_INTERVAL_MS = ZCODE_CLI_RESOURCE_SAMPLE_INTERVAL_MS;
+/**
+ * P0 厂商遥测清理：shared 侧聚合契约（processResourceTelemetry.ts）已删除，
+ * 采样周期常量不再跨包共享，先在本文件本地化；app 侧接收端已移除，
+ * 本 sampler 的协议通知暂无消费者，协议面清理留待 P4/P6。
+ */
+const ZCODE_PROCESS_RESOURCE_SAMPLE_INTERVAL_MS = 60_000;
 
 let processInstanceToken: string | undefined;
 
