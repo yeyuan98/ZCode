@@ -55,7 +55,7 @@
           "config": {
             "access": {
               "type": "api-key",
-              "apiKeyManagementUrl": "https://bigmodel.cn/coding-plan/personal/overview"
+              "apiKeyManagementUrl": "https://bigmodel.cn/usercenter/proj-mgmt/apikeys"
             },
             "api": {
               "type": "anthropic-messages",

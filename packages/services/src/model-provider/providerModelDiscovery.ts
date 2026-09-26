@@ -161,5 +161,11 @@ export async function discoverTemplateModels(
     }
     requestUrl.searchParams.set("after_id", parsed.lastId);
   }
-  return { ok: true, modelIds: [...uniqueIds].sort() };
+  const modelIds = [...uniqueIds].sort();
+  // spec：空模型列表按失败降级（"works · 0 models" 会误导用户保存零模型 provider，
+  // 下次启动向导必然重开）；key 本身有效与否此时不可判，统一走失败态允许继续保存。
+  if (modelIds.length === 0) {
+    return { ok: false, error: "no models returned" };
+  }
+  return { ok: true, modelIds };
 }

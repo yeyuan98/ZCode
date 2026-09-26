@@ -54,10 +54,12 @@ facade (`packages/services/src/model-provider/`), wizard key step
    literals + `ZhipuAccountAccessConfig` + the account overlay layer in `packages/provider`
    - their services wiring; GLM history (`OFFICIAL_GLM_MODEL_IDS` chain,
      `official-glm-selection-v3` migration + its tasksDatabase registration, vendor parts of
-     the legacy `config.json` reader). Kept until P3 (see master-plan amendments A1/A2):
-     protocol account schemas, the five vendor entitlement schema files in `packages/shared`,
-     `ProviderFamilyDomain` type + family specs + builtin provider ids, OAuth services,
-     `legacyAccountConnectionSettings`.
+     the legacy `config.json` reader); `legacyAccountConnectionSettings` +
+     `legacyTeamOrganizationResolver` (amendment A2 originally deferred them to P3, but they
+     fed exclusively the deleted `providerFamilyConnectionSelections` field and died fully
+     dead in slice 1 — deleted with it). Kept until P3 (master-plan amendment A1): protocol
+     account schemas, the five vendor entitlement schema files in `packages/shared`,
+     `ProviderFamilyDomain` type + family specs + builtin provider ids, OAuth services.
 
 ## Expected-death list (by design — do not "fix")
 
@@ -70,6 +72,13 @@ stay dead until their owning phase rebuilds them:
   entitlement source) until P3 re-architects off-peak onto local admission.
 - Local account-identity reads in `remoteWorkspaceServiceCollection` (mobile/remote
   observables lose the account branch; providers remain observable).
+- CLI account-login surface: the standalone account provider runtime and its compile-forced
+  chain died with the account types — top-level `zcode login`/`zcode logout` commands, TUI
+  `/login` `/logout` slash commands, and the vendor login picker are gone (the shared
+  `zcode-slash-command-help.ts` listing is P4 scope).
+- Custom-provider wizard path saves a zero-model provider by design (no template = no
+  discovery); the gate reopens on next startup with the documented escapes (skip /
+  manual model add in settings).
 
 ## Migration boundary
 

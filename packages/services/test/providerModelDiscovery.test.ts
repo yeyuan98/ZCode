@@ -208,6 +208,64 @@ test("templates without an api base url are unsupported", async () => {
   assert.deepEqual(result, { ok: false, error: "unsupported template" });
 });
 
+test("anthropic discovery normalizes a base url that already contains /v1", async () => {
+  const { fetch, requests } = createRecordingFetch(() => ({
+    body: JSON.stringify({ data: [{ id: "claude-a" }] }),
+  }));
+  const result = await discoverTemplateModels(
+    { templateId: "test-template", apiKey: "test-key" },
+    {
+      fetch,
+      template: templateView({
+        access: { type: "api-key" },
+        api: { type: "anthropic-messages", baseUrl: "https://proxy.example.com/v1" },
+      }),
+    },
+  );
+  assert.equal(requests.length, 1);
+  // 已带 /v1 的 baseUrl 不得重复拼接版本段。
+  assert.equal(requests[0].url.toString(), "https://proxy.example.com/v1/models");
+  assert.deepEqual(result, { ok: true, modelIds: ["claude-a"] });
+});
+
+test("empty model list degrades to a discovery failure (spec: no zero-model success)", async () => {
+  const { fetch } = createRecordingFetch(() => ({
+    body: JSON.stringify({ data: [] }),
+  }));
+  const result = await discoverTemplateModels(
+    { templateId: "test-template", apiKey: "test-key" },
+    {
+      fetch,
+      template: templateView({
+        access: { type: "api-key" },
+        api: { type: "openai-chat-completions", baseUrl: "https://api.example.com/v1" },
+      }),
+    },
+  );
+  // spec §2：空列表按失败降级，避免 "works · 0 models" 误导用户保存零模型 provider。
+  assert.deepEqual(result, { ok: false, error: "no models returned" });
+});
+
+test("abort timeouts surface as a concise discovery error", async () => {
+  const fetchStub = (async () => {
+    throw Object.assign(new Error("aborted"), { name: "AbortError" });
+  }) as DiscoverTemplateModelsFetch;
+  const result = await discoverTemplateModels(
+    { templateId: "test-template", apiKey: "test-key" },
+    {
+      fetch: fetchStub,
+      template: templateView({
+        access: { type: "api-key" },
+        api: { type: "openai-chat-completions", baseUrl: "https://api.example.com/v1" },
+      }),
+    },
+  );
+  assert.equal(result.ok, false);
+  if (!result.ok) {
+    assert.match(result.error, /timeout/i);
+  }
+});
+
 test("createPersonalProvider seeds discovered ids and the resolver publishes executable models", async () => {
   const dir = await mkdtemp(join(tmpdir(), "zcode-model-discovery-"));
   setDataBaseDir(dir);
