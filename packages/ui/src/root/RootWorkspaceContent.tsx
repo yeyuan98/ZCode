@@ -6,13 +6,12 @@ import { logger } from "@/logger.js";
 import { WorkspaceSettingsLayer } from "@/root/WorkspaceSettingsLayer.js";
 import type { AppProps } from "@/app-shell/types.js";
 import type { RootProps } from "@/root/types.js";
-import type { IFeedbackService, IServiceAccessor } from "@zcode/services";
+import type { IServiceAccessor } from "@zcode/services";
 
 const StableWorkspaceApp = memo(App);
 
 interface RootWorkspaceContentProps {
   workspaceScopedServices: IServiceAccessor;
-  baseFeedbackService: IFeedbackService;
   workspaceShellPath: string;
   workspaceIdentity?: string;
   workspaceRemoteSessionId?: string;
@@ -28,7 +27,6 @@ interface RootWorkspaceContentProps {
   handleOpenWorkspace: AppProps["onOpenWorkspace"];
   handleOpenFolderFromWorkspaceMenu: AppProps["onOpenFolderFromWorkspaceMenu"];
   handleOpenRemoteWorkspace?: AppProps["onOpenRemoteWorkspace"];
-  handleCreateScratchWorkspace: AppProps["onCreateScratchWorkspace"];
   remoteConnectionInProgress?: AppProps["remoteConnectionInProgress"];
   remoteWorkspaceSessions: NonNullable<AppProps["remoteWorkspaceSessions"]>;
   allowRemoteWorkspace: NonNullable<RootProps["allowRemoteWorkspace"]>;
@@ -50,7 +48,6 @@ interface RootWorkspaceContentProps {
 
 export function RootWorkspaceContent({
   workspaceScopedServices,
-  baseFeedbackService,
   workspaceShellPath,
   workspaceIdentity,
   workspaceRemoteSessionId,
@@ -66,7 +63,6 @@ export function RootWorkspaceContent({
   handleOpenWorkspace,
   handleOpenFolderFromWorkspaceMenu,
   handleOpenRemoteWorkspace,
-  handleCreateScratchWorkspace,
   remoteConnectionInProgress,
   remoteWorkspaceSessions,
   allowRemoteWorkspace,
@@ -130,7 +126,6 @@ export function RootWorkspaceContent({
           >
             <StableWorkspaceApp
               services={workspaceScopedServices}
-              baseFeedbackService={baseFeedbackService}
               onConnectRemote={handleConnectRemote}
               onSelectRemoteProject={handleSelectRemoteProject}
               onCancelRemoteProject={handleCancelRemoteProject}
@@ -153,7 +148,6 @@ export function RootWorkspaceContent({
               onOpenWorkspace={handleOpenWorkspace}
               onOpenFolderFromWorkspaceMenu={handleOpenFolderFromWorkspaceMenu}
               onOpenRemoteWorkspace={handleOpenRemoteWorkspace}
-              onCreateScratchWorkspace={handleCreateScratchWorkspace}
               remoteConnectionInProgress={remoteConnectionInProgress}
               onReturnToWorkspace={handleBackFromSettings}
               allowOpenWorkspace={allowOpenWorkspace}
@@ -185,8 +179,6 @@ export function RootWorkspaceContent({
             captionWorkspacePath={activeWorkspacePath}
             onBack={activeWorkspacePath ? handleBackFromSettings : undefined}
             onCreateTask={handleCreateTask}
-            onOpenWorkspace={handleOpenWorkspace}
-            allowOpenWorkspace={allowOpenWorkspace}
             onLogin={onLogin}
             onLogout={handleLogout}
             user={user}

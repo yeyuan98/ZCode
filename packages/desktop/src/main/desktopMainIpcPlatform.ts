@@ -24,7 +24,7 @@ import {
 import { getInstalledEditors } from "./editors.js";
 import { getApplicationIcon } from "./applicationIcons.js";
 import { exportLogs } from "./exportLogs.js";
-import { resolveCommunityUrl } from "./desktopCommandHandlers.js";
+import { openFeedbackExternal, resolveCommunityUrl } from "./desktopCommandHandlers.js";
 import { openInEditor } from "./openInEditor.js";
 import {
   openResourceManager,
@@ -57,7 +57,6 @@ import { registerDesktopPrintToPdfIpcHandler } from "./desktopPrintToPdf.js";
 import { registerCuaPipActiveSessionIpc } from "./desktopCuaPipIpc.js";
 
 export function registerPlatformIpcHandlers(options: {
-  fetchHelpConfig?: () => Promise<unknown>;
   logger: {
     info: (...args: unknown[]) => void;
     warn: (...args: unknown[]) => void;
@@ -331,11 +330,28 @@ export function registerPlatformIpcHandlers(options: {
 
     const communityUrl = await resolveCommunityUrl({
       locale: result.data,
-      fetchRemoteConfig: options.fetchHelpConfig,
       logger: options.logger,
     });
 
     return typeof communityUrl === "string" && communityUrl.length > 0;
+  });
+
+  // P2：renderer 反馈入口改为外部 GitHub Issues；title/body 上下文以查询参数预填。
+  ipcMain.handle(PlatformChannels.OpenFeedback, async (_event, context: unknown) => {
+    const sanitizedContext =
+      context && typeof context === "object"
+        ? {
+            title:
+              typeof (context as { title?: unknown }).title === "string"
+                ? (context as { title?: string }).title
+                : undefined,
+            body:
+              typeof (context as { body?: unknown }).body === "string"
+                ? (context as { body?: string }).body
+                : undefined,
+          }
+        : undefined;
+    await openFeedbackExternal({ logger: options.logger, context: sanitizedContext });
   });
 
   ipcMain.handle(

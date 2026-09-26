@@ -95,7 +95,7 @@ export async function prepareProtocolStartupStorage(options: {
   // 路径通知发送失败时也要消费已创建的等待 promise，避免未处理拒绝。
   void acknowledgement.catch(() => {});
   let store: SqliteSessionStore | undefined;
-  let failure: unknown;
+  let storeCloseFailure: unknown;
   const write = (frame: unknown) =>
     new Promise<void>((resolve, reject) => {
       options.output.write(`${JSON.stringify(frame)}\n`, (error?: Error | null) =>
@@ -115,7 +115,6 @@ export async function prepareProtocolStartupStorage(options: {
     }
     await write({ method: "startup/storagePrepared", params: {} });
   } catch (error) {
-    failure = error;
     try {
       await write({
         method: "startup/storageState",
@@ -138,10 +137,13 @@ export async function prepareProtocolStartupStorage(options: {
   } finally {
     clearTimeout(timer!);
     lines.close();
+    // finally 中 throw 会覆盖 try/catch 已抛出的首因；store 关闭失败先记录，仅在无在途异常时抛出。
     try {
       store?.close();
     } catch (error) {
-      if (!failure) throw error;
+      storeCloseFailure = error;
     }
   }
+  // 只有 try 成功（无在途异常）才会走到这里，此时 store 关闭失败即是唯一首因。
+  if (storeCloseFailure) throw storeCloseFailure;
 }

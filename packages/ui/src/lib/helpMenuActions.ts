@@ -1,6 +1,5 @@
 import type { IPlatformService } from "@zcode/shared";
 import type { IntlInstance } from "@/i18n/IntlProvider.js";
-import type { FeedbackSubmitDraft } from "@/feedback/feedbackStore.js";
 import { runExportLogsAction } from "@/lib/exportLogsAction.js";
 import { ZCODE_PRODUCT_DOCS_URL } from "@/lib/productDocs.js";
 
@@ -13,20 +12,19 @@ interface HelpMenuActionHandlers {
 export function createHelpMenuActionHandlers({
   platform,
   intl,
-  openSubmit,
 }: {
-  platform: Pick<IPlatformService, "captureWindowScreenshot" | "exportLogs" | "openExternal">;
+  platform: Pick<
+    IPlatformService,
+    "captureWindowScreenshot" | "exportLogs" | "openExternal" | "openFeedback"
+  >;
   intl: IntlInstance;
-  openSubmit: (draft?: FeedbackSubmitDraft) => void;
 }): HelpMenuActionHandlers {
   return {
+    // P2：问题上报改为外部 GitHub Issues；入口本身无错误现场，只带一个简短的 bug 前缀标题，
+    // 详细复现步骤由用户在 new-issue 页补充。
     openIssueReport: async () => {
-      openSubmit({
-        type: "bug",
-        module: "其它",
-        severity: "P2-中",
-        includeLogs: false,
-        screenshots: [],
+      await platform.openFeedback({
+        title: intl.formatMessage({ id: "workspaceHeader.help.issueReport.draftTitle" }),
       });
     },
     openProductDocs: () => {

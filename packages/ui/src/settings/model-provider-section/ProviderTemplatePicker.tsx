@@ -14,6 +14,7 @@ import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import { logger } from "@/logger.js";
 import { ProviderLogo } from "./ProviderLogo.js";
 import { useProviderDetailFeedback } from "./ProviderDetailFeedback.js";
+import { resolveProviderTemplateGroups } from "./providerTemplateGroups.js";
 
 type ProviderTemplateCreate = (templateId: string) => Promise<void>;
 type CustomProviderCreate = (label: string) => Promise<void>;
@@ -26,7 +27,8 @@ export function ProviderTemplatePicker({
   creating,
 }: {
   templates: ProviderSettingsView["providerTemplates"];
-  onBack: () => void;
+  /** 设置页传入返回详情栏；向导首步没有更早的页面，不传则隐藏返回按钮。 */
+  onBack?: () => void;
   onCreateFromTemplate: ProviderTemplateCreate;
   onCreateCustom: CustomProviderCreate;
   creating: boolean;
@@ -34,19 +36,7 @@ export function ProviderTemplatePicker({
   const { intl, locale } = useZCodeIntl();
   const { dismissFeedback, showFeedback } = useProviderDetailFeedback();
   const customLabel = intl.formatMessage({ id: "settings.modelProvider.newProviderName" });
-  const zhipuIds = ["bigmodel-api", "zai-api", "bigmodel-standard-api", "zai-standard-api"];
-  const groups = [
-    {
-      id: "zhipu",
-      templates: zhipuIds.flatMap((id) =>
-        templates.filter((template) => template.templateId === id),
-      ),
-    },
-    {
-      id: "other",
-      templates: templates.filter((template) => !zhipuIds.includes(template.templateId)),
-    },
-  ] as const;
+  const groups = resolveProviderTemplateGroups(templates);
   const createWithFeedback = async (create: () => Promise<void>) => {
     const feedbackKey = "provider-template-create";
     dismissFeedback(feedbackKey);
@@ -71,16 +61,18 @@ export function ProviderTemplatePicker({
   return (
     <section className="space-y-5" data-testid={TID_MODEL_PROVIDER_TEMPLATE_PICKER}>
       <div className="flex items-center gap-3">
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon-sm"
-          data-testid={TID_MODEL_PROVIDER_TEMPLATE_BACK_BUTTON}
-          aria-label={intl.formatMessage({ id: "settings.modelProvider.templatePickerBack" })}
-          onClick={onBack}
-        >
-          <ArrowLeftIcon className="size-4" aria-hidden="true" />
-        </Button>
+        {onBack ? (
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-sm"
+            data-testid={TID_MODEL_PROVIDER_TEMPLATE_BACK_BUTTON}
+            aria-label={intl.formatMessage({ id: "settings.modelProvider.templatePickerBack" })}
+            onClick={onBack}
+          >
+            <ArrowLeftIcon className="size-4" aria-hidden="true" />
+          </Button>
+        ) : null}
         <h2 className="text-ui-lg font-semibold text-foreground">
           {intl.formatMessage({ id: "settings.modelProvider.templatePickerTitle" })}
         </h2>
@@ -93,19 +85,17 @@ export function ProviderTemplatePicker({
               {intl.formatMessage({ id: `settings.modelProvider.templateGroup.${group.id}` })}
             </h3>
             <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-              {group.id === "other" ? (
-                <ProviderTemplateCard
-                  label={intl.formatMessage({ id: "settings.modelProvider.createCustomProvider" })}
-                  disabled={creating}
-                  testId={testId(TID_MODEL_PROVIDER_TEMPLATE_ITEM, "custom")}
-                  icon={
-                    <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-hover">
-                      <PlusIcon className="size-4" aria-hidden="true" />
-                    </span>
-                  }
-                  onClick={() => void createWithFeedback(() => onCreateCustom(customLabel))}
-                />
-              ) : null}
+              <ProviderTemplateCard
+                label={intl.formatMessage({ id: "settings.modelProvider.createCustomProvider" })}
+                disabled={creating}
+                testId={testId(TID_MODEL_PROVIDER_TEMPLATE_ITEM, "custom")}
+                icon={
+                  <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-hover">
+                    <PlusIcon className="size-4" aria-hidden="true" />
+                  </span>
+                }
+                onClick={() => void createWithFeedback(() => onCreateCustom(customLabel))}
+              />
               {group.templates.map((template) => {
                 const label = resolveProviderTemplateName(template.templateId, template, locale);
                 return (

@@ -2,9 +2,9 @@ import { useCallback } from "react";
 import { TID_V4_RETRY_SUBSCRIBE } from "@zcode/shared";
 import { Button } from "@/components/ui/button.js";
 import { toast } from "@/components/ui/toast.js";
-import { useFeedbackStore } from "@/feedback/feedbackStore.js";
+import { usePlatform } from "@/hooks/usePlatform.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
-import { buildErrorFeedbackDescription } from "@/lib/errorFeedbackDraft.js";
+import { buildErrorFeedbackContext } from "@/lib/externalFeedbackContext.js";
 
 interface SessionSubscriptionErrorPanelProps {
   error: string;
@@ -20,31 +20,22 @@ export function SessionSubscriptionErrorPanel({
   onReconnect,
 }: SessionSubscriptionErrorPanelProps) {
   const { intl } = useZCodeIntl();
-  const openFeedbackSubmit = useFeedbackStore((state) => state.openSubmit);
+  const platform = usePlatform();
+  // P2：订阅失败的反馈改为外部 GitHub Issues，正文预填脱敏后的报错与 session / 工作区线索。
   const handleOpenFeedback = useCallback(async () => {
-    openFeedbackSubmit({
-      title: error.slice(0, 80),
-      type: "bug",
-      module: "Agent任务执行失败",
-      severity: "P2-中",
-      includeLogs: false,
-      description: buildErrorFeedbackDescription({
-        message: error,
-        contextLines: [
-          intl.formatMessage({ id: "feedback.submit.template.section.taskInfo" }),
-          intl.formatMessage({ id: "feedback.submit.template.section.taskId" }, { id: sessionId }),
-          intl.formatMessage(
-            { id: "feedback.submit.template.section.taskWorkspace" },
-            { path: workspacePath },
-          ),
-        ],
-        formatMessage: (id: string, values?: Record<string, string>) =>
-          intl.formatMessage({ id }, values),
-      }),
-      screenshots: [],
+    const context = buildErrorFeedbackContext({
+      message: error,
+      contextLines: [
+        intl.formatMessage({ id: "subscription.error.reportIssue.sessionId" }, { id: sessionId }),
+        intl.formatMessage(
+          { id: "subscription.error.reportIssue.workspace" },
+          { path: workspacePath },
+        ),
+      ],
     });
+    await platform.openFeedback(context);
     toast(intl.formatMessage({ id: "chat.error.feedbackOpened" }));
-  }, [error, intl, openFeedbackSubmit, sessionId, workspacePath]);
+  }, [error, intl, platform, sessionId, workspacePath]);
 
   return (
     <div className="flex flex-1 flex-col items-center justify-center gap-3 p-4 text-ui-base">

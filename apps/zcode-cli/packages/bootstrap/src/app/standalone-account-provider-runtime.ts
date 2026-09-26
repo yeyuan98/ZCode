@@ -131,7 +131,7 @@ export async function readStandaloneAccountProviderConfigSnapshot(
     candidates.map((candidate) => [candidate.providerId, candidate]),
   );
   const providers = new ProviderConfigMap(
-    configuredProviders.map(({ family, providerId }) => {
+    configuredProviders.map(({ providerId }) => {
       const candidate = candidateByProviderId.get(providerId);
       const apiKey = candidate ? apiKeyByCredentialKey[candidate.credentialKey]?.trim() : undefined;
       if (!candidate || !apiKey) {
@@ -168,7 +168,7 @@ export async function hasStandaloneCodingPlanAccess(
 
 export function createStandaloneProviderRuntimeHeadersPort(
   credentialStore: Pick<SharedZCodeCredentialStore, "load" | "loadMany">,
-  env: Readonly<Record<string, string | undefined>>,
+  _env: Readonly<Record<string, string | undefined>>,
 ): ProviderRuntimeHeadersPort {
   return {
     shouldRefreshBeforeModelRequest() {

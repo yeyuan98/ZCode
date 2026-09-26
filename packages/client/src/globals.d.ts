@@ -305,6 +305,8 @@ declare global {
       ): Promise<{ success: boolean; error?: string }>;
       /** 执行桌面窗口级命令 */
       executeDesktopCommand(command: DesktopCommandId): Promise<void>;
+      /** 打开外部反馈入口（GitHub Issues），可携带预填 title/body 上下文 */
+      openFeedback?(context?: import("@zcode/shared").OpenFeedbackContext): Promise<void>;
       /** 同步应用菜单语言 */
       setApplicationLocale(locale: Locale): Promise<void>;
       /** 读取宿主系统语言 */
