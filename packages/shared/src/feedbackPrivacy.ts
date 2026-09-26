@@ -88,7 +88,13 @@ function redactValues(text: string, diagnostic: boolean): string {
         return REDACTED;
       }
     })
-    .replace(/(?:\/(?:Users|home)\/|[a-z]:\\Users\\)[^\s"'<>]+/gi, "[USER_PATH]");
+    .replace(
+      // 家目录前缀按常见平台收敛：POSIX 的 /Users|/home|/root|/srv|/data|/mnt|/media|/opt
+      // 与 Windows 任意盘符（C:\work\…、D:\Users\…）。P2 反馈外链把正文写进 URL 查询参数，
+      // 覆盖面宁可过大，也不能把工作区绝对路径带进浏览器历史。
+      /(?:\/(?:Users|home|root|srv|data|mnt|media|opt)\/|[a-zA-Z]:\\[^\\]+\\)[^\s"'<>]+/gi,
+      "[USER_PATH]",
+    );
   if (diagnostic) {
     result = result.replace(/\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi, "[EMAIL]");
   }

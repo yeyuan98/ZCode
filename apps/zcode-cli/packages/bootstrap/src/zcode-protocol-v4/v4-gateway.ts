@@ -1056,7 +1056,7 @@ export class ConversationV4Gateway {
     graceMs: number = DETACHED_CHILD_PUBLISHER_GRACE_MS,
   ): number {
     let released = 0;
-    for (const [childId, terminalAt] of [...this.detachedTerminalAt]) {
+    for (const [childId, terminalAt] of this.detachedTerminalAt) {
       if (nowMs - terminalAt < graceMs) continue;
       if (this.host.sessionExists(childId)) continue;
       if (this.publishers.get(childId)?.hasSubscribers()) continue;
@@ -1637,9 +1637,10 @@ export class ConversationV4Gateway {
       throw new V4CapabilityUnsupportedError("listDynamicWorkflowRuns", params.sessionId);
     }
     await this.ensureHostRecordForJournalRead(params.sessionId);
-    const runs = await this.host.listDynamicWorkflowRuns(params.sessionId, {
-      ...(params.limit === undefined ? {} : { limit: params.limit }),
-    });
+    const runs = await this.host.listDynamicWorkflowRuns(
+      params.sessionId,
+      params.limit === undefined ? {} : { limit: params.limit },
+    );
     return v4ConversationWorkflowRunsResultSchema.parse({ runs });
   }
 
@@ -3251,7 +3252,7 @@ export class ConversationV4Gateway {
     state.appliedEventIds.add(eventId);
     const waiters = this.projectionEventCommitWaiters.get(sessionId)?.get(eventId);
     if (!waiters) return;
-    for (const waiter of [...waiters]) waiter.resolve();
+    for (const waiter of waiters) waiter.resolve();
   }
 
   private rejectProjectionEventCommit(sessionId: string, eventId: string, error: Error): void {
@@ -3259,14 +3260,14 @@ export class ConversationV4Gateway {
     state.failedEventById.set(eventId, error);
     const waiters = this.projectionEventCommitWaiters.get(sessionId)?.get(eventId);
     if (!waiters) return;
-    for (const waiter of [...waiters]) waiter.reject(error);
+    for (const waiter of waiters) waiter.reject(error);
   }
 
   private rejectProjectionEventWaiters(sessionId: string, error: Error): void {
     const byEvent = this.projectionEventCommitWaiters.get(sessionId);
     if (!byEvent) return;
     for (const waiters of byEvent.values()) {
-      for (const waiter of [...waiters]) waiter.reject(error);
+      for (const waiter of waiters) waiter.reject(error);
     }
     this.projectionEventCommitWaiters.delete(sessionId);
   }

@@ -1,4 +1,16 @@
 {
   "$schema": "./node_modules/oxfmt/configuration_schema.json",
-  "ignorePatterns": []
+  // bash-command-registry.ts 由 scripts/generate-bash-command-registry.mjs 确定性生成
+  // （整段 registry 输出为单行 JSON），格式化会改写它并导致 registry:check 判定过期，
+  // 因此从格式化范围排除，内容以 registry:generate 的输出为准。
+  // node-repl-host/dist-types 是 tsc 构建产物（随源码提交供 Swift 侧消费），
+  // 每次 typecheck/build 都会按 tsc 风格重新生成，格式化它们会与生成器互相覆盖。
+  // skills 下的 SKILL/examples/patterns md 是随包分发的提示词内容，
+  // 重排换行会改变发给模型的原文，属于行为面而非排版面，一律不做格式化。
+  "ignorePatterns": [
+    "packages/core/src/tool/handlers/generated/**",
+    "packages/node-repl-host/dist-types/**",
+    "packages/*/skills/**/*.md",
+    "packages/bundled-skills/skills/**"
+  ]
 }

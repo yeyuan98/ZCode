@@ -13,10 +13,7 @@ import type { ZCodeProtocolAgentServerContext } from "./server-types.js";
 let requestSequence = 0;
 
 /** 端口只需要发反向请求的能力，不需要整个 server context。 */
-export type OfficialMcpAuthRequestContext = Pick<
-  ZCodeProtocolAgentServerContext,
-  "requestClient"
->;
+export type OfficialMcpAuthRequestContext = Pick<ZCodeProtocolAgentServerContext, "requestClient">;
 
 /**
  * 构造经协议反向请求取身份头的端口。

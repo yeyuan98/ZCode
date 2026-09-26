@@ -38,8 +38,8 @@ export async function prepareTasksIndexStorage(
   report("checking");
   await mkdir(dirname(path), { recursive: true });
   const db = new DatabaseSync(path);
-  let failure: unknown;
   let migration: DatabaseMigrationFacts | undefined;
+  let dbCloseFailure: unknown;
   try {
     db.exec("PRAGMA busy_timeout = 25");
     db.exec("PRAGMA foreign_keys = ON");
@@ -78,7 +78,6 @@ export async function prepareTasksIndexStorage(
     // COMMIT 已成功，先发布事实；后续 close 失败不能把已提交误报为未提交。
     report("maintaining", migration);
   } catch (error) {
-    failure = error;
     // 失败事实随原异常交给 Worker，不倒退发布 checking/migrating，也不覆盖首因。
     if (migration && error && typeof error === "object") {
       try {
@@ -89,36 +88,36 @@ export async function prepareTasksIndexStorage(
     }
     throw error;
   } finally {
+    // close 失败先记录，不在这里抛出：finally 中 throw 会覆盖 try/catch 已经抛出的首因。
     try {
       db.close();
     } catch (error) {
-      if (!failure) throw error;
+      dbCloseFailure = error;
     }
   }
+  // 只有 try 成功（无在途异常）才可能走到这里，此时 close 失败即是唯一首因。
+  if (dbCloseFailure) throw dbCloseFailure;
   markTasksStorageMigrated(path);
   const repos = [
     new TaskIndexRepo(path, LOCK_WAIT_MS),
     new AutomationRepo(path, LOCK_WAIT_MS),
     new OffPeakTaskRepo(path, LOCK_WAIT_MS),
   ];
-  let preparationFailure: unknown;
+  let preparationCloseFailure: unknown;
   try {
     // 这些是原本就在初始化时执行的修复，不创建新的迁移或改变已有事务边界。
     for (const repo of repos) await repo.ensureReady();
-  } catch (error) {
-    preparationFailure = error;
-    throw error;
   } finally {
-    let closeFailure: unknown;
+    // 同上：close 失败先记录；ensureReady 已抛错时不能在 finally 里覆盖首因。
     for (const repo of repos) {
       try {
         repo.close({ throwOnError: true });
       } catch (error) {
-        closeFailure ??= error;
+        preparationCloseFailure ??= error;
       }
     }
-    if (!preparationFailure && closeFailure) throw closeFailure;
   }
+  if (preparationCloseFailure) throw preparationCloseFailure;
   markTasksStoragePrepared(path);
   report("ready", migration);
 }
