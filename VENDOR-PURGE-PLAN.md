@@ -3,7 +3,7 @@
 - **Repo:** `/home/administrator/git/ZCode` (fork of ZCode v3.14.3, branch base `main`)
 - **Goal:** Remove all Z.ai / Zhipu / BigModel vendor-specific code — platform backend, logins, accounts/plans/subscriptions, vendor-bound skills/tools, vendor CDN/telemetry/infra — while keeping the product fully usable via generic API-key providers and local models. zai/bigmodel remain available as **ordinary, equal vendors**.
 - **Version policy:** stay upstream-consistent at **3.14.3**; per-phase test releases as `3.14.3-alpha.N`; final release is exactly `3.14.3`.
-- **Status:** PLAN (approved for execution pending go-ahead). Investigation: 4 parallel deep-dive subagents + 3 independent review rounds, all findings source-verified on `main`.
+- **Status:** EXECUTING. P0 done (`v3.14.3-alpha.1`); P2 done (`v3.14.3-alpha.2`, 2026-09-26); next: P1. Investigation: 4 parallel deep-dive subagents + 3 independent review rounds, all findings source-verified on `main`.
 - **Fresh-start policy:** no migration/compat shims for old setups; there are no existing libre-zcode users.
 
 ---
@@ -144,7 +144,9 @@
 
 **Tests/QA:** unit — telemetry init no-ops across env matrix; no device_mid persistence; updater disabled on all three paths (delivered: `packages/shared/test/updateFeedPolicy.test.ts`). Integration — boot app, assert zero outbound calls to vendor **telemetry/manifest** endpoints (help-config/context-prompt rollouts still fetch `/api/v1/client/configs` on demand until P2/P3 — scope assertions accordingly). Electron-main network harness deferred to P6's CI deliverable. Manual (fresh Windows install) — run a session, verify no vendor telemetry/update traffic; "check for updates" shows disabled.
 
-### P2 — Onboarding & gate rework → **alpha.2** (before schema surgery)
+### P2 — Onboarding & gate rework → **alpha.2** (done; before schema surgery)
+
+Delivered as `v3.14.3-alpha.2` (merge `8e06f90`): gate = `!hasUsableProvider && !onboardingDismissed` (new optional `providerOnboardingDismissedAt` setting; waits for settings+model-selection hydration with error escapes); wizard with neutralized template catalog + custom/Ollama path + services-layer direct-HTTP test-key probe (superseded by P1 discovery); web token login page (fetch-status-only gate); feedback → GitHub Issues with redacted prefill, in-app center fully deleted, help config local-only. Extras landed in the same alpha: first e2e harness (Playwright, web build + mock provider, 8 scenarios) + ui/shared node-test suites, and ALL root+CLI format/lint baseline debt cleared (repo lint 0/0, fmt green both workspaces; CLI config-scoping bug fixed).
 
 **Changes:**
 
@@ -307,7 +309,7 @@ Manual: fresh Windows install of the alpha + upgrade from the previous alpha; ph
 | Alpha | Phase | Key automated checks                                                    | Key manual checks                                                                                                            |
 | ----- | ----- | ----------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
 | A1    | P0    | telemetry no-op units; updater-guard units                              | no vendor telemetry/update traffic on fresh install; updates disabled (help-config fetch on user action remains until P2/P3) |
-| A2    | P2    | gate/wizard units; wizard E2E (new harness)                             | first-run wizard with real key + Ollama; `/remote` token login                                                               |
+| A2    | P2    | gate/wizard units; wizard E2E (new harness) — delivered: ui 20 + shared 9 unit tests, 8 e2e specs; all-lint-zero bonus | first-run wizard with real key + Ollama; `/remote` token login |
 | A3    | P1    | catalog/schema units; discovery client units (mocked)                   | discovery with real key + Ollama; no GLM rules                                                                               |
 | A4    | P3    | off-peak local backend units+integration (new harness)                  | off-peak runs locally; plan/quota UI gone; IM bots work                                                                      |
 | A5    | P4    | rename/protocol/tool-registry units; binary-resolution units; **smoke** | agent spawn on installer; no WebSearch; MCP search spot-check                                                                |
