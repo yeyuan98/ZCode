@@ -9,7 +9,7 @@ import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import { useProviderModelDraft } from "@/settings/model-provider-section/useProviderModelDraft.js";
 import { ProviderModelMetadataDialog } from "@/settings/model-provider-section/ProviderModelMetadataDialog.js";
 import { formatModelContextWindowLabel } from "@/lib/tokenNumberFormat.js";
-import type { ModelConfigResolution, ProviderConfigObject } from "@zcode/provider";
+import type { ModelConfigResolution } from "@zcode/provider";
 import { shouldShowModelVisionBadge } from "@/lib/modelVisionBadge.js";
 import { useProviderDetailFeedback } from "@/settings/model-provider-section/ProviderDetailFeedback.js";
 
@@ -18,7 +18,6 @@ export function ModelRowInput({
   providerId,
   providerName = providerId,
   providerEnabled = true,
-  providerAccess,
   inputTestId,
   deleteTestId,
   onCommit,
@@ -32,7 +31,6 @@ export function ModelRowInput({
   providerId: string;
   providerName?: string;
   providerEnabled?: boolean;
-  providerAccess?: ProviderConfigObject["access"];
   inputTestId?: string;
   deleteTestId?: string;
   onCommit: (model: ProviderSettingsFormModel, basedOnRevision: number) => void | Promise<void>;
@@ -259,11 +257,7 @@ export function ModelRowInput({
           >
             {contextWindowLabel}
           </span>
-          {shouldShowModelVisionBadge(
-            model.modelId,
-            model.config.properties?.inputFormat?.supportsImage,
-            providerAccess,
-          ) ? (
+          {shouldShowModelVisionBadge(model.config.properties?.inputFormat?.supportsImage) ? (
             <ModelInputCapabilityBadge />
           ) : null}
         </div>

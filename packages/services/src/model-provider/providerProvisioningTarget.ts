@@ -9,13 +9,11 @@ import { decodeProviderConfigFile, encodeProviderConfigFile } from "@zcode/provi
 import {
   providerProvisioningEnvelopeSchema,
   providerProvisioningResultSchema,
-  isProviderProvisioningAccountCredentialKey,
   type ProviderProvisioningEnvelope,
   type ProviderProvisioningResult,
 } from "@zcode/shared";
 import type { ICredentialService } from "../credential/credential.js";
 import type { ProviderRuntime } from "./providerRuntime.js";
-import type { AccountProviderService } from "@zcode/provider";
 import type { IProviderProvisioningTargetService } from "./providerProvisioning.js";
 import {
   PROVIDER_PROVISIONING_OAUTH_CREDENTIAL_KEYS,
@@ -29,7 +27,6 @@ const OAUTH_CREDENTIAL_KEYS = new Set<string>(PROVIDER_PROVISIONING_OAUTH_CREDEN
 export interface ProviderProvisioningTargetOptions {
   readonly providerRuntime: ProviderRuntime;
   readonly personalRepository: PersonalProviderConfigRepository;
-  readonly accountProviderSource: AccountProviderService;
   readonly credentialService: ICredentialService;
   readonly personalConfigFilePath: string;
   readonly stateFilePath: string;
@@ -96,7 +93,6 @@ export function createProviderProvisioningTarget(
             return personalUpdate;
           });
 
-          await options.accountProviderSource.refresh("provider-provisioning");
           const snapshot =
             await options.providerRuntime.registryService.refresh("provider-provisioning");
           if (
@@ -178,7 +174,8 @@ async function captureBeforeState(
     ...envelope.credentials.map((entry) => entry.key),
   ]);
   for (const key of credentialKeys) {
-    if (!OAUTH_CREDENTIAL_KEYS.has(key) && !isProviderProvisioningAccountCredentialKey(key)) {
+    // P2：account-provider 凭据键已删除；基线只保留 OAuth allowlist 内的键。
+    if (!OAUTH_CREDENTIAL_KEYS.has(key)) {
       continue;
     }
     credentials.set(key, await options.credentialService.load(key));
@@ -233,7 +230,6 @@ async function rollback(
     return new Error(errors.map(formatError).join("；"));
   }
   try {
-    await options.accountProviderSource.refresh("provider-provisioning-rollback");
     await options.providerRuntime.registryService.refresh("provider-provisioning-rollback");
   } catch (error) {
     return error instanceof Error ? error : new Error(String(error));
@@ -256,9 +252,7 @@ function validateCredentialEntries(envelope: ProviderProvisioningEnvelope): void
   for (const entry of envelope.credentials) {
     if (seen.has(entry.key)) throw new Error(`重复 Provisioning Credential key: ${entry.key}`);
     seen.add(entry.key);
-    const allowed =
-      (entry.scope === "oauth-session" && OAUTH_CREDENTIAL_KEYS.has(entry.key)) ||
-      (entry.scope === "account-provider" && isProviderProvisioningAccountCredentialKey(entry.key));
+    const allowed = entry.scope === "oauth-session" && OAUTH_CREDENTIAL_KEYS.has(entry.key);
     if (!allowed) throw new Error(`不允许同步的 Credential key: ${entry.key}`);
   }
 }

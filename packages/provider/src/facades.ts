@@ -152,7 +152,6 @@ export interface ProviderSettingsProviderView extends Pick<
   "providerName" | "templateId"
 > {
   readonly enabled: boolean;
-  readonly accountState?: import("./account-provider-state.js").AccountProviderState;
   readonly providerId: ProviderId;
   /** 当前 Effective Config 是否已经进入 Registry，可用于模型选择和创建。 */
   readonly executable: boolean;
@@ -224,7 +223,6 @@ export class ProviderSettingsFacade {
       personalProviders: snapshot.config.personalProviders,
       personalModels: snapshot.config.personalModels,
       resolution: snapshot.resolution,
-      accountStates: snapshot.account.states,
     });
   }
 
@@ -557,7 +555,6 @@ export class ModelSelectionFacade {
         ? resolveEffectiveModelSelection({
             selection: input.selection,
             registry,
-            accountStates: snapshot?.account.states,
             classifyProvider: this.#classifyProvider,
             resolveLegacyReasoningLevel,
           })
@@ -612,7 +609,6 @@ function createProviderSettingsView(input: {
   personalProviders: ProviderRegistryServiceSnapshot["config"]["personalProviders"];
   personalModels: ProviderRegistryServiceSnapshot["config"]["personalModels"];
   resolution: ProviderConfigResolution;
-  accountStates?: import("./account-provider-state.js").AccountProviderStates;
 }): ProviderSettingsView {
   const executableProviderIds = new Set(
     input.resolution.registryProviders.map((provider) => provider.providerId),
@@ -624,9 +620,6 @@ function createProviderSettingsView(input: {
       providerName: provider.providerName,
       templateId: provider.templateId,
       enabled: provider.enabled,
-      ...(input.accountStates?.[provider.providerId]
-        ? { accountState: input.accountStates[provider.providerId] }
-        : {}),
       executable: executableProviderIds.has(provider.providerId),
       ...(provider.templateConfig ? { templateConfig: provider.templateConfig.toJSON() } : {}),
       ...(provider.effectiveBuiltinConfig

@@ -51,7 +51,6 @@ import {
   createAccountProviderCredentialService,
   createAccountProviderRequestAuthService,
   createAccountRequestAuthService,
-  resolveCurrentAccountAccess,
   resolveAccountTeamPlanRuntimeApiKey,
   createSettingsSyncService,
   createBotsService,
@@ -68,7 +67,6 @@ import {
   BIGMODEL_PROVIDER_ID,
   buildRuntimeZCodeApiUrl,
   DEFAULT_ZCODE_MODEL_CONTEXT_BUDGET_STRATEGY,
-  type ProviderFamilyDomain,
   type ZCodeSessionRuntimePreferencesResult,
   ZAI_PROVIDER_ID,
 } from "@zcode/shared";
@@ -131,17 +129,10 @@ export function createRemoteWorkspaceServiceCollection(params: {
     // desktop-attached remote 只复用本机已解析或旧存储中的 Key；远端刷新仍由本机正式账号链负责。
     resolveProviderApiKey: async () => null,
   });
-  const loadLocalAccountIdentity = async (family: ProviderFamilyDomain) => {
-    const providerId = family === "zai" ? ZAI_PROVIDER_ID : BIGMODEL_PROVIDER_ID;
-    return (await localOAuthCredentialRepo.loadUserProfile(providerId))?.id ?? null;
-  };
   const localAccountRequestAuthService = createAccountRequestAuthService(
     createAccountProviderRequestAuthService({
-      resolveCurrentAccountAccess: (access) =>
-        resolveCurrentAccountAccess({
-          access,
-          loadAccountIdentity: loadLocalAccountIdentity,
-        }),
+      // P2：Registry 不再发布账号 Access；当前账号连接解析恒为空，待 P3 重建连接选择。
+      resolveCurrentAccountAccess: async () => null,
       loadOAuthTokenSet: (providerId) => localOAuthCredentialRepo.loadTokenSet(providerId),
       async loadIndividualPlanApiKey(providerId, family) {
         const oauthProviderId = family === "zai" ? ZAI_PROVIDER_ID : BIGMODEL_PROVIDER_ID;

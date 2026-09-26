@@ -352,9 +352,8 @@ function toAiSdkProviderConfig(
   config: RegistryProviderConfig,
 ): AiSdkProviderConfig {
   const common = {
-    ...(config.access.type !== "zhipu-account" && config.access.apiKey
-      ? { apiKey: config.access.apiKey }
-      : {}),
+    // P2：vendor 账号 Access 已删除；静态鉴权只读 api-key 字段。
+    ...(config.access.apiKey ? { apiKey: config.access.apiKey } : {}),
     baseURL: config.api.baseUrl,
     ...(config.api.headers ? { headers: { ...config.api.headers } } : {}),
     providerOptions: { apiFormat: config.api.type },
