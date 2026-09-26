@@ -23,7 +23,10 @@ pnpm test:e2e                   # 等价于 playwright test
   - 全新状态自动弹出向导（模板选择页）；
   - 自定义 provider（名称 + Base URL + API Key）保存后向导关闭并进入应用外壳；
   - 模板 “测试 API Key” 探测成功态（含模型数量）与错误 key 的 401 失败态；
+  - Key 步头部显示所选供应商名称（步骤头部随选择切换的回归断言）；
   - 跳过向导后 `providerOnboardingDismissedAt` 由服务端 settings 持久化，刷新不再弹出。
+- `wizard-scroll.spec.ts` — 向导布局回归（alpha.2 裁切缺陷）：
+  - 短视口下模板列表卡内滚动可到达全部供应商卡片，头部（品牌标题）固定不被裁掉。
 - `token-login.spec.ts` — 自托管 token 登录门禁：
   - 启用 `authToken` 的服务器首屏进入登录页；
   - 错误 token 显示错误并停留在登录页；

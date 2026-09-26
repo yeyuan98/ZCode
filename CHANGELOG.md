@@ -4,37 +4,35 @@
 
 ### Features
 
-* **p2:** vendor-neutral onboarding, web token login, GitHub Issues feedback ([d644ed1](https://github.com/yeyuan98/ZCode/commit/d644ed17efcfe0541ff00bbab1e7dd5d42afa8d6))
-  * startup gate now opens the wizard iff no usable provider AND not dismissed;
-  * new optional AppSettings field providerOnboardingDismissedAt (skip persistence;
-  * guard waits for BOTH settings and model-selection hydration, with error escapes
-  * welcome wizard replaces the vendor OAuth screen: full template catalog (all
-  * useOAuth hook and vendor OAuth login UI deleted
-  * packages/web gains a same-origin token login page (token entry, editable server
-  * in-app feedback center fully deleted (20 UI files, IFeedbackService, vendor HTTP
-  * every report entry (help menu, quickpick, error banners, task rows/menus,
-  * config: feedback_url -> GitHub Issues, zh-CN community -> GitHub Discussions,
-
+- **p2:** vendor-neutral onboarding, web token login, GitHub Issues feedback ([d644ed1](https://github.com/yeyuan98/ZCode/commit/d644ed17efcfe0541ff00bbab1e7dd5d42afa8d6))
+  - startup gate now opens the wizard iff no usable provider AND not dismissed;
+  - new optional AppSettings field providerOnboardingDismissedAt (skip persistence;
+  - guard waits for BOTH settings and model-selection hydration, with error escapes
+  - welcome wizard replaces the vendor OAuth screen: full template catalog (all
+  - useOAuth hook and vendor OAuth login UI deleted
+  - packages/web gains a same-origin token login page (token entry, editable server
+  - in-app feedback center fully deleted (20 UI files, IFeedbackService, vendor HTTP
+  - every report entry (help menu, quickpick, error banners, task rows/menus,
+  - config: feedback_url -> GitHub Issues, zh-CN community -> GitHub Discussions,
 
 ### Chores
 
-* **lint:** clear all format/lint baseline debt in both workspaces ([1074e7d](https://github.com/yeyuan98/ZCode/commit/1074e7dd977a17a78dc074fc80a5fda85bdc24f8))
-  * new apps/zcode-cli/.oxlintrc.json (max-lines off, P6+ split debt), dynamic-workflow
+- **lint:** clear all format/lint baseline debt in both workspaces ([1074e7d](https://github.com/yeyuan98/ZCode/commit/1074e7dd977a17a78dc074fc80a5fda85bdc24f8))
+  - new apps/zcode-cli/.oxlintrc.json (max-lines off, P6+ split debt), dynamic-workflow
 
-* **p0:** format/lint follow-up — zero new warnings vs baseline ([9b052bc](https://github.com/yeyuan98/ZCode/commit/9b052bca5e9f7b408298767f830f6e8d2af59627))
-  * 修正 P0 引入的格式回归：VENDOR-PURGE-PLAN.md、specs/telemetry-and-update-policy.md、
-  * 清理 P0 删除消费端后遗留的 unused 标识：index.ts(hostname/getDataBaseDir)、
-  * release-it 增加 after:bump hook：版本写入 package.json 会改变 notices 门禁
-  * 实测对比基线 53b17b3：fmt 失败文件 35→34（无新增）；lint warnings 70→58
-
+- **p0:** format/lint follow-up — zero new warnings vs baseline ([9b052bc](https://github.com/yeyuan98/ZCode/commit/9b052bca5e9f7b408298767f830f6e8d2af59627))
+  - 修正 P0 引入的格式回归：VENDOR-PURGE-PLAN.md、specs/telemetry-and-update-policy.md、
+  - 清理 P0 删除消费端后遗留的 unused 标识：index.ts(hostname/getDataBaseDir)、
+  - release-it 增加 after:bump hook：版本写入 package.json 会改变 notices 门禁
+  - 实测对比基线 53b17b3：fmt 失败文件 35→34（无新增）；lint warnings 70→58
 
 ### Documentation
 
-* **spec:** P2 onboarding & gate spec + master-plan corrections ([e11c377](https://github.com/yeyuan98/ZCode/commit/e11c3776eae09c6c8702c0fed6ddb2b3a41763b0))
-  * add specs/onboarding-and-gate.md: gate rule, wizard flow, web token login, feedback policy, ownership invariants
-  * master plan §5: record binding alpha policy (development-first, no alpha-to-alpha compat)
-  * master plan P2: fix ZCODE_SERVER_TOKEN→ZCODE_SERVER_AUTH_TOKEN, mislabeled remoteWorkspaceServiceCollection token (share auth → P5), migration file moves P1→P2, feedback deletion scope + community decisions
-  * master plan §2.7: correct server auth env name
+- **spec:** P2 onboarding & gate spec + master-plan corrections ([e11c377](https://github.com/yeyuan98/ZCode/commit/e11c3776eae09c6c8702c0fed6ddb2b3a41763b0))
+  - add specs/onboarding-and-gate.md: gate rule, wizard flow, web token login, feedback policy, ownership invariants
+  - master plan §5: record binding alpha policy (development-first, no alpha-to-alpha compat)
+  - master plan P2: fix ZCODE_SERVER_TOKEN→ZCODE_SERVER_AUTH_TOKEN, mislabeled remoteWorkspaceServiceCollection token (share auth → P5), migration file moves P1→P2, feedback deletion scope + community decisions
+  - master plan §2.7: correct server auth env name
 
 ## 3.14.3-alpha.1 (2026-09-26)
 
