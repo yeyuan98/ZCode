@@ -1035,7 +1035,7 @@ function isBigModelTeamCodingPlanProject(
   return String(project.projectType ?? "").trim() === "2";
 }
 
-export function createBigModelLoginAuthHeaders(token: string): Record<string, string> {
+function createBigModelLoginAuthHeaders(token: string): Record<string, string> {
   return {
     // BigModel 登录态业务接口要求 Authorization 直接传 accessToken。
     // 这里不能套 Bearer；Bearer 只适用于模型/API Key 类接口。

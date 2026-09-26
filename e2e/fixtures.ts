@@ -230,7 +230,21 @@ async function startAppServer(options: StartAppServerOptions): Promise<AppServer
         child.kill("SIGKILL");
       }, 5000).unref();
     });
-    await rm(runDir, { recursive: true, force: true });
+    // 服务器进程退出后其 SQLite 句柄释放存在竞态，单次 rm 可能撞上 ENOTEMPTY；
+    // 重试以消除 teardown 偶发失败（不影响断言结果）。
+    for (let attempt = 0; ; attempt++) {
+      try {
+        await rm(runDir, { recursive: true, force: true });
+        return;
+      } catch (error) {
+        if (attempt >= 4 || !(error instanceof Error) || !error.message.includes("ENOTEMPTY")) {
+          throw error;
+        }
+        await new Promise((resolve) => {
+          setTimeout(resolve, 100);
+        });
+      }
+    }
   };
 
   try {

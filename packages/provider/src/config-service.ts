@@ -57,6 +57,8 @@ export interface CreatePersonalProviderInput {
   readonly providerName?: string;
   readonly locale?: ProviderTemplateLocale;
   readonly initialConfig?: ProviderConfig;
+  /** 向导“测试并发现”得到的模型 id；作为 personalModelIds 种子随同一次保存持久化。 */
+  readonly initialModelIds?: readonly ModelId[];
 }
 
 /** Facade 提供的 Host 内部成员事实；不得接受 Renderer 自报的模型名单。 */
@@ -154,17 +156,6 @@ export class ProviderConfigService implements ProviderSource<ProviderConfigSnaps
       const builtin = zcodeBuiltin.providers.get(providerId);
       const currentPersonal = current.providers.get(providerId);
       const currentEffectiveProviders = zcodeBuiltin.providers.overlay(current.providers);
-      // 账号总禁用已撤销；在公共写入边界拒绝新操作，避免隐藏 UI 后仍能写出无效状态。
-      if (builtin?.access?.type === "zhipu-account" && metadata?.enabled === false) {
-        throw new Error(`Account Provider 不允许禁用: ${providerId}`);
-      }
-      if (builtin?.access?.type === "zhipu-account" && config.access !== undefined) {
-        // 通用保存入口只解析 ProviderConfig，曾绕过 Personal Source Schema，
-        // 允许固定 Account Provider 的 access 被写盘，直到下次读取才整份拒绝。
-        throw new Error(
-          `固定 Account Provider 的 Access 只能由 ZCode Built-in Config 声明: ${providerId}`,
-        );
-      }
       // 普通保存曾同时承担创建语义，删除后的迟到保存可以凭空复活 Overlay。
       // 创建已经是明确的领域操作，普通保存只更新现有配置，不存在即拒绝。
       if (!currentPersonal && !builtin) {
@@ -233,6 +224,18 @@ export class ProviderConfigService implements ProviderSource<ProviderConfigSnaps
     if (input.initialConfig?.builtinModelIds !== undefined) {
       throw new Error("initialConfig 不能包含 builtinModelIds");
     }
+    // P1 移除了 vendor/ollama 模板的 builtinModelIds：模板实例创建时自身 models 为空会让
+    // 启动门禁（models.length>0）永不满足，向导保存后死循环。发现到的模型 id 在同一次
+    // 保存里作为 personalModelIds 种子写入；目录保留的 .* 默认 modelRule 提供 enabled 与
+    // 完整模型配置，让这些 id 立即进入 Registry。modelOrder 留空即可：resolveOwnedOrder
+    // 会把未排序的 personal 段按写入顺序排在 builtin 段之后，不会丢顺序。
+    const initialModelIds = [
+      ...new Set(
+        (input.initialModelIds ?? [])
+          .map((modelId) => modelId.trim())
+          .filter((modelId) => modelId.length > 0),
+      ),
+    ];
     let createdProviderId: ProviderId | undefined;
     await this.#updatePersonal((current) => {
       const occupied = new Set([...zcodeBuiltin.providers.keys(), ...current.providers.keys()]);
@@ -254,7 +257,7 @@ export class ProviderConfigService implements ProviderSource<ProviderConfigSnaps
         config: new ProviderConfigValue({
           group: "standard-personal",
           access: templateId ? undefined : new ApiKeyAccessConfig(),
-          personalModelIds: [],
+          personalModelIds: initialModelIds,
           modelOrder: [],
         }).overlay(initial),
       });

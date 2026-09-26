@@ -1,14 +1,7 @@
 import { buildStartPlanEntitlementOptions } from "@/lib/startPlanEntitlementOptions.js";
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import type { ProviderSettingsView } from "@zcode/services";
-import {
-  getModelProviderFamilySpec,
-  type ModelProviderFamilySpec,
-  type ProviderFamilyConnectionSelection,
-  type ProviderFamilyConnectionSelectionSettings,
-  type ZCodeAccountAccess,
-  type ZCodeProviderAccountAccess,
-} from "@zcode/shared";
+import { getModelProviderFamilySpec, type ModelProviderFamilySpec } from "@zcode/shared";
 import {
   useUsageEntitlement,
   type UsageEntitlementRefreshOptions,
@@ -51,13 +44,10 @@ function resolveCodingPlanProviderFingerprintAutoRefresh({
 
 function useProviderFamilyEntitlements(params: {
   familySpec: ModelProviderFamilySpec;
-  selection: ProviderFamilyConnectionSelection | undefined;
   providerSettingsView: ProviderSettingsView | null;
 }) {
-  const codingPlanProviderId =
-    params.selection?.kind === "team-coding-plan"
-      ? params.familySpec.teamCodingPlanProviderId
-      : params.familySpec.individualCodingPlanProviderId;
+  // P1：连接选择字段已删除，权益查询固定走个人 Coding Plan provider（Team 由 pricing/快照路径覆盖，P3 重建）。
+  const codingPlanProviderId = params.familySpec.individualCodingPlanProviderId;
   const startPlanProviderId = params.familySpec.startPlanProviderId;
   const accountAccess = resolveAccountProviderInspectionAccess(
     params.providerSettingsView,
@@ -71,10 +61,8 @@ function useProviderFamilyEntitlements(params: {
     ? JSON.stringify([params.providerSettingsView?.revision, accountAccess])
     : "";
   const startProviderFingerprint = startOptions.enabled ? (startOptions.cacheKey ?? "") : "";
-  const entitlementAccess = resolveEntitlementAccountAccess(
-    accountAccess?.access,
-    params.selection,
-  );
+  // P2：Registry 静态账号 Access 已删除；展示查询身份直接沿用解析结果（P3 重建）。
+  const entitlementAccess = accountAccess?.access;
   // Team 查询身份还包含 product/org/project。只使用 Registry 静态 Access
   // 会让切换团队后复用上一项目的权益缓存，因此 cache identity 必须包含执行期账号上下文。
   const codingFingerprint = registryFingerprint
@@ -130,26 +118,6 @@ function useProviderFamilyEntitlements(params: {
   );
 }
 
-function resolveEntitlementAccountAccess(
-  access: ZCodeProviderAccountAccess | undefined,
-  selection: ProviderFamilyConnectionSelection | undefined,
-): ZCodeProviderAccountAccess | ZCodeAccountAccess | undefined {
-  if (access?.mode !== "team-coding-plan" || selection?.kind !== "team-coding-plan") {
-    // 展示查询针对这个套餐自身，不让执行期的 current 解析器改成当前另一套餐。
-    return access && (access.mode === "start-plan" || access.mode === "individual-coding-plan")
-      ? { type: "zhipu-account", family: access.accountType, planKind: access.mode }
-      : access;
-  }
-  return {
-    type: "zhipu-account",
-    family: access.accountType,
-    planKind: "team-coding-plan",
-    productId: selection.productId,
-    organizationId: selection.organizationId,
-    projectId: selection.projectId,
-  };
-}
-
 export function useCodingPlanAccessRefresh({
   refresh,
   selectedPlanKey,
@@ -169,11 +137,9 @@ export function useCodingPlanAccessRefresh({
 
 export function useCodingPlanEntitlements({
   providerSettingsView,
-  connectionSelections = {},
   suppressProviderFingerprintAutoRefresh = false,
 }: {
   providerSettingsView: ProviderSettingsView | null;
-  connectionSelections?: ProviderFamilyConnectionSelectionSettings;
   suppressProviderFingerprintAutoRefresh?: boolean;
 }): {
   entitlements: Partial<Record<string, CodingPlanEntitlementState>>;
@@ -186,12 +152,10 @@ export function useCodingPlanEntitlements({
   // React Hook 必须保持固定调用顺序，因此显式调用两个 Family，而不是动态遍历 Spec。
   const zaiFamily = useProviderFamilyEntitlements({
     familySpec: getModelProviderFamilySpec("zai"),
-    selection: connectionSelections.zai,
     providerSettingsView,
   });
   const bigmodelFamily = useProviderFamilyEntitlements({
     familySpec: getModelProviderFamilySpec("bigmodel"),
-    selection: connectionSelections.bigmodel,
     providerSettingsView,
   });
 

@@ -22,7 +22,7 @@ pnpm test:e2e                   # 等价于 playwright test
 - `wizard.spec.ts` — 首次启动门禁与欢迎向导（`specs/onboarding-and-gate.md`）：
   - 全新状态自动弹出向导（模板选择页）；
   - 自定义 provider（名称 + Base URL + API Key）保存后向导关闭并进入应用外壳；
-  - 模板 “测试 API Key” 探测成功态（含模型数量）与错误 key 的 401 失败态；
+  - 模板 “测试并发现模型” 探测成功态（含模型数量）与错误 key 的 401 失败态；
   - Key 步头部显示所选供应商名称（步骤头部随选择切换的回归断言）；
   - 跳过向导后 `providerOnboardingDismissedAt` 由服务端 settings 持久化，刷新不再弹出。
 - `wizard-scroll.spec.ts` — 向导布局回归（alpha.2 裁切缺陷）：

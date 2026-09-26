@@ -26,12 +26,13 @@ Status: implemented-by P2 (`v3.14.3-alpha.2`), wizard layout/header contract ref
    chosen provider's name/logo/provider-specific description, never the generic "pick a
    provider" copy. Locked by `e2e/wizard-scroll.spec.ts` + the provider-heading assertion in
    `e2e/wizard.spec.ts`.
-3. **Test-key probe = direct HTTP from the services layer.** A new provider-facade method calls
+3. **Test-key probe = direct HTTP from the services layer.** ~~A new provider-facade method calls
    the template protocol's model-list endpoint (`GET {baseUrl}/v1/models`; `Authorization:
 Bearer` for openai-compatible, `x-api-key` + `anthropic-version` for anthropic-compatible)
-   through the host network transport (proxy settings honored). It never spawns the agent
-   runtime; the settings-page agent-based connectivity test is unchanged; P1's discovery client
-   supersedes this probe.
+   through the host network transport (proxy settings honored).~~ **Superseded by P1's
+   discovery client** (`specs/provider-catalog-and-discovery.md` §2): the probe was absorbed
+   into `providerModelDiscovery.ts` (same no-agent-spawn/proxy-aware properties), and the
+   wizard's key step now runs "test & discover" with persistence of discovered model ids.
 4. **Self-hosted web login = token.** `packages/web` gains a same-origin login page shown when
    the server enforces auth: enter the server token (origin pre-filled, editable address for a
    different instance). Verification: fetch a token-protected endpoint with `?token=` (success

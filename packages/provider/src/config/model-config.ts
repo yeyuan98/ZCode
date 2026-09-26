@@ -186,8 +186,11 @@ export class ModelPropertiesConfig extends ConfigOverlay<ModelPropertiesConfig> 
 
   constructor(input: ModelPropertiesConfigInput = {}) {
     super();
+    // P1 vendor purge：目录规则不再携带 supportsNativeWebSearch（P4 将删除该字段本身）。
+    // 完整 schema 仍要求该字段，因此此处统一默认为 false，保证模型装配与注册表序列化始终产出合法值。
     Object.assign(this, {
       ...input,
+      supportsNativeWebSearch: input.supportsNativeWebSearch ?? false,
       inputFormat:
         input.inputFormat instanceof ModelInputFormatConfig || input.inputFormat == null
           ? input.inputFormat

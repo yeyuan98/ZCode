@@ -2,7 +2,6 @@ import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import {
-  isProviderProvisioningAccountCredentialKey,
   providerProvisioningEnvelopeSchema,
   type ProviderProvisioningCredentialEntry,
   type ProviderProvisioningEnvelope,
@@ -16,7 +15,6 @@ import {
   createCredentialCipherProvider,
   type CredentialCipherProvider,
 } from "../credential/providers/credentialCipherProvider.js";
-import type { ISettingService } from "../setting/setting.js";
 
 const CREDENTIAL_FILE_NAME = "credentials.json";
 export const PROVIDER_PROVISIONING_OAUTH_CREDENTIAL_KEYS = [
@@ -36,7 +34,6 @@ export interface ProviderProvisioningSource {
 
 export interface ProviderProvisioningSourceOptions {
   readonly personalRepository: PersonalProviderConfigRepository;
-  readonly settingService: ISettingService;
   readonly credentialFilePath: string;
   readonly personalConfigFilePath: string;
   readonly cipherProvider?: CredentialCipherProvider;
@@ -48,22 +45,17 @@ export function createProviderProvisioningSource(
 ): ProviderProvisioningSource {
   return {
     async read(syncId: string): Promise<ProviderProvisioningEnvelope> {
-      const [personal, settings, credentials] = await Promise.all([
+      const [personal, credentials] = await Promise.all([
         readProvisionablePersonalConfig(options.personalRepository, options.personalConfigFilePath),
-        options.settingService.get(),
         readProvisioningCredentials(options.credentialFilePath, options.cipherProvider),
       ]);
       // 默认与规则来自同一份持锁读取，不能把两次读取的值拼成不存在的配置版本。
       const personalConfig = encodeProviderConfigFile(personal).config;
-      const accountSettings = {
-        providerFamilyDomain: settings.providerFamilyDomain ?? null,
-        providerFamilyConnectionSelections: settings.providerFamilyConnectionSelections ?? {},
-      };
+      // P1：账号连接设置（providerFamilyDomain / providerFamilyConnectionSelections）已删除，不再进入同步信封。
       return providerProvisioningEnvelopeSchema.parse({
         schemaVersion: 1,
         syncId,
         personalConfig,
-        accountSettings,
         credentials,
       });
     },
@@ -130,18 +122,14 @@ async function readProvisioningCredentials(
   // 这些记录不是本次同步事实，不能因为其值损坏而阻断合法账号凭据的同步。
   // allowlist 内的条目仍保持字符串和解密校验，避免把未知内容当成 Secret 传输。
   for (const [key, encrypted] of Object.entries(parsed)) {
-    const scope = allowedKeys.has(key)
-      ? ("oauth-session" as const)
-      : isProviderProvisioningAccountCredentialKey(key)
-        ? ("account-provider" as const)
-        : undefined;
-    if (!scope) continue;
+    // P2：account-provider scope 已删除；历史账号 Key 不再进入同步信封。
+    if (!allowedKeys.has(key)) continue;
     if (typeof encrypted !== "string") {
       throw new Error(`Credential allowlist value must be a string: ${key}`);
     }
     const value = cipher.decrypt(encrypted);
     if (!value.trim()) continue;
-    entries.push({ scope, key, value });
+    entries.push({ scope: "oauth-session", key, value });
   }
   return entries;
 }
@@ -177,7 +165,6 @@ export async function listProviderProvisioningCredentialKeys(
   const parsed = JSON.parse(raw) as unknown;
   if (!isRecord(parsed)) throw new Error("Credential Store 必须是 JSON 对象");
   const oauthKeys = new Set<string>(PROVIDER_PROVISIONING_OAUTH_CREDENTIAL_KEYS);
-  return Object.keys(parsed).filter(
-    (key) => oauthKeys.has(key) || isProviderProvisioningAccountCredentialKey(key),
-  );
+  // P2：account-provider 凭据键已删除；枚举只返回 OAuth allowlist。
+  return Object.keys(parsed).filter((key) => oauthKeys.has(key));
 }

@@ -1,14 +1,11 @@
 /* eslint-disable max-lines -- Settings 与输入框共用连接方式可见性规则，集中放置避免 Start/Coding/Team/API 条件漂移。 */
 import type {
   ProviderFamilyDomain,
-  ProviderFamilyConnectionSelection,
-  ProviderFamilyConnectionSelectionSettings,
   UsageEntitlementSubscriptionDetail,
   UsageQuotaLimit,
 } from "@zcode/shared";
 import {
   getModelProviderFamilySpec,
-  isIndividualCodingPlanModelProviderId,
   isStartPlanModelProviderId,
   MODEL_PROVIDER_FAMILY_SPECS,
   resolveModelProviderFamilySpecByProviderId,
@@ -57,24 +54,18 @@ interface ResolvedCodingPlanEntitlementState {
 export function resolveCodingPlanEntitlementState({
   providerId,
   accountEntitled,
-  accountAvailability,
-  accountUnavailableReason,
   entitlement,
   modelProvidersLoading,
 }: {
   providerId: string;
   /** 当前账号是否明确拥有该 Provider 对应的产品权益。 */
   accountEntitled: boolean;
-  accountAvailability?: import("@zcode/provider").AccountProviderState["availability"];
-  accountUnavailableReason?: import("@zcode/provider").AccountProviderState["unavailableReason"];
   entitlement?: CodingPlanEntitlementState;
   modelProvidersLoading: boolean;
 }): ResolvedCodingPlanEntitlementState {
   // Start 校验失败是未知，仍允许读取/重试，不能回退为未登录。
-  const canInspect =
-    accountEntitled ||
-    accountAvailability === "pending" ||
-    (isStartPlanModelProviderId(providerId) && accountAvailability === "unknown");
+  // P2：accountState（availability/unavailableReason）已删除；可检视性只由账号权益集合决定。
+  const canInspect = accountEntitled;
   if (!canInspect && modelProvidersLoading) {
     return {
       // 新 Host 启动时 Account Overlay 的首份 View 可能晚于旧
@@ -89,51 +80,12 @@ export function resolveCodingPlanEntitlementState({
     };
   }
   if (!canInspect) {
-    // entitled=false 不等于"没连上"。provider-refactor 之后 Account Overlay 只发布
-    // entitled 布尔值，"已登录且服务端明确回答没有个人套餐"与"未连接"被合并渲染成
-    // "未连接 + 连接按钮"（不由权益快照的 no_plan 判定为"未开通"），且不可用 provider
-    // 不会再发起权益查询，UI 无法自行还原原因，只能依赖随 State 下发的原因分流。
-    // Start 常驻后同样按原因展示；Team Plan 继续由团队权益快照组装。
-    // 原因只在 availability === "unavailable" 时成立，unknown 表示本轮无法判定。
-    if (
-      accountAvailability === "unavailable" &&
-      (isIndividualCodingPlanModelProviderId(providerId) || isStartPlanModelProviderId(providerId))
-    ) {
-      if (accountUnavailableReason === "not-entitled") {
-        return {
-          // 服务端明确无个人套餐：这是"未开通"，不是连接故障。
-          status: "notPurchased",
-          ...(isStartPlanModelProviderId(providerId) && entitlement?.snapshot?.startPlanExpired
-            ? { statusLabelId: "settings.modelProvider.startPlan.status.expired" }
-            : {}),
-          planLevel: null,
-          currentProductId: null,
-          subscriptionBillingCycle: null,
-          subscriptionRenewTime: null,
-          subscriptionExpireTime: null,
-          quotaLimits: [],
-        };
-      }
-      if (accountUnavailableReason === "credential-failed") {
-        return {
-          // 凭据失效属于权益同步失败，不是未购买；保持可重试/重新登录入口。
-          status: "unavailable",
-          planLevel: null,
-          currentProductId: null,
-          subscriptionBillingCycle: null,
-          subscriptionRenewTime: null,
-          subscriptionExpireTime: null,
-          quotaLimits: [],
-        };
-      }
-    }
+    // P2：Account Overlay 已删除；无账号权益时统一按未连接展示（P3 重建原因分流）。
+    void providerId;
     return {
       // 套餐连接是 Account Overlay 事实，不是 Renderer 能读取的
       // API Key 事实。新 Host 明确传入 false 后，旧 Key 不得再点亮连接态。
-      status:
-        isStartPlanModelProviderId(providerId) && accountAvailability === "unknown"
-          ? "unavailable"
-          : "disconnected",
+      status: "disconnected",
       planLevel: null,
       currentProductId: null,
       subscriptionBillingCycle: null,
@@ -247,32 +199,19 @@ export function buildVisibleFamilyConnectionItems({
   items,
   codingPlanEntitlements = {},
   subscribedTeamProducts,
-  connectionSelections,
-  teamPlanSelections,
-  showPurchasedTeamPlanFallback,
 }: {
   items: Array<Extract<ModelProviderNavGroup["items"][number], { type: "codingPlan" }>>;
   codingPlanEntitlements?: Partial<Record<string, CodingPlanEntitlementState>>;
   subscribedTeamProducts: EnterpriseCodingPlanProductDisplay[];
-  showPurchasedTeamPlanFallback: boolean;
-  connectionSelections?: ProviderFamilyConnectionSelectionSettings;
-  teamPlanSelections?: Partial<
-    Record<
-      ProviderFamilyDomain,
-      Extract<ProviderFamilyConnectionSelection, { kind: "team-coding-plan" }>
-    >
-  >;
 }): ModelProviderNavGroup["items"] {
+  // P1：连接选择（providerFamilyConnectionSelections）已删除，可见性不再参考已保存选择（P3 重建）。
   return appendSubscribedTeamPlanItems({
     items: filterStartPlanItemsByEntitlement({
       items,
       codingPlanEntitlements,
       subscribedTeamProducts,
-      connectionSelections,
     }),
     codingPlanEntitlements,
-    teamPlanSelections,
-    showPurchasedTeamPlanFallback,
     subscribedTeamProducts,
   });
 }
@@ -281,12 +220,10 @@ function filterStartPlanItemsByEntitlement({
   items,
   codingPlanEntitlements,
   subscribedTeamProducts,
-  connectionSelections,
 }: {
   items: Array<Extract<ModelProviderNavGroup["items"][number], { type: "codingPlan" }>>;
   codingPlanEntitlements: Partial<Record<string, CodingPlanEntitlementState>>;
   subscribedTeamProducts: EnterpriseCodingPlanProductDisplay[];
-  connectionSelections?: ProviderFamilyConnectionSelectionSettings;
 }): Array<Extract<ModelProviderNavGroup["items"][number], { type: "codingPlan" }>> {
   // 原变量名 hasBigModelTeamPlan 暗示只服务 bigmodel，但逻辑
   // （entitlement 或 subscribedTeamProducts）本身是 family 无关的。
@@ -306,9 +243,6 @@ function filterStartPlanItemsByEntitlement({
       (candidate) => candidate.presetId === familySpec.individualCodingPlanProviderId,
     );
     const hasStartPlanEntitlement = item.status === "purchased";
-    const isSelectedStartPlan = connectionSelections?.[familySpec.id]?.kind === "start-plan";
-    const shouldPreserveUnresolvedSelection =
-      isSelectedStartPlan && (item.status === "checking" || item.status === "unavailable");
     const loggedIn =
       item.accountEntitled === true ||
       codingItem?.accountEntitled === true ||
@@ -322,8 +256,8 @@ function filterStartPlanItemsByEntitlement({
     }
 
     // Start Plan 是独立连接；个人/团队 Coding 权益不再参与可见性判断。
-    // 查询中或临时不可用时保留用户已选项，只有自身明确无权益才隐藏。
-    return hasStartPlanEntitlement || shouldPreserveUnresolvedSelection;
+    // P1：已选连接不再保留查询中的入口，只有自身明确有权益才展示。
+    return hasStartPlanEntitlement;
   });
 }
 
@@ -344,19 +278,10 @@ function resolveCodingPlanItemForFamily(
 function appendSubscribedTeamPlanItems({
   items,
   codingPlanEntitlements,
-  teamPlanSelections,
-  showPurchasedTeamPlanFallback,
   subscribedTeamProducts,
 }: {
   items: Array<Extract<ModelProviderNavGroup["items"][number], { type: "codingPlan" }>>;
   codingPlanEntitlements: Partial<Record<string, CodingPlanEntitlementState>>;
-  teamPlanSelections?: Partial<
-    Record<
-      ProviderFamilyDomain,
-      Extract<ProviderFamilyConnectionSelection, { kind: "team-coding-plan" }>
-    >
-  >;
-  showPurchasedTeamPlanFallback: boolean;
   subscribedTeamProducts: EnterpriseCodingPlanProductDisplay[];
 }): ModelProviderNavGroup["items"] {
   // 原实现先 items.find(bigmodelCodingPlan)，不存在时直接 return items。
@@ -379,25 +304,7 @@ function appendSubscribedTeamPlanItems({
       return buildEntitlementTeamPlanItems(codingPlanItem, codingPlanEntitlements, family);
     },
   );
-  const fallbackTeamItems: TeamPlanNavItem[] = MODEL_PROVIDER_FAMILY_SPECS.flatMap(
-    ({ id: family }) => {
-      const selection = teamPlanSelections?.[family];
-      const codingPlanItem = resolveCodingPlanItemForFamily(items, family);
-      return selection && codingPlanItem
-        ? buildSelectedTeamPlanFallbackItems({
-            codingPlanItem,
-            selection,
-            showPurchasedTeamPlanFallback,
-            family,
-          })
-        : [];
-    },
-  );
-  if (
-    entitlementTeamItems.length === 0 &&
-    fallbackTeamItems.length === 0 &&
-    subscribedTeamProducts.length === 0
-  ) {
+  if (entitlementTeamItems.length === 0 && subscribedTeamProducts.length === 0) {
     return items;
   }
 
@@ -512,24 +419,13 @@ function appendSubscribedTeamPlanItems({
   const correctedEntitlementTeamItems = entitlementTeamItems.map(
     (item) => productTeamItemsByProjectKey.get(resolveTeamPlanProjectKey(item)) ?? item,
   );
-  const correctedFallbackTeamItems = fallbackTeamItems.map(
-    (item) => productTeamItemsByProjectKey.get(resolveTeamPlanProjectKey(item)) ?? item,
-  );
   const correctedProjectKeys = new Set(
     correctedEntitlementTeamItems.map(resolveTeamPlanProjectKey),
   );
-  const correctedFallbackProjectKeys = new Set(
-    correctedFallbackTeamItems.map(resolveTeamPlanProjectKey),
-  );
   const teamItems: ModelProviderNavGroup["items"] = [
     ...correctedEntitlementTeamItems,
-    ...correctedFallbackTeamItems.filter(
-      (item) => !correctedProjectKeys.has(resolveTeamPlanProjectKey(item)),
-    ),
     ...productTeamItems.filter(
-      (item) =>
-        !correctedProjectKeys.has(resolveTeamPlanProjectKey(item)) &&
-        !correctedFallbackProjectKeys.has(resolveTeamPlanProjectKey(item)),
+      (item) => !correctedProjectKeys.has(resolveTeamPlanProjectKey(item)),
     ),
   ];
 
@@ -627,52 +523,6 @@ function buildEntitlementTeamPlanItems(
       // enterprise pricing/customerInfo 只负责后续校正名称和商品字段，不能让连接方式退回 Coding Plan。
       planLevel: teamPlanName,
       currentProductId: productId,
-      purchaseUrl: familySpec.teamCodingPlanManageUrl,
-      subscriptionBillingCycle: null,
-      subscriptionRenewTime: null,
-      subscriptionExpireTime: null,
-      statusActive: true,
-    },
-  ];
-}
-
-function buildSelectedTeamPlanFallbackItems({
-  codingPlanItem,
-  selection,
-  showPurchasedTeamPlanFallback,
-  family,
-}: {
-  codingPlanItem: Extract<ModelProviderNavGroup["items"][number], { type: "codingPlan" }>;
-  selection: Extract<ProviderFamilyConnectionSelection, { kind: "team-coding-plan" }>;
-  showPurchasedTeamPlanFallback: boolean;
-  family: ProviderFamilyDomain;
-}): TeamPlanNavItem[] {
-  if (!showPurchasedTeamPlanFallback) {
-    return [];
-  }
-  const teamPlanName = codingPlanItem.planLevel?.trim() || "Team";
-  const familySpec = getModelProviderFamilySpec(family);
-  const teamProviderId = familySpec.teamCodingPlanProviderId;
-  return [
-    {
-      ...codingPlanItem,
-      key: createTeamPlanNavigationKey(family, {
-        productId: selection.productId,
-        organizationId: selection.organizationId,
-        projectId: selection.projectId,
-      }),
-      presetId: teamProviderId,
-      type: "teamPlan" as const,
-      label: `${codingPlanItem.providerName} - ${teamPlanName}`,
-      teamPlanName,
-      organizationId: selection.organizationId,
-      projectId: selection.projectId,
-      status: "purchased" as const,
-      // enterprise pricing 可能尚未返回 subscribed 团队项目，
-      // 但 shared settings 已保存 Team Plan selectedKey。设置页需要先展示同一连接方式，
-      // 避免和输入框/registry 的 Team Plan 选择短暂断裂。
-      planLevel: teamPlanName,
-      currentProductId: selection.productId,
       purchaseUrl: familySpec.teamCodingPlanManageUrl,
       subscriptionBillingCycle: null,
       subscriptionRenewTime: null,

@@ -347,7 +347,6 @@ export function ProviderModelsSection({
   providerId,
   providerName,
   providerEnabled = true,
-  providerAccess,
   models,
   onTestModel,
   onModelCommit,
@@ -360,7 +359,6 @@ export function ProviderModelsSection({
   providerId: string;
   providerName?: string;
   providerEnabled?: boolean;
-  providerAccess?: ProviderConfigObject["access"];
   models: ProviderSettingsFormModel[];
   onTestModel?: (model: string) => Promise<ModelConnectivityResult>;
   onModelCommit: (
@@ -507,7 +505,6 @@ export function ProviderModelsSection({
                     providerId={providerId}
                     providerName={providerName}
                     providerEnabled={providerEnabled}
-                    providerAccess={providerAccess}
                     inputTestId={testId(TID_MODEL_PROVIDER_MODEL_INPUT, String(index))}
                     deleteTestId={testId(TID_MODEL_PROVIDER_MODEL_DELETE_BUTTON, String(index))}
                     model={model}
