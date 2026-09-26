@@ -1,8 +1,4 @@
 import { modelSelectionSchema } from "./model-selection.js";
-import {
-  migrateLegacyModelProviderId,
-  migrateLegacyOfficialGlmModelId,
-} from "./legacy-model-provider-identity.js";
 import { parseSubagentMarkdownSelection } from "./subagent-markdown-selection.js";
 import {
   parsePluginSubagentModelSelectionOverrides,
@@ -26,6 +22,7 @@ export function importSubagentStateSelections(input: Record<string, unknown>): R
 } {
   const current = Object.hasOwn(input, "builtInModelSelectionOverrides");
   const selections: BuiltInSubagentModelSelectionOverrides = {};
+  // 旧 builtin: Provider 与 GLM 模型名改写已随 GLM 历史 hard-cut 删除，导入只做格式转换。
   for (const name of ["Explore", "general-purpose"] as const) {
     const selection = current
       ? modelSelectionSchema.safeParse(record(input.builtInModelSelectionOverrides)[name]).data
@@ -33,21 +30,7 @@ export function importSubagentStateSelections(input: Record<string, unknown>): R
           model: record(input.builtInModelOverrides)[name],
           thoughtLevel: record(input.builtInThoughtLevelOverrides)[name],
         });
-    if (!selection) continue;
-    // 新 map 已是正式选择；不能把里面的旧 ID 当作未发布中间态继续兼容。
-    const providerId =
-      !current && selection.providerId.startsWith("builtin:")
-        ? migrateLegacyModelProviderId(selection.providerId)
-        : selection.providerId;
-    selections[name] = providerId
-      ? {
-          ...selection,
-          providerId,
-          modelId: current
-            ? selection.modelId
-            : migrateLegacyOfficialGlmModelId(selection.providerId, selection.modelId),
-        }
-      : selection;
+    if (selection) selections[name] = selection;
   }
   // 插件双 map 与内置覆盖一样只在存储导入时解释；
   // 正式 map 存在即为权威，空值/损坏值也不能复活旧 model 或档位。
@@ -60,24 +43,7 @@ export function importSubagentStateSelections(input: Record<string, unknown>): R
             thoughtLevel: record(input.pluginAgentThoughtLevelOverrides)[id],
           });
           if (!id.startsWith("plugin:") || !selection) return [];
-          const providerId = selection.providerId.startsWith("builtin:")
-            ? migrateLegacyModelProviderId(selection.providerId)
-            : selection.providerId;
-          return [
-            [
-              id,
-              providerId
-                ? {
-                    ...selection,
-                    providerId,
-                    modelId: migrateLegacyOfficialGlmModelId(
-                      selection.providerId,
-                      selection.modelId,
-                    ),
-                  }
-                : selection,
-            ],
-          ];
+          return [[id, selection] as const];
         }),
       );
   return {

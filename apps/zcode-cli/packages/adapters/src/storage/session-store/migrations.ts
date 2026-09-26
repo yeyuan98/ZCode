@@ -1,5 +1,3 @@
-import { PROVIDER_MODEL_SELECTION_MIGRATION_SQL } from "./migrations/0020-provider-model-selection.js";
-
 interface SqliteMigration {
   appVersion: string;
   id: string;
@@ -806,8 +804,10 @@ export const SQLITE_MIGRATIONS: readonly SqliteMigration[] = [
     // 下次启动由本条重建。beta 之后本条
     // 不可再改：runner 按 checksum 记账，历史迁移只能追加。
     //
-    // 只为占住 0019 这个槽位，让
-    // staging 后续迁移从 0020 起编号，功能分支合回时 ledger 不会撞号。四张表在功能落地前闲置无害。
+    // 只为占住 0019 这个槽位，四张表在功能落地前闲置无害。
+    // 0020–0022 曾是 GLM selection 回填迁移，已随 P1 vendor purge 删除；这三个编号
+    // 绝不允许以不同 SQL 复用：旧库的 checksum ledger 已按原 SQL 记账，复用会导致
+    // 校验失配。后续迁移从 0023 起编号。
     //
     // 几条刻意为之的设计：
     // 1) parent_session_id / session_id 是纯 text，不加 FOREIGN KEY——子代理会话跑在内存
@@ -910,21 +910,4 @@ export const SQLITE_MIGRATIONS: readonly SqliteMigration[] = [
         on dwf_event(run_id, json_extract(payload_json, '$.artifactId'), sequence);
     `,
   },
-  {
-    appVersion: "0.16.5",
-    id: "0020_provider_model_selection",
-    sql: PROVIDER_MODEL_SELECTION_MIGRATION_SQL,
-  },
-  {
-    appVersion: "0.16.5",
-    id: "0021_official_glm_selection",
-    sql: OFFICIAL_GLM_SELECTION_MIGRATION_SQL,
-  },
-  {
-    appVersion: "0.16.5",
-    id: "0022_backfilled_session_reasoning",
-    sql: BACKFILLED_SESSION_REASONING_MIGRATION_SQL,
-  },
 ];
-import { OFFICIAL_GLM_SELECTION_MIGRATION_SQL } from "./migrations/0021-official-glm-selection.js";
-import { BACKFILLED_SESSION_REASONING_MIGRATION_SQL } from "./migrations/0022-backfilled-session-reasoning.js";

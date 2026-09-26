@@ -215,8 +215,6 @@ export * from "./custom-model-value.js";
 export * from "./model-selection-types.js";
 export * from "./model-selection-key.js";
 export * from "./model-selection.js";
-export * from "./legacy-model-provider-identity.js";
-export * from "./official-glm-model-id.js";
 export * from "./skills-types.js";
 export * from "./skill-sync.js";
 export * from "./mcp-sync.js";

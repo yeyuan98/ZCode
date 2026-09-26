@@ -1,30 +1,31 @@
 import { useCallback, useState } from "react";
 import { useServices } from "@/hooks/useServices.js";
 
-type TemplateApiKeyProbeState =
+type TemplateModelDiscoveryState =
   | { status: "idle" }
   | { status: "testing" }
-  | { status: "success"; modelCount: number }
+  | { status: "success"; modelIds: readonly string[] }
   | { status: "failure"; error: string };
 
 /**
- * 向导“测试 Key”按钮的探测状态机：直接 HTTP 探测（services 层），失败仅作提示、不阻塞保存。
+ * 向导“测试并发现”按钮的状态机：services 层直接 HTTP 发现（不启动 agent），
+ * 失败仅作提示、不阻塞保存；成功态保留模型 id 供保存时随 initialModelIds 持久化。
  */
-export function useProbeTemplateApiKey() {
+export function useDiscoverTemplateModels() {
   const { providerSettingsService } = useServices();
-  const [state, setState] = useState<TemplateApiKeyProbeState>({ status: "idle" });
+  const [state, setState] = useState<TemplateModelDiscoveryState>({ status: "idle" });
 
-  const probe = useCallback(
+  const discover = useCallback(
     async (templateId: string, apiKey: string) => {
       setState({ status: "testing" });
       try {
-        const result = await providerSettingsService.probeTemplateApiKey({
+        const result = await providerSettingsService.discoverTemplateModels({
           templateId,
-          apiKey,
+          ...(apiKey ? { apiKey } : {}),
         });
         setState(
           result.ok
-            ? { status: "success", modelCount: result.modelCount }
+            ? { status: "success", modelIds: result.modelIds }
             : { status: "failure", error: result.error },
         );
       } catch (error) {
@@ -41,5 +42,5 @@ export function useProbeTemplateApiKey() {
     setState({ status: "idle" });
   }, []);
 
-  return { state, probe, reset };
+  return { state, discover, reset };
 }

@@ -1,7 +1,7 @@
 /**
  * 向导（WelcomeScreen / onboarding gate）E2E：
  * 覆盖 specs/onboarding-and-gate.md 的启动门禁、模板/自定义 provider 保存、
- * “测试 API Key” 探测（成功 + 401 失败）与跳过持久化。
+ * “测试并发现”（test & discover，成功 + 401 失败）与跳过持久化。
  */
 import { expect } from "@playwright/test";
 import { test, E2E_API_KEY, MOCK_TEMPLATE_ID } from "./fixtures.js";
@@ -46,14 +46,14 @@ test.describe("welcome wizard", () => {
     await page.locator("#login-custom-provider-name").fill("Mock Custom");
     await page.locator("#login-custom-provider-base-url").fill(`${mockProvider.origin}/v1`);
     await page.getByTestId(API_KEY_INPUT).fill(E2E_API_KEY);
-    // 表单没有单独的探测按钮（探测仅在模板路径提供），保存即创建 personal provider。
+    // 表单没有单独的发现按钮（发现仅在模板路径提供），保存即创建 personal provider。
     await page.getByRole("button", { name: "Continue" }).click();
 
     await expect(page.getByTestId(TEMPLATE_PICKER)).toBeHidden();
     await expectAppShell(page);
   });
 
-  test("template api key probe succeeds then save closes the wizard", async ({
+  test("template test & discover succeeds then save closes the wizard", async ({
     page,
     wizardApp,
   }) => {
@@ -64,25 +64,40 @@ test.describe("welcome wizard", () => {
     await expect(page.getByRole("heading", { name: "Mock E2E" })).toBeVisible();
 
     await page.getByTestId(API_KEY_INPUT).fill(E2E_API_KEY);
-    await page.getByRole("button", { name: "Test API key" }).click();
-    // 探测成功态：role=status 且包含成功文案与模型数量。
+    await page.getByRole("button", { name: "Test & discover" }).click();
+    // 发现成功态：role=status 且包含成功文案与模型数量（mock provider 恰好返回 1 个模型）。
     await expect(page.getByRole("status")).toContainText("API key works");
-    await expect(page.getByRole("status")).toContainText("1");
+    await expect(page.getByRole("status")).toContainText("1 models");
 
     await page.getByTestId(API_KEY_CONTINUE_BUTTON).click();
     await expect(page.getByTestId(TEMPLATE_PICKER)).toBeHidden();
     await expectAppShell(page);
+
+    // wizard-complete⇒usable 锁定：发现到的模型 id 已随保存持久化为 provider 模型，
+    // 启动门禁（models.length>0）关闭，重新加载后向导不得再次弹出。
+    await page.reload();
+    await expect(page.locator(APP_SHELL)).toBeVisible();
+    await expect(page.getByTestId(TEMPLATE_PICKER)).toHaveCount(0);
   });
 
-  test("template api key probe shows failure state on wrong key", async ({ page, wizardApp }) => {
+  test("template test & discover shows failure state on wrong key, save still allowed", async ({
+    page,
+    wizardApp,
+  }) => {
     await page.goto(wizardApp.origin);
     await page.getByTestId(MOCK_TEMPLATE_ITEM).click();
 
     await page.getByTestId(API_KEY_INPUT).fill("wrong-key");
-    await page.getByRole("button", { name: "Test API key" }).click();
-    // mock provider 返回 401，探测失败态带 HTTP 状态；文案同时说明仍可保存。
+    await page.getByRole("button", { name: "Test & discover" }).click();
+    // mock provider 返回 401，发现失败态带 HTTP 状态；文案同时说明仍可保存。
     await expect(page.getByRole("status")).toContainText("Test failed");
     await expect(page.getByRole("status")).toContainText("401");
+
+    // spec 验收：发现失败不阻断保存——Continue 仍可保存 provider 并关闭向导
+    //（零模型 provider 属既定行为：下次启动向导重开，靠 skip/手工加模型脱困）。
+    await page.getByTestId(API_KEY_CONTINUE_BUTTON).click();
+    await expect(page.getByTestId(TEMPLATE_PICKER)).toBeHidden();
+    await expectAppShell(page);
   });
 
   test("skip persists dismissal across reload", async ({ page, wizardApp }) => {

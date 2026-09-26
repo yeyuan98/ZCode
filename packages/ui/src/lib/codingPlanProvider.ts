@@ -9,13 +9,6 @@ export function pickCodingPlanEntitlementProvider(
   return codingPlanProvider ?? null;
 }
 
-export function hasActiveUsageEntitlementSnapshot(
-  snapshot: UsageEntitlementSnapshot | null,
-  providerId?: string,
-): boolean {
-  return resolveUsageEntitlementOutcome(snapshot, providerId) === "active";
-}
-
 type UsageEntitlementOutcome = "active" | "inactive" | "unknown";
 
 /** 只把权威 no_plan 解释为失效；网络、鉴权和不完整快照都保持未知。 */

@@ -5,7 +5,6 @@ import {
   BUILTIN_MODEL_PROVIDER_IDS,
   ZAI_PROVIDER_ID,
   type BuiltinModelProviderId,
-  type ProviderFamilyConnectionSelectionSettings,
   type StartPlanPreviewConfig,
   isStartPlanModelProviderId,
   isIndividualCodingPlanModelProviderId,
@@ -58,7 +57,6 @@ import { useCodingPlanUpgradeDialog } from "@/settings/CodingPlanUpgradeDialogPr
 import { useProviderSettingsView } from "@/hooks/useProviderSettingsView.js";
 import type { ProviderSettingsView } from "@zcode/services";
 import type { SavePersonalModelDraftInput } from "@zcode/provider";
-import { resolveAccountProviderInspectionAccess } from "@/lib/accountProviderAccess.js";
 import { projectProviderSettingsViewToFormProviders } from "@/lib/providerSettingsFormProjection.js";
 
 const START_PLAN_ENTRY_BANNER_CLASS =
@@ -223,8 +221,6 @@ function resolvePlanSettingsProvider({
 export function ModelProviderSectionDetail({
   selectedNavItem,
   navigationItems = selectedNavItem ? [selectedNavItem] : [],
-  connectionSettingsFailed = false,
-  connectionSelections,
   startPlanSubscriptionCount = 0,
   presetLoading,
   codingPlanPurchaseTokenAuthenticatedByProviderId,
@@ -251,8 +247,6 @@ export function ModelProviderSectionDetail({
 }: {
   selectedNavItem: ModelProviderNavItem | null;
   navigationItems?: ModelProviderNavItem[];
-  connectionSettingsFailed?: boolean;
-  connectionSelections?: ProviderFamilyConnectionSelectionSettings;
   startPlanSubscriptionCount?: number;
   presetLoading: boolean;
   codingPlanPurchaseTokenAuthenticatedByProviderId: Partial<
@@ -318,23 +312,11 @@ export function ModelProviderSectionDetail({
   };
   const selectedPlanAccess = useMemo(() => {
     if (!isPlanNavItem(selectedNavItem)) return undefined;
+    // P2：Registry 账号 Access 解析恒为空；套餐查询身份只剩团队订阅导航（P3 重建个人套餐身份）。
     if (selectedNavItem.type === "teamPlan")
       return resolveTeamPlanInspectionAccess(selectedNavItem);
-    const access = resolveAccountProviderInspectionAccess(
-      providerSettingsView,
-      selectedNavItem.presetId,
-    );
-    if (
-      !access ||
-      (access.access.mode !== "start-plan" && access.access.mode !== "individual-coding-plan")
-    )
-      return undefined;
-    return {
-      type: "zhipu-account" as const,
-      family: access.access.accountType,
-      planKind: access.access.mode,
-    };
-  }, [providerSettingsView, selectedNavItem]);
+    return undefined;
+  }, [selectedNavItem]);
   const selectedTeamPlanContext = useMemo(
     () =>
       hasTeamPlanContext(selectedNavItem)
@@ -375,8 +357,6 @@ export function ModelProviderSectionDetail({
     <ProviderFamilyPlanModeSwitch
       selectedNavItem={selectedNavItem}
       navigationItems={navigationItems}
-      connectionSettingsFailed={connectionSettingsFailed}
-      connectionSelections={connectionSelections}
       startPlanSubscriptionCount={startPlanSubscriptionCount}
       onSelectNavItem={onSelectNavItem}
     />
@@ -475,10 +455,8 @@ export function ModelProviderSectionDetail({
         : selectedNavItem.status === "notPurchased");
     // Start 已由 Account 快照确认可用时，额度查询清空/刷新自己的缓存不能卸载编辑器。
     // 未取得套餐时不展示可执行模型；配置区不依赖额度请求的临时 loading 状态。
-    const accountAvailable =
-      providerSettingsView?.providers.find(
-        (provider) => provider.providerId === selectedNavItem.presetId,
-      )?.accountState?.availability === "available";
+    // P2：accountState 已删除，Start 配置区不再依赖账号快照确认可用。
+    const accountAvailable = false;
     const hidePlanModels =
       hasNoPlanEntitlement ||
       selectedNavItem.status === "disconnected" ||
@@ -487,10 +465,8 @@ export function ModelProviderSectionDetail({
       dedicatedProvider !== null &&
       !hidePlanModels &&
       (!isStartPlanProvider || accountAvailable || selectedNavItem.status === "purchased");
-    const reloginOnFailure =
-      selectedNavItem.type === "codingPlan" &&
-      isIndividualCodingPlanModelProviderId(selectedNavItem.presetId) &&
-      selectedNavItem.provider?.accountState?.unavailableReason === "credential-failed";
+    // P2：accountState.unavailableReason 已删除；凭据失败重登入口失去判定来源（P3 重建）。
+    const reloginOnFailure = false;
     // 团队查询/取 Key 失败不是未登录：先刷新 Host 凭据，再刷新当前团队权益。
     const retryTeamPlan =
       selectedNavItem.type === "teamPlan" &&
@@ -554,12 +530,8 @@ export function ModelProviderSectionDetail({
         (item.type === "teamPlan" ||
           (item.type === "codingPlan" && isIndividualCodingPlanModelProviderId(item.presetId))) &&
         item.oauthProviderId === selectedNavItem.oauthProviderId &&
-        providerSettingsView?.providers.some(
-          (provider) =>
-            provider.providerId === item.presetId &&
-            provider.accountState?.availability === "available" &&
-            provider.accountState.entitled,
-        ),
+        // P2：accountState 已删除；已购套餐的活跃判定失去账号快照来源（P3 重建）。
+        false,
     );
     const planSupplementalContent =
       isStartPlanProvider && hasActivePaidPlan ? null : anonymousPurchaseChoiceBannersVisible ||
@@ -637,9 +609,7 @@ export function ModelProviderSectionDetail({
             !selectedNavItem.accountLoginRequired &&
             (selectedNavItem.status === "unavailable" ||
               selectedNavItem.statusLabelId ===
-                "settings.modelProvider.codingPlan.status.unavailable" ||
-              (isIndividualCodingPlanModelProviderId(selectedNavItem.presetId) &&
-                selectedNavItem.provider?.accountState?.unavailableReason === "credential-failed"))
+                "settings.modelProvider.codingPlan.status.unavailable")
               ? onRetryCodingPlan
               : undefined)
           }
@@ -750,10 +720,7 @@ export function ModelProviderSectionDetail({
               !selectedNavItem.accountLoginRequired &&
               (selectedNavItem.status === "unavailable" ||
                 selectedNavItem.statusLabelId ===
-                  "settings.modelProvider.codingPlan.status.unavailable" ||
-                (isIndividualCodingPlanModelProviderId(selectedNavItem.presetId) &&
-                  selectedNavItem.provider?.accountState?.unavailableReason ===
-                    "credential-failed"))
+                  "settings.modelProvider.codingPlan.status.unavailable")
                 ? onRetryCodingPlan
                 : undefined)
             }

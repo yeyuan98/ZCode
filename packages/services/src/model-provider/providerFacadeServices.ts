@@ -20,11 +20,11 @@ import { createServiceDescriptor } from "../descriptors.js";
 import type { ModelConnectivityResult } from "@zcode/shared";
 import { createServiceLogger } from "../logger/serviceLogger.js";
 import {
-  probeTemplateApiKey,
-  type ProbeTemplateApiKeyFetch,
-  type ProbeTemplateApiKeyInput,
-  type ProbeTemplateApiKeyResult,
-} from "./providerTemplateApiKeyProbe.js";
+  discoverTemplateModels,
+  type DiscoverTemplateModelsFetch,
+  type DiscoverTemplateModelsInput,
+  type DiscoverTemplateModelsResult,
+} from "./providerModelDiscovery.js";
 
 export type {
   ProviderSettingsProviderView,
@@ -33,9 +33,9 @@ export type {
   ProviderSettingsView,
 } from "@zcode/provider";
 export type {
-  ProbeTemplateApiKeyInput,
-  ProbeTemplateApiKeyResult,
-} from "./providerTemplateApiKeyProbe.js";
+  DiscoverTemplateModelsInput,
+  DiscoverTemplateModelsResult,
+} from "./providerModelDiscovery.js";
 
 export interface IProviderSettingsService {
   readonly onDidChange: Event<ProviderSettingsView>;
@@ -79,10 +79,10 @@ export interface IProviderSettingsService {
     input: ProviderSettingsConnectivityRequest,
   ): Promise<ModelConnectivityResult>;
   /**
-   * 直接 HTTP 探测内置模板的 API Key（GET {baseUrl}/models）。
-   * A2 用直接 HTTP 探测（P1 的模型发现客户端将取代它），不创建 provider、不启动 agent。
+   * 直接 HTTP 发现内置模板的可用模型列表（GET {baseUrl}/models，anthropic 走游标翻页）。
+   * P1 吸收 A2 的“测试 Key”探测：不创建 provider、不启动 agent，失败仅作提示不阻塞保存。
    */
-  probeTemplateApiKey(input: ProbeTemplateApiKeyInput): Promise<ProbeTemplateApiKeyResult>;
+  discoverTemplateModels(input: DiscoverTemplateModelsInput): Promise<DiscoverTemplateModelsResult>;
 }
 
 export const IProviderSettingsService = createServiceDescriptor<IProviderSettingsService>(
@@ -125,7 +125,7 @@ export function createProviderSettingsService(
   facade: ProviderSettingsFacade,
   ensureReady: () => Promise<void> = async () => {},
   testConnectivity?: ProviderSettingsConnectivityTester,
-  probeFetch?: ProbeTemplateApiKeyFetch,
+  discoveryFetch?: DiscoverTemplateModelsFetch,
 ): IProviderSettingsService {
   return {
     onDidChange: toEvent((listener) => facade.onDidChange(listener)),
@@ -222,18 +222,18 @@ export function createProviderSettingsService(
         modelId: input.modelId,
       });
     },
-    probeTemplateApiKey: async (input) => {
+    discoverTemplateModels: async (input) => {
       await ensureReady();
-      if (!probeFetch) {
-        // 探测是向导的提示性能力，未装配 fetch（如测试环境）时明确失败而不是抛错，
-        // 让 UI 保持“可保存、探测不可用”的降级语义。
-        return { ok: false, error: "template api key probe is not available" };
+      if (!discoveryFetch) {
+        // 发现是向导的提示性能力，未装配 fetch（如测试环境）时明确失败而不是抛错，
+        // 让 UI 保持“可保存、发现不可用”的降级语义。
+        return { ok: false, error: "template model discovery is not available" };
       }
       const view = facade.getView();
       const template = view.providerTemplates.find(
         (candidate) => candidate.templateId === input.templateId,
       );
-      return probeTemplateApiKey(input, { fetch: probeFetch, template });
+      return discoverTemplateModels(input, { fetch: discoveryFetch, template });
     },
   };
 }

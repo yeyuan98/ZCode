@@ -3,7 +3,7 @@
 - **Repo:** `/home/administrator/git/ZCode` (fork of ZCode v3.14.3, branch base `main`)
 - **Goal:** Remove all Z.ai / Zhipu / BigModel vendor-specific code — platform backend, logins, accounts/plans/subscriptions, vendor-bound skills/tools, vendor CDN/telemetry/infra — while keeping the product fully usable via generic API-key providers and local models. zai/bigmodel remain available as **ordinary, equal vendors**.
 - **Version policy:** stay upstream-consistent at **3.14.3**; per-phase test releases as `3.14.3-alpha.N`; final release is exactly `3.14.3`.
-- **Status:** EXECUTING. P0 done (`v3.14.3-alpha.1`); P2 done (`v3.14.3-alpha.2`, 2026-09-26) + wizard UX hotfix (`v3.14.3-alpha.3`); next: P1 (ships as alpha.4). Investigation: 4 parallel deep-dive subagents + 3 independent review rounds, all findings source-verified on `main`.
+- **Status:** EXECUTING. P0 done (`v3.14.3-alpha.1`); P2 done (`v3.14.3-alpha.2`, 2026-09-26) + wizard UX hotfix (`v3.14.3-alpha.3`); P1 done (`v3.14.3-alpha.4`, 2026-09-27, with amendments A1-A4 recorded in its §4 section); next: P3 (ships as alpha.5). Investigation: 4 parallel deep-dive subagents + 3 independent review rounds, all findings source-verified on `main`.
 - **Fresh-start policy:** no migration/compat shims for old setups; there are no existing libre-zcode users.
 
 ---
@@ -100,21 +100,22 @@
 
 ## 3. Locked decisions (user-fixed)
 
-| #   | Decision                                                                                                                                                                                                                                                                                       |
-| --- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| D1  | **Hard-cut everywhere.** Delete all GLM migrations (0020/0021/0022 + v3 SQL), `OFFICIAL_GLM_MODEL_IDS`, legacy vendor readers, `providerFamilyDomain` field. No compat shims.                                                                                                                  |
-| D2  | **Rename `glm` → `zcode`** everywhere (enum, protocol events, env `GLM_BINARY_PATH`→`ZCODE_AGENT_BINARY_PATH`, resource dir `glm/`→`zcode/`, skill prefix `glm:`→`zcode:`, remote package id, signIgnore). Single value, no dual-enum transition. zai/bigmodel stay as equal ordinary vendors. |
-| D3  | **Conversation share: local markdown export only.** Delete vendor-hosted publishing + web landing + `zcode://share/import`. Build local export.                                                                                                                                                |
-| D4  | _(rescinded)_ Remote-asset bundling into the installer rejected — replaced by GitHub Releases hosting + runtime env overrides.                                                                                                                                                                 |
-| D5  | **No WebSearch tool.** Delete tool + all capability plumbing. Users who want search configure an MCP server (e.g. mcp-searxng).                                                                                                                                                                |
-| D6  | **Keep IM bots** (weixin/feishu/lark/telegram/webhook).                                                                                                                                                                                                                                        |
-| D7  | **Rename services** `com.zhipu.zcode.server` → `app.zcode.server`; no installed-service migration needed (no existing users).                                                                                                                                                                  |
-| —   | **OTel-only telemetry**, env-gated opt-in (`OTEL_EXPORTER_OTLP_ENDPOINT`); backend-agnostic by protocol (user supplies any OTLP backend).                                                                                                                                                      |
-| —   | **zai/bigmodel = equal vendors**: templates kept as plain `api-key`; Coding-Plan branding/flows removed; anthropic + openai API flavors both kept per vendor.                                                                                                                                  |
-| —   | **No GLM-id-keyed rules.** Model metadata auto-discovered via standard listing routes (`GET /v1/models`, openai-compat + anthropic).                                                                                                                                                           |
-| —   | **Off-peak kept, vendor-agnostic**: local admission/execution backend; vendor server client deleted.                                                                                                                                                                                           |
-| —   | **Vendor-hosted MCP removed** (official-mcp auth + quota + image-search plugin dependency).                                                                                                                                                                                                    |
-| —   | **Version pinned to upstream 3.14.3** with per-phase alphas; delete existing `v3.14.3` tag + orphaned GitHub Release first.                                                                                                                                                                    |
+| #   | Decision                                                                                                                                                                                                                                                                                                                                               |
+| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| D1  | **Hard-cut everywhere.** Delete all GLM migrations (0020/0021/0022 + v3 SQL), `OFFICIAL_GLM_MODEL_IDS`, legacy vendor readers, `providerFamilyDomain` field. No compat shims.                                                                                                                                                                          |
+| D2  | **Rename `glm` → `zcode`** everywhere (enum, protocol events, env `GLM_BINARY_PATH`→`ZCODE_AGENT_BINARY_PATH`, resource dir `glm/`→`zcode/`, skill prefix `glm:`→`zcode:`, remote package id, signIgnore). Single value, no dual-enum transition. zai/bigmodel stay as equal ordinary vendors.                                                         |
+| D3  | **Conversation share: local markdown export only.** Delete vendor-hosted publishing + web landing + `zcode://share/import`. Build local export.                                                                                                                                                                                                        |
+| D4  | _(rescinded)_ Remote-asset bundling into the installer rejected — replaced by GitHub Releases hosting + runtime env overrides.                                                                                                                                                                                                                         |
+| D5  | **No WebSearch tool.** Delete tool + all capability plumbing. Users who want search configure an MCP server (e.g. mcp-searxng).                                                                                                                                                                                                                        |
+| D6  | **Keep IM bots** (weixin/feishu/lark/telegram/webhook).                                                                                                                                                                                                                                                                                                |
+| D7  | **Rename services** `com.zhipu.zcode.server` → `app.zcode.server`; no installed-service migration needed (no existing users).                                                                                                                                                                                                                          |
+| D8  | **Compile-forced natural death / no pre-hiding / no over-deletion.** Vendor-coupled UI dies when its data sources are excised (compile fan-out decides), never pre-hidden; protected later-phase files get surgical read-removal only. (Previously cited as "D5" in handoff prose — that was a misattribution; recorded as a numbered decision in P1.) |
+| —   | **OTel-only telemetry**, env-gated opt-in (`OTEL_EXPORTER_OTLP_ENDPOINT`); backend-agnostic by protocol (user supplies any OTLP backend).                                                                                                                                                                                                              |
+| —   | **zai/bigmodel = equal vendors**: templates kept as plain `api-key`; Coding-Plan branding/flows removed; anthropic + openai API flavors both kept per vendor.                                                                                                                                                                                          |
+| —   | **No GLM-id-keyed rules.** Model metadata auto-discovered via standard listing routes (`GET /v1/models`, openai-compat + anthropic).                                                                                                                                                                                                                   |
+| —   | **Off-peak kept, vendor-agnostic**: local admission/execution backend; vendor server client deleted.                                                                                                                                                                                                                                                   |
+| —   | **Vendor-hosted MCP removed** (official-mcp auth + quota + image-search plugin dependency).                                                                                                                                                                                                                                                            |
+| —   | **Version pinned to upstream 3.14.3** with per-phase alphas; delete existing `v3.14.3` tag + orphaned GitHub Release first.                                                                                                                                                                                                                            |
 
 ---
 
@@ -164,7 +165,11 @@ Delivered as `v3.14.3-alpha.2` (merge `8e06f90`); wizard layout/header/window-co
 
 **Tests/QA:** unit — gate logic (usable-provider count), wizard template list content, key-probe. E2E (new harness — explicit deliverable) — first-run wizard → configure key → workspace; skip path. Manual — fresh install wizard with a real key and with local Ollama.
 
-### P1 — Catalog & schema excision + model auto-discovery → **alpha.3**
+### P1 — Catalog & schema excision + model auto-discovery → **alpha.4** (done)
+
+Delivered as `v3.14.3-alpha.4`: catalog = 21 equal-vendor templates (16 generic + 4 zai/bigmodel plain-`api-key`, de-branded, no `builtinModelIds` + ollama no-access template), zero `glm` (case-insensitive) / `zhipu` / `account:` / `supportsNativeWebSearch` strings in the catalog JSON; settings field family (`providerFamilyDomain*` + `providerFamilyConnectionSelections`) deleted end-to-end (~45 files); `zhipu-account`/`zhipu-coding-plan-api-key` zod literals + `ZhipuAccountAccessConfig` + account overlay layer excised (provider + services + CLI adaptation, incl. compile-forced CLI login chain); GLM history deleted (id-chain, v3 selection migration + registration, legacy reader vendor parts, CLI migrations 0020-0022 with never-reuse ledger note); net-new discovery client `providerModelDiscovery.ts` (openai-compat + anthropic `/v1/models` with cursor paging, proxy-aware, no agent spawn) absorbs the P2 probe and powers wizard "test & discover" with mandatory model persistence (`initialModelIds` — without it the gate dead-loops on zero-model template providers); empty model lists degrade to failure per spec. Tests: services runner added (28 tests incl. catalog shape/schema-rejection/stale-personal.json containment), e2e wizard locks complete⇒usable + save-after-failed-discovery. Amendments recorded in-phase: **A1** protocol account schemas + 5 vendor entitlement schema files + `ProviderFamilyDomain` type/family specs/builtin ids stay until P3 (P3 files import them; `offPeakRuntimeModel`/`forceUpdate` must be reworked not broken); **A2** `legacyAccountConnectionSettings`/`legacyTeamOrganizationResolver` deleted in P1 (fed exclusively the deleted field); **A3** telemetryRedaction already delivered by P0; **A4** the compile-forced-death/no-pre-hiding ruling (previously mis-cited as "D5" — §3 D5 is WebSearch removal) is a binding numbered decision; CLI top-level `login`/`logout` + TUI `/login` `/logout` + vendor login picker died compile-forced (recorded in the spec expected-death list; shared `zcode-slash-command-help.ts` listing is P4). Also: `ModelPropertiesConfig` defaults `supportsNativeWebSearch:false` until P4 deletes the field; bigmodel-api key URL repointed to the API-key console; knip zero-new-entries gate held.
+
+**Original plan (superseded where amended above):**
 
 **Changes:**
 
@@ -182,7 +187,7 @@ Delivered as `v3.14.3-alpha.2` (merge `8e06f90`); wizard layout/header/window-co
 
 **Tests/QA:** unit — catalog loads (16 generic + 4 zai/bigmodel plain-key + ollama), no vendor account types survive validation, discovery client against mocked openai/anthropic responses (incl. error/empty), merge logic. Manual — wizard discovers real models for a real key and local Ollama; GLM rules absent; provider metadata editor works.
 
-### P3 — Services purge + off-peak local backend → **alpha.4**
+### P3 — Services purge + off-peak local backend → **alpha.5**
 
 **Changes (deletions):**
 
@@ -202,7 +207,7 @@ Delivered as `v3.14.3-alpha.2` (merge `8e06f90`); wizard layout/header/window-co
 
 **Tests/QA:** unit — local admission policy (idle window), create→dispatch→settle against user provider, schema without ticket columns; deletion compile gates. Integration — scheduler utility-process round-trip (harness = explicit deliverable). Manual — queue a task in the idle window, verify local execution + notification; OAuth/plan/quota UI absent; IM bots still function.
 
-### P4 — CLI runtime: rename + WebSearch removal → **alpha.5**
+### P4 — CLI runtime: rename + WebSearch removal → **alpha.6**
 
 **Changes:**
 
@@ -221,11 +226,11 @@ Delivered as `v3.14.3-alpha.2` (merge `8e06f90`); wizard layout/header/window-co
 
 **Tests/QA:** unit — protocol events with new name; skill catalog `zcode:` prefix; tool registry without WebSearch (schema/permissions/tool-identity updated); binary resolution via `ZCODE_AGENT_BINARY_PATH` + bundled `zcode/` dir (extract resolution logic into `packages/services` unit-testable module). `pnpm smoke:windows-bundle` (packaging changed). Manual — agent spawn E2E on the Windows installer; permission prompts; no WebSearch anywhere; MCP server works as search replacement (spot-check).
 
-### P5 — Infrastructure re-pointing → **alpha.6**
+### P5 — Infrastructure re-pointing → **alpha.7**
 
 **Changes:**
 
-1. **Auto-update → electron-updater GitHub provider:** `.github/workflows/release-desktop.yml` uploads `latest.yml` + `.exe.blockmap` (+ `beta.yml` if preview channel kept, mapped to `allowPrerelease`); `publish: {provider:"github", owner, repo}` in `electron-builder.config.js` (replacing the localhost generic placeholder + `dev-app-update.yml`); delete `ManifestUpdateProvider` + force-update gate; rework stable/preview channel UI logic to the GitHub model; **re-enable the three P0 update paths** (guard was provider-keyed so alpha→alpha updates now work — first real in-app alpha→alpha verification happens at A7, since A1–A6 builds all carry the disabled updater); **make the mirror override real**: `ZCODE_UPDATE_FEED_URL` is currently ignored in packaged builds (`autoUpdater.ts:703-710` `isPackaged` guard; NOTICE.md:49) — remove that guard so it becomes a genuine runtime mirror escape hatch (CN reachability), and update NOTICE.md. `pnpm smoke:windows-bundle` before pushing workflow changes (mandatory per AGENTS.md).
+1. **Auto-update → electron-updater GitHub provider:** `.github/workflows/release-desktop.yml` uploads `latest.yml` + `.exe.blockmap` (+ `beta.yml` if preview channel kept, mapped to `allowPrerelease`); `publish: {provider:"github", owner, repo}` in `electron-builder.config.js` (replacing the localhost generic placeholder + `dev-app-update.yml`); delete `ManifestUpdateProvider` + force-update gate; rework stable/preview channel UI logic to the GitHub model; **re-enable the three P0 update paths** (guard was provider-keyed so alpha→alpha updates now work — first real in-app alpha→alpha verification happens at A8, since A1–A7 builds all carry the disabled updater); **make the mirror override real**: `ZCODE_UPDATE_FEED_URL` is currently ignored in packaged builds (`autoUpdater.ts:703-710` `isPackaged` guard; NOTICE.md:49) — remove that guard so it becomes a genuine runtime mirror escape hatch (CN reachability), and update NOTICE.md. `pnpm smoke:windows-bundle` before pushing workflow changes (mandatory per AGENTS.md).
 2. **Remote assets → GitHub Releases:** flat-named per-version-tag assets (`zcode-linux-x64.tar.gz`, `manifest-linux-x64.json`, node/node-pty per-platform components); rework URL builders — desktop `remoteCdn.ts:29-31` hardcoded `/zcode/electron/releases/<v>` suffix and server `remoteAssetCdn.ts` nested-path candidate builders; collapse 404-probe candidates (GitHub unauthenticated rate limit 60 req/hr/IP); keep runtime overrides for self-host/mirrors — note `ZCODE_CDN_BASE_URL` is currently a **build-time** define (`desktop/tsup.config.ts:112`), so `ZCODE_REMOTE_ASSET_CDN_BASE_URL` (runtime) is the user-facing mirror knob, or make `ZCODE_CDN_BASE_URL` runtime-resolved; document mirror guidance. Note: per-remote-platform node binaries cannot be bundled into one installer — GitHub Releases (or mirror) is the complete solution.
 3. **Plugin marketplace:** remove official CDN default + `ZAI_AUTHOR` + `OFFICIAL_PLUGIN_ASSETS_BASE_URL` (`official-plugin-definitions.ts:57-58`); store = repo-bundled plugins + Personal Sources (git/URL/local — already supported); default marketplace source configurable; drop image-search plugin (vendor MCP); fix pinned-list bootstrap test (`plugin-marketplaces.ts` parity comment); update CONTEXT.md concepts (Official Marketplace/CDN/Featured).
 4. **Conversation share → local export only:** delete `conversationShareService.ts` publish path, web landing page, `zcode://share/import`; **build** local markdown session export (net-new; reuse share turn-serialization concepts).
@@ -238,9 +243,9 @@ Delivered as `v3.14.3-alpha.2` (merge `8e06f90`); wizard layout/header/window-co
 - _UX degradation:_ update UX equivalent (native updater flow, now from GitHub; CN users may need the feed override/mirror — documented); conversation share becomes local export (accepted, D3).
 - _OSS alternative:_ GitHub Releases (standard OSS distribution); generic provider for fully self-hosted update feeds; any static host for assets via env overrides.
 
-**Tests/QA:** unit — URL builders produce flat GitHub asset URLs; updater parses `latest.yml`; feed override honored in packaged builds. Integration — `ZCODE_AUTO_UPDATE_DEV` loop against fixture feed. `pnpm smoke:windows-bundle`. Manual — install A6 over A5 manually (updater disabled on A1–A5 by design); verify in-app update machinery against the dev fixture feed; remote SSH workspace downloads assets from GitHub Releases; overrides work. Real in-app alpha→alpha update is verified at A7 (A6→A7).
+**Tests/QA:** unit — URL builders produce flat GitHub asset URLs; updater parses `latest.yml`; feed override honored in packaged builds. Integration — `ZCODE_AUTO_UPDATE_DEV` loop against fixture feed. `pnpm smoke:windows-bundle`. Manual — install A7 over A6 manually (updater disabled on A1–A6 by design); verify in-app update machinery against the dev fixture feed; remote SSH workspace downloads assets from GitHub Releases; overrides work. Real in-app alpha→alpha update is verified at A8 (A7→A8).
 
-### P6 — Cleanup, sweep gate, RC → **alpha.7** (RC), then **final 3.14.3**
+### P6 — Cleanup, sweep gate, RC → **alpha.8** (RC), then **final 3.14.3**
 
 **Changes:**
 
@@ -256,7 +261,7 @@ Delivered as `v3.14.3-alpha.2` (merge `8e06f90`); wizard layout/header/window-co
 - _UX degradation:_ none — cleaner docs and onboarding guidance (Ollama/vLLM, MCP search, mirrors).
 - _OSS alternative:_ n/a (gate itself enforces the OSS posture).
 
-**Tests/QA:** full matrix re-run on the RC build + final; in-app update to final verified from A6/A7 lineage (A1–A5 lineages upgrade via manual installer — updater intentionally disabled until P5).
+**Tests/QA:** full matrix re-run on the RC build + final; in-app update to final verified from A7/A8 lineage (A1–A6 lineages upgrade via manual installer — updater intentionally disabled until P5).
 
 ---
 
@@ -306,16 +311,17 @@ Manual: fresh Windows install of the alpha + upgrade from the previous alpha; ph
 
 **Matrix summary:**
 
-| Alpha | Phase | Key automated checks                                                                                                   | Key manual checks                                                                                                            |
-| ----- | ----- | ---------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
-| A1    | P0    | telemetry no-op units; updater-guard units                                                                             | no vendor telemetry/update traffic on fresh install; updates disabled (help-config fetch on user action remains until P2/P3) |
-| A2    | P2    | gate/wizard units; wizard E2E (new harness) — delivered: ui 20 + shared 9 unit tests, 8 e2e specs; all-lint-zero bonus | first-run wizard with real key + Ollama; `/remote` token login                                                               |
-| A3    | P1    | catalog/schema units; discovery client units (mocked)                                                                  | discovery with real key + Ollama; no GLM rules                                                                               |
-| A4    | P3    | off-peak local backend units+integration (new harness)                                                                 | off-peak runs locally; plan/quota UI gone; IM bots work                                                                      |
-| A5    | P4    | rename/protocol/tool-registry units; binary-resolution units; **smoke**                                                | agent spawn on installer; no WebSearch; MCP search spot-check                                                                |
-| A6    | P5    | URL-builder/updater units; dev update loop; **smoke**                                                                  | install A6 over A5 manually; update machinery via fixture feed; remote assets from GitHub; overrides work                    |
-| A7    | P6    | vendor-free gate in new CI; full suites                                                                                | full dogfood RC pass; real in-app update A6→A7                                                                               |
-| Final | —     | full matrix re-run                                                                                                     | in-app update A6/A7→final; A1–A5 manual-installer upgrade                                                                    |
+| Alpha | Phase     | Key automated checks                                                                                                   | Key manual checks                                                                                                            |
+| ----- | --------- | ---------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| A1    | P0        | telemetry no-op units; updater-guard units                                                                             | no vendor telemetry/update traffic on fresh install; updates disabled (help-config fetch on user action remains until P2/P3) |
+| A2    | P2        | gate/wizard units; wizard E2E (new harness) — delivered: ui 20 + shared 9 unit tests, 8 e2e specs; all-lint-zero bonus | first-run wizard with real key + Ollama; `/remote` token login                                                               |
+| A3    | P2 hotfix | wizard layout regression locks (wizard-scroll.spec)                                                                    | alpha.3 wizard layout on user machines (shipped 2026-09-26)                                                                  |
+| A4    | P1        | catalog/schema units; discovery client units (mocked) — delivered: services 28, e2e 9                                  | discovery with real key + Ollama; no GLM rules; wizard-complete⇒usable                                                       |
+| A5    | P3        | off-peak local backend units+integration (new harness)                                                                 | off-peak runs locally; plan/quota UI gone; IM bots work                                                                      |
+| A6    | P4        | rename/protocol/tool-registry units; binary-resolution units; **smoke**                                                | agent spawn on installer; no WebSearch; MCP search spot-check                                                                |
+| A7    | P5        | URL-builder/updater units; dev update loop; **smoke**                                                                  | install A7 over A6 manually; update machinery via fixture feed; remote assets from GitHub; overrides work                    |
+| A8    | P6        | vendor-free gate in new CI; full suites                                                                                | full dogfood RC pass; real in-app update A7→A8                                                                               |
+| Final | —         | full matrix re-run                                                                                                     | in-app update A7/A8→final; A1–A6 manual-installer upgrade                                                                    |
 
 ---
 

@@ -79,17 +79,6 @@ export function normalizeSettingsPatch(patch: Partial<AppSettings>): Partial<App
   }
 
   if (
-    "providerFamilyDomain" in normalizedPatch &&
-    typeof normalizedPatch.providerFamilyDomain === "string"
-  ) {
-    // 退出/解绑当前 provider family 时需要清空运行域。
-    // RPC 传输会吞掉 undefined，这里把空串归一成 undefined，避免旧选择继续影响 registry 过滤。
-    const trimmedProviderFamilyDomain = normalizedPatch.providerFamilyDomain.trim();
-    normalizedPatch.providerFamilyDomain =
-      trimmedProviderFamilyDomain.length > 0 ? normalizedPatch.providerFamilyDomain : undefined;
-  }
-
-  if (
     "providerOnboardingDismissedAt" in normalizedPatch &&
     typeof normalizedPatch.providerOnboardingDismissedAt === "string"
   ) {

@@ -83,7 +83,6 @@ import {
 } from "./saved-workflows.js";
 import { listMcpServers } from "./mcp.js";
 import { updateInteractionPreferences } from "./interaction-preferences.js";
-import { updateAccountProviderConfig } from "./account-provider-config.js";
 import { updateModelIoPreferences } from "./model-io-preferences.js";
 import { updateOffPeakToolPolicy } from "./off-peak-tool-policy.js";
 import { updateDynamicWorkflowPolicy } from "./dynamic-workflow-policy.js";
@@ -115,8 +114,6 @@ import {
   type ZCodeProtocolSessionRecord,
 } from "./server-types.js";
 import { createInMemorySessionEventStore } from "@zcode/contracts";
-
-export type { ZCodeProtocolAgentDependencies, ZCodeProtocolSessionRecord };
 
 const MAX_CLIENT_REQUEST_REANNOUNCE_INTERVAL_MS = 10_000;
 
@@ -623,8 +620,6 @@ export class ZCodeProtocolAgentServer {
         }
         return grantResult;
       }
-      case zcodeProtocolMethods.providerUpdateAccountConfig:
-        return await updateAccountProviderConfig(this.context, request.params);
       case zcodeProtocolMethods.workspaceUpdateInteractionPreferences:
         return await updateInteractionPreferences(this.context, request.params);
       case zcodeProtocolMethods.workspaceUpdateModelIoPreferences:

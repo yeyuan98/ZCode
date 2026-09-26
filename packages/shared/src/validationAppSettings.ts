@@ -8,7 +8,6 @@ import {
   DEFAULT_EMBEDDED_BROWSER_VIEWPORT_PREFERENCE,
   embeddedBrowserViewportPreferenceSchema,
 } from "./browser-use/command-metadata.js";
-import { providerFamilyConnectionSelectionSettingsSchema } from "./provider-family-connection-selection.js";
 
 /** 引导职业枚举；单独导出供 onboarding 记录回填 settings 时做窄化校验。 */
 const appSettingsOccupationSchema = z.enum([
@@ -53,7 +52,6 @@ export const integratedTerminalShellSelectionSchema = z.discriminatedUnion("mode
     path: nonEmptyStringSchema,
   }),
 ]);
-const providerFamilyDomainSchema = z.enum(["zai", "bigmodel"]);
 
 export const postUpdateReleaseNotesPayloadSchema = z.object({
   version: nonEmptyStringSchema,
@@ -453,10 +451,8 @@ const appSettingsObjectSchema = z.object({
   askUserQuestionAutoResolutionEnabled: z.boolean().default(true),
   modelIoFullRetentionEnabled: z.boolean().default(false),
   startPlanRecommendationDismissed: z.boolean().default(false),
-  providerFamilyConnectionSelections: providerFamilyConnectionSelectionSettingsSchema.default({}),
-  providerFamilyDomain: providerFamilyDomainSchema.optional(),
-  providerFamilyDomainUpdatedAt: z.number().int().nonnegative().optional(),
-  providerFamilyDomainMigrated: z.boolean().default(false),
+  // P1：providerFamilyDomain / providerFamilyConnectionSelections 字段族已删除；
+  // zod object 默认 strip 未知键，旧 setting.json 中的残留键会被静默丢弃，无需迁移。
   // 跳过时间必须是可选 ISO 字符串：settings 加载走宽松解析，必填新字段会让老用户整体回退默认值。
   providerOnboardingDismissedAt: z.string().datetime().optional(),
   nativeSearchEnhancementsEnabled: z.boolean().default(true),
@@ -523,10 +519,6 @@ export const appSettingsPatchSchema = z.object({
   askUserQuestionAutoResolutionEnabled: z.boolean().optional(),
   modelIoFullRetentionEnabled: z.boolean().optional(),
   startPlanRecommendationDismissed: z.boolean().optional(),
-  providerFamilyConnectionSelections: providerFamilyConnectionSelectionSettingsSchema.optional(),
-  providerFamilyDomain: z.union([providerFamilyDomainSchema, z.literal("")]).optional(),
-  providerFamilyDomainUpdatedAt: z.number().int().nonnegative().optional(),
-  providerFamilyDomainMigrated: z.boolean().optional(),
   // 空串先经 normalizeSettingsPatch 归一成 undefined（重置跳过状态），这里只接受合法 ISO 时间。
   providerOnboardingDismissedAt: z.string().datetime().optional(),
   nativeSearchEnhancementsEnabled: z.boolean().optional(),
