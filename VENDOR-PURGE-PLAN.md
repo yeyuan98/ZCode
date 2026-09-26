@@ -306,16 +306,16 @@ Manual: fresh Windows install of the alpha + upgrade from the previous alpha; ph
 
 **Matrix summary:**
 
-| Alpha | Phase | Key automated checks                                                    | Key manual checks                                                                                                            |
-| ----- | ----- | ----------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
-| A1    | P0    | telemetry no-op units; updater-guard units                              | no vendor telemetry/update traffic on fresh install; updates disabled (help-config fetch on user action remains until P2/P3) |
-| A2    | P2    | gate/wizard units; wizard E2E (new harness) — delivered: ui 20 + shared 9 unit tests, 8 e2e specs; all-lint-zero bonus | first-run wizard with real key + Ollama; `/remote` token login |
-| A3    | P1    | catalog/schema units; discovery client units (mocked)                   | discovery with real key + Ollama; no GLM rules                                                                               |
-| A4    | P3    | off-peak local backend units+integration (new harness)                  | off-peak runs locally; plan/quota UI gone; IM bots work                                                                      |
-| A5    | P4    | rename/protocol/tool-registry units; binary-resolution units; **smoke** | agent spawn on installer; no WebSearch; MCP search spot-check                                                                |
-| A6    | P5    | URL-builder/updater units; dev update loop; **smoke**                   | install A6 over A5 manually; update machinery via fixture feed; remote assets from GitHub; overrides work                    |
-| A7    | P6    | vendor-free gate in new CI; full suites                                 | full dogfood RC pass; real in-app update A6→A7                                                                               |
-| Final | —     | full matrix re-run                                                      | in-app update A6/A7→final; A1–A5 manual-installer upgrade                                                                    |
+| Alpha | Phase | Key automated checks                                                                                                   | Key manual checks                                                                                                            |
+| ----- | ----- | ---------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| A1    | P0    | telemetry no-op units; updater-guard units                                                                             | no vendor telemetry/update traffic on fresh install; updates disabled (help-config fetch on user action remains until P2/P3) |
+| A2    | P2    | gate/wizard units; wizard E2E (new harness) — delivered: ui 20 + shared 9 unit tests, 8 e2e specs; all-lint-zero bonus | first-run wizard with real key + Ollama; `/remote` token login                                                               |
+| A3    | P1    | catalog/schema units; discovery client units (mocked)                                                                  | discovery with real key + Ollama; no GLM rules                                                                               |
+| A4    | P3    | off-peak local backend units+integration (new harness)                                                                 | off-peak runs locally; plan/quota UI gone; IM bots work                                                                      |
+| A5    | P4    | rename/protocol/tool-registry units; binary-resolution units; **smoke**                                                | agent spawn on installer; no WebSearch; MCP search spot-check                                                                |
+| A6    | P5    | URL-builder/updater units; dev update loop; **smoke**                                                                  | install A6 over A5 manually; update machinery via fixture feed; remote assets from GitHub; overrides work                    |
+| A7    | P6    | vendor-free gate in new CI; full suites                                                                                | full dogfood RC pass; real in-app update A6→A7                                                                               |
+| Final | —     | full matrix re-run                                                                                                     | in-app update A6/A7→final; A1–A5 manual-installer upgrade                                                                    |
 
 ---
 

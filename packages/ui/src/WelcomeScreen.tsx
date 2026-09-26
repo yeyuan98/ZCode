@@ -3,13 +3,19 @@
  *
  * P2 起替代厂商 OAuth 登录页：模板选择（内置目录 + 自定义）→ 填 API Key（可选探测）→ 保存自动关闭。
  * OAuth 面板与对应 hook 已删除（厂商 OAuth 服务在 P3 删除）；向导在出现可用 provider 时自动关闭。
+ *
+ * 布局复用 OccupationOnboarding 的全屏向导范式：顶部 pt-12 让出拖拽区 + 窗口控件，
+ * 卡片高度受限（max-h-full），头部固定、仅步骤主体在卡内滚动（min-h-0 flex-1 overflow-y-auto），
+ * 短内容 my-auto 居中。卡片宽度随步骤切换（模板选择 max-w-2xl，表单步骤 max-w-sm），不做动画。
  */
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { Loader2Icon, TriangleAlertIcon } from "lucide-react";
+import { resolveProviderTemplateName } from "@zcode/provider";
 import { TID_LOGIN_API_KEY_ERROR, TID_LOGIN_API_KEY_INPUT } from "@zcode/shared";
 import { Alert, AlertDescription } from "./components/ui/alert.js";
 import { Button } from "./components/ui/button.js";
 import { Input } from "./components/ui/input.js";
+import { DesktopWindowControls } from "@/DesktopWindowControls.js";
 import { ZCodeAboutLogo } from "@/components/ui/ZCodeAboutLogo.js";
 import { useZCodeIntl } from "./i18n/IntlProvider.js";
 import { LoginApiKeyForm } from "./login/LoginApiKeyForm.js";
@@ -17,6 +23,7 @@ import { buildWizardSkipSettings } from "@/login/LoginApiKeyForm.helpers.js";
 import { useProviderSettingsView } from "./hooks/useProviderSettingsView.js";
 import { useServices } from "./hooks/useServices.js";
 import { logger } from "./logger.js";
+import { ProviderLogo } from "./settings/model-provider-section/ProviderLogo.js";
 import { ProviderTemplatePicker } from "./settings/model-provider-section/ProviderTemplatePicker.js";
 import { ProviderDetailFeedbackBoundary } from "./settings/model-provider-section/ProviderDetailFeedback.js";
 import { ThemeHeroVisual } from "./openWorkspacePageThemeHero.js";
@@ -25,18 +32,33 @@ interface WelcomeScreenProps {
   onComplete: (reason: LoginCompleteReason) => void | Promise<void>;
   /** 当前是否存在可用 provider；由 false 变为 true 时向导自动关闭。 */
   hasUsableProvider: boolean;
+  /** Win/Linux 无边框窗口需要渲染最小化/最大化/关闭控件（与 OccupationOnboarding 同一判定）。 */
+  showWindowControls?: boolean;
 }
 
 export type LoginCompleteReason = "apiKey" | "skip";
 
-export function WelcomeScreen({ onComplete, hasUsableProvider }: WelcomeScreenProps) {
+export function WelcomeScreen({
+  onComplete,
+  hasUsableProvider,
+  showWindowControls = false,
+}: WelcomeScreenProps) {
   return (
-    <main className="relative flex h-full min-h-dvh items-center justify-center overflow-hidden bg-background px-4 py-6 text-foreground sm:px-6">
+    <main className="relative flex h-dvh w-full min-h-0 flex-col overflow-hidden bg-background text-foreground">
       <ThemeHeroVisual className="absolute inset-0" />
-      <div className="pointer-events-none absolute left-0 top-0 right-0 z-10 flex h-12 w-full items-center [app-region:drag]" />
-      <section className="relative z-10 w-full flex flex-col gap-10 max-w-sm rounded-2xl border border-popover-border bg-background p-8 text-ui-base/relaxed shadow-md sm:p-10">
-        <LoginPanel onComplete={onComplete} hasUsableProvider={hasUsableProvider} />
-      </section>
+      <div className="pointer-events-none absolute inset-x-0 top-0 z-20 h-12 [app-region:drag]" />
+      {showWindowControls ? (
+        <div className="absolute right-1 top-1 z-30 mt-px mr-px flex h-12 items-center px-2">
+          <DesktopWindowControls />
+        </div>
+      ) : null}
+      <div className="relative z-10 flex min-h-0 flex-1 flex-col pt-12 [@media(max-height:740px)]:pt-10">
+        {/* 卡片高度受限（max-h-full）：短内容 my-auto 垂直居中；长内容卡片封顶，
+            仅步骤主体在卡内滚动，头部（品牌/供应商标题）始终固定可见。 */}
+        <div className="flex min-h-0 flex-1 flex-col px-4 py-6 sm:px-6">
+          <LoginPanel onComplete={onComplete} hasUsableProvider={hasUsableProvider} />
+        </div>
+      </div>
     </main>
   );
 }
@@ -53,7 +75,7 @@ function LoginPanel({
   onComplete: (reason: LoginCompleteReason) => void | Promise<void>;
   hasUsableProvider: boolean;
 }) {
-  const { intl } = useZCodeIntl();
+  const { intl, locale } = useZCodeIntl();
   const [step, setStep] = useState<WizardStep>({ kind: "template" });
   const providerSettingsRead = useProviderSettingsView();
   const providerSettingsView =
@@ -86,16 +108,48 @@ function LoginPanel({
     onComplete("skip");
   }, [onComplete]);
 
-  return (
-    <>
-      <LoginPanelHeader
-        title={intl.formatMessage({ id: "login.title" })}
-        description={intl.formatMessage({ id: "login.description" })}
-      >
-        {null}
-      </LoginPanelHeader>
+  // 步骤头部随步骤变化：模板步保留品牌欢迎文案；Key 步改为所选供应商的名称与
+  // 图标（同一份 resolveProviderTemplateName 数据源，与卡片展示一致），
+  // 不能在用户已选完供应商后还提示“选择模型供应商”。
+  const keyStepTemplate =
+    step.kind === "key"
+      ? (templates.find((candidate) => candidate.templateId === step.templateId) ?? null)
+      : null;
+  let headerTitle: string;
+  let headerDescription: string;
+  let headerIcon: ReactNode = null;
+  if (step.kind === "key") {
+    // 模板快照瞬时为空时用空 nameMap 兜底：resolveProviderTemplateName 会退回 templateId 原文，
+    // 也好过退回“选择供应商”的品牌文案（用户已经选完了）。
+    const templateForName = keyStepTemplate ?? { templateNameMap: {} };
+    headerTitle = resolveProviderTemplateName(step.templateId, templateForName, locale);
+    headerDescription = intl.formatMessage(
+      { id: "login.wizard.keyStepDescription" },
+      { provider: headerTitle },
+    );
+    headerIcon = keyStepTemplate ? (
+      <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-surface">
+        <ProviderLogo logo={keyStepTemplate.config.logo} className="size-7" />
+      </span>
+    ) : null;
+  } else if (step.kind === "custom") {
+    headerTitle = intl.formatMessage({ id: "login.wizard.custom.title" });
+    headerDescription = intl.formatMessage({ id: "login.wizard.custom.hint" });
+  } else {
+    headerTitle = intl.formatMessage({ id: "login.title" });
+    headerDescription = intl.formatMessage({ id: "login.description" });
+  }
 
-      <div className="space-y-6">
+  return (
+    <section
+      className={`mx-auto my-auto flex max-h-full w-full flex-col gap-8 rounded-2xl border border-popover-border bg-background p-8 text-ui-base/relaxed shadow-md sm:p-10 ${
+        step.kind === "template" ? "max-w-2xl" : "max-w-sm"
+      }`}
+    >
+      <LoginPanelHeader title={headerTitle} description={headerDescription} icon={headerIcon} />
+
+      {/* 步骤主体在卡片内滚动：列表再长也只裁在这一区域，头部与卡片圆角始终完整。 */}
+      <div className="min-h-0 flex-1 space-y-6 overflow-y-auto [scrollbar-gutter:stable]">
         {step.kind === "template" ? (
           providerSettingsRead.state.status === "loading" ? (
             <div className="flex items-center justify-center gap-2 rounded-xl border border-border bg-surface px-4 py-6 text-ui-base text-foreground-subtle">
@@ -111,13 +165,12 @@ function LoginPanel({
             </Alert>
           ) : (
             <ProviderDetailFeedbackBoundary>
-              {/* 设置页用同一份 ProviderTemplatePicker；失败横幅复用详情反馈边界，向导内自包含展示。 */}
-              <p className="text-ui-base text-foreground-subtle">
-                {intl.formatMessage({ id: "login.wizard.templateSubtitle" })}
-              </p>
+              {/* 设置页用同一份 ProviderTemplatePicker；失败横幅复用详情反馈边界，向导内自包含展示。
+                  向导场景隐藏其设置页标题（showHeader=false），由向导头部统一承载步骤标题。 */}
               <ProviderTemplatePicker
                 templates={templates}
                 creating={false}
+                showHeader={false}
                 onCreateFromTemplate={async (templateId) => {
                   setStep({ kind: "key", templateId });
                 }}
@@ -147,7 +200,7 @@ function LoginPanel({
           />
         ) : null}
       </div>
-    </>
+    </section>
   );
 }
 
@@ -251,72 +304,60 @@ function CustomProviderForm({
 
   return (
     <div className="space-y-4">
+      {/* 步骤标题由向导头部统一承载（自定义供应商 + OpenAI 兼容提示），表单内不再重复小标题。 */}
       <div className="space-y-2">
-        <h2 className="text-ui-base font-medium text-foreground">
-          {intl.formatMessage({ id: "login.wizard.custom.title" })}
-        </h2>
-        <div className="space-y-2">
-          <div>
-            <Input
-              id="login-custom-provider-name"
-              type="text"
-              size="lg"
-              className="h-10 w-full text-ui-base"
-              aria-label={intl.formatMessage({ id: "login.wizard.custom.name" })}
-              value={nameValue}
-              placeholder={intl.formatMessage({ id: "login.wizard.custom.name" })}
-              autoComplete="off"
-              disabled={busy}
-              onChange={(event) => {
-                setNameValue(event.target.value);
-                setError(null);
-              }}
-            />
-          </div>
-          <div>
-            <Input
-              id="login-custom-provider-base-url"
-              type="text"
-              size="lg"
-              className="h-10 w-full text-ui-base"
-              aria-label={intl.formatMessage({ id: "login.wizard.custom.baseUrl" })}
-              value={baseUrlValue}
-              placeholder="https://example.com/v1"
-              autoComplete="off"
-              disabled={busy}
-              onChange={(event) => {
-                setBaseUrlValue(event.target.value);
-                setError(null);
-              }}
-            />
-          </div>
-          <div>
-            <Input
-              id="login-custom-provider-api-key"
-              type="password"
-              size="lg"
-              className="h-10 w-full text-ui-base"
-              data-testid={TID_LOGIN_API_KEY_INPUT}
-              aria-label={intl.formatMessage({ id: "login.wizard.custom.apiKey" })}
-              value={apiKeyValue}
-              placeholder={intl.formatMessage({ id: "login.apiKey.placeholder" })}
-              autoComplete="off"
-              disabled={busy}
-              onChange={(event) => {
-                setApiKeyValue(event.target.value);
-                setError(null);
-              }}
-              onKeyDown={(event) => {
-                if (event.key === "Enter" && apiKeyValue.trim() && baseUrlValue.trim() && !busy) {
-                  void saveCustomProvider();
-                }
-              }}
-            />
-          </div>
-          <p className="text-ui-sm text-foreground-subtle">
-            {intl.formatMessage({ id: "login.wizard.custom.hint" })}
-          </p>
-        </div>
+        <Input
+          id="login-custom-provider-name"
+          type="text"
+          size="lg"
+          autoFocus
+          className="h-10 w-full text-ui-base"
+          aria-label={intl.formatMessage({ id: "login.wizard.custom.name" })}
+          value={nameValue}
+          placeholder={intl.formatMessage({ id: "login.wizard.custom.name" })}
+          autoComplete="off"
+          disabled={busy}
+          onChange={(event) => {
+            setNameValue(event.target.value);
+            setError(null);
+          }}
+        />
+        <Input
+          id="login-custom-provider-base-url"
+          type="text"
+          size="lg"
+          className="h-10 w-full text-ui-base"
+          aria-label={intl.formatMessage({ id: "login.wizard.custom.baseUrl" })}
+          value={baseUrlValue}
+          placeholder="https://example.com/v1"
+          autoComplete="off"
+          disabled={busy}
+          onChange={(event) => {
+            setBaseUrlValue(event.target.value);
+            setError(null);
+          }}
+        />
+        <Input
+          id="login-custom-provider-api-key"
+          type="password"
+          size="lg"
+          className="h-10 w-full text-ui-base"
+          data-testid={TID_LOGIN_API_KEY_INPUT}
+          aria-label={intl.formatMessage({ id: "login.wizard.custom.apiKey" })}
+          value={apiKeyValue}
+          placeholder={intl.formatMessage({ id: "login.apiKey.placeholder" })}
+          autoComplete="off"
+          disabled={busy}
+          onChange={(event) => {
+            setApiKeyValue(event.target.value);
+            setError(null);
+          }}
+          onKeyDown={(event) => {
+            if (event.key === "Enter" && apiKeyValue.trim() && baseUrlValue.trim() && !busy) {
+              void saveCustomProvider();
+            }
+          }}
+        />
       </div>
 
       {error ? (
@@ -374,20 +415,23 @@ function CustomProviderForm({
 function LoginPanelHeader({
   title,
   description,
-  children,
+  icon,
 }: {
   title: string;
   description: string;
-  children: ReactNode;
+  /** Key 步展示所选供应商图标（与卡片同源）；其余步骤为空，仅保留品牌 logo。 */
+  icon?: ReactNode;
 }) {
   return (
     <header className="flex flex-col items-center gap-3 text-center">
       <LoginPanelLogo />
       <div className="flex flex-col items-center gap-1 text-center">
-        <h1 className="text-3xl font-semibold tracking-tight">{title}</h1>
+        <div className="flex min-w-0 items-center justify-center gap-2">
+          {icon}
+          <h1 className="min-w-0 break-words text-3xl font-semibold tracking-tight">{title}</h1>
+        </div>
         <p className="text-ui-base/relaxed text-foreground-subtle">{description}</p>
       </div>
-      {children}
     </header>
   );
 }

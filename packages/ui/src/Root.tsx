@@ -894,6 +894,8 @@ function RootInner({
         <WelcomeScreen
           onComplete={handleWelcomeScreenComplete}
           hasUsableProvider={rootProviderAvailability.hasUsableProvider}
+          // 无边框窗口下 Win/Linux 必须能最小化/关闭，判定与 OccupationOnboarding 同源。
+          showWindowControls={Boolean(isWindowsDesktop || (isDesktop && !isMacDesktop))}
         />
       </RootShell>
     );

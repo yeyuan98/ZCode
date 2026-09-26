@@ -797,8 +797,7 @@ const zhCN: Record<string, string> = {
   "login.expired.action": "重新登录",
   "login.expired.restart": "确认并重启",
   "login.useApiKey": "使用 API key",
-  "login.wizard.templateSubtitle":
-    "所有供应商一视同仁：选择模板填入 API Key，或创建自定义 / 本地供应商。",
+  "login.wizard.keyStepDescription": "输入 {provider} 的 API Key，完成配置。",
   "login.wizard.loadingTemplates": "正在加载供应商模板...",
   "login.wizard.noTemplates": "当前没有可用的供应商模板，请稍后重试。",
   "login.wizard.testKey": "测试 API Key",
@@ -814,7 +813,6 @@ const zhCN: Record<string, string> = {
   "login.wizard.custom.baseUrlInvalidError": "Base URL 必须是有效的 http(s) 地址。",
   "login.wizard.custom.hint":
     "本地模型可使用 Ollama（http://localhost:11434/v1）或 vLLM 等 OpenAI 兼容端点。",
-  "login.apiKey.title": "API Key",
   "login.apiKey.placeholder": "输入 API key",
   "login.apiKey.getApiKey": "获取 API Key",
   "login.apiKey.cancel": "取消",
