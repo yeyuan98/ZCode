@@ -87,8 +87,8 @@ export function createFeedbackService(options: CreateFeedbackServiceOptions): IF
     getAuthHeaders: async () => {
       const headers: Record<string, string> = {};
       const deviceMid = getHostDeviceMid();
-      // feedback 的 device_mid 必须复用宿主 deviceMid（与 provider 请求头、远控同一身份）；
-      // 不单独生成 fb_ 身份，否则同一台机器在不同系统里会被拆成两个设备。
+      // P0 遥测清理：宿主侧改为 host 进程内临时 UUID（同一进程内保持稳定），
+      // 本地工单归档与请求头共用该值；不再持久化 telemetry-state 设备标识。
       if (deviceMid) {
         headers["X-Device-Mid"] = deviceMid;
       }

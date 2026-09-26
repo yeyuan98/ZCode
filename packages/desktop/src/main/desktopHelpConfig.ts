@@ -9,11 +9,11 @@ import {
 export function createDesktopHelpConfigReader(options: {
   resolveEndpointOrigin: () => Promise<string>;
   appVersion: string;
-  deviceMid: string;
 }) {
   const read = createHelpAppConfigReader({ fetchImpl: (input, init) => net.fetch(input, init) });
   return async () => {
     const endpointOrigin = await options.resolveEndpointOrigin();
+    // P0 遥测清理：请求头不再携带设备标识（X-Device-Mid）。
     return read(
       buildHelpAppConfigUrl(
         endpointOrigin,
@@ -23,7 +23,6 @@ export function createDesktopHelpConfigReader(options: {
       buildZCodeSourceHeadersFromContext({
         endpointOrigin,
         appVersion: options.appVersion,
-        deviceMid: options.deviceMid,
         platform: process.platform,
         arch: process.arch,
         releaseChannel: ZCODE_ENV,

@@ -340,3 +340,8 @@ export function setLocalTtftObserver(value: LocalTtftObserver | undefined): void
 export function getLocalTtftObserver(): LocalTtftObserver | undefined {
   return observer;
 }
+
+/** 已移除厂商埋点维度：用户发送在链路上仅保留本地 TTFT 观测上下文作为关联种子。 */
+export interface ConversationSendTtftSeed {
+  localTtft?: LocalTtftContext;
+}

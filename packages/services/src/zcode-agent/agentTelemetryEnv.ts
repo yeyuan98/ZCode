@@ -2,7 +2,6 @@ import { createHash } from "node:crypto";
 
 interface BuildAgentTelemetrySpawnEnvInput {
   telemetryEnv: Record<string, string>;
-  deviceMid?: string;
   userId?: string;
   runtimeSurface: "desktop_local_host" | "remote_workspace_host";
 }
@@ -16,11 +15,9 @@ export function buildAgentTelemetrySpawnEnv(
   ) {
     return {};
   }
-  const deviceMid = input.deviceMid?.trim();
   const userId = input.userId?.trim();
   return {
     ...input.telemetryEnv,
-    ...(deviceMid ? { ZCODE_TELEMETRY_DEVICE_MID: deviceMid } : {}),
     ...(userId
       ? {
           ZCODE_TELEMETRY_IDENTITY_STATE: "authenticated",
@@ -29,7 +26,7 @@ export function buildAgentTelemetrySpawnEnv(
           ZCODE_TELEMETRY_USER_SUBJECT_ID: createHash("sha256").update(userId).digest("hex"),
         }
       : {
-          ZCODE_TELEMETRY_IDENTITY_STATE: deviceMid ? "anonymous" : "unknown",
+          ZCODE_TELEMETRY_IDENTITY_STATE: "anonymous",
         }),
     ZCODE_TELEMETRY_RUNTIME_SURFACE: input.runtimeSurface,
   };
