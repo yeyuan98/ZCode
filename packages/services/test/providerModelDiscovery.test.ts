@@ -163,6 +163,219 @@ test("anthropic discovery caps paging at ten requests", async () => {
   assert.equal(result.modelIds.length, 10);
 });
 
+// probe 证据（/tmp/opencode/bigmodel-probe.md §Endpoint 3）：bigmodel/zai 的 anthropic
+// 镜像返回 camelCase 分页字段（hasMore/firstId/lastId）且 hasMore 恒为 false。
+test("anthropic discovery accepts legacy camelCase paging fields from bigmodel/zai mirrors", async () => {
+  const { fetch, requests } = createRecordingFetch(() => ({
+    body: JSON.stringify({
+      data: [{ id: "glm-5.3", type: "model", display_name: "GLM-5.3" }],
+      hasMore: false,
+      firstId: "glm-5.3",
+      lastId: "glm-5.3",
+    }),
+  }));
+  const result = await discoverTemplateModels(
+    { templateId: "test-template", apiKey: "test-key" },
+    {
+      fetch,
+      template: templateView({
+        access: { type: "api-key" },
+        api: { type: "anthropic-messages", baseUrl: "https://open.bigmodel.cn/api/anthropic" },
+      }),
+    },
+  );
+  assert.equal(requests.length, 1);
+  assert.deepEqual(result, { ok: true, modelIds: ["glm-5.3"] });
+});
+
+test("snake_case paging fields take precedence when both spellings are present", async () => {
+  const { fetch, requests } = createRecordingFetch(() => ({
+    // 规范 snake_case 声明没有更多页；镜像拼写 hasMore:true 不得驱动续拉。
+    body: JSON.stringify({
+      data: [{ id: "model-a" }],
+      has_more: false,
+      hasMore: true,
+      first_id: "model-a",
+      firstId: "model-a",
+      last_id: "model-a",
+      lastId: "model-a",
+    }),
+  }));
+  const result = await discoverTemplateModels(
+    { templateId: "test-template", apiKey: "test-key" },
+    {
+      fetch,
+      template: templateView({
+        access: { type: "api-key" },
+        api: { type: "anthropic-messages", baseUrl: "https://api.anthropic.com" },
+      }),
+    },
+  );
+  assert.equal(requests.length, 1);
+  assert.deepEqual(result, { ok: true, modelIds: ["model-a"] });
+});
+
+// probe 证据（/tmp/opencode/bigmodel-probe.md §Paging check）：镜像可能声称 hasMore
+// 却忽略 after_id，每次都从列表头重新返回 —— 首条 id 重复时必须立即停止翻页。
+test("anthropic discovery stops paging when a mirror ignores the cursor and repeats the first id", async () => {
+  const samePage = {
+    data: [{ id: "glm-4.5" }, { id: "glm-4.6" }, { id: "glm-5.3" }],
+    has_more: true,
+    last_id: "glm-5.3",
+  };
+  const { fetch, requests } = createRecordingFetch(() => ({
+    body: JSON.stringify(samePage),
+  }));
+  const result = await discoverTemplateModels(
+    { templateId: "test-template", apiKey: "test-key" },
+    {
+      fetch,
+      template: templateView({
+        access: { type: "api-key" },
+        api: { type: "anthropic-messages", baseUrl: "https://open.bigmodel.cn/api/anthropic" },
+      }),
+    },
+  );
+  // 第 2 页首条 id 与第 1 页相同 ⇒ 判定游标被忽略，立即停止，且无重复 id。
+  assert.equal(requests.length, 2);
+  assert.equal(requests[1].url.searchParams.get("after_id"), "glm-5.3");
+  assert.ok(result.ok);
+  assert.deepEqual(result.modelIds, ["glm-4.5", "glm-4.6", "glm-5.3"]);
+});
+
+test("anthropic metadata provides capability hints per model", async () => {
+  const { fetch } = createRecordingFetch(() => ({
+    body: JSON.stringify({
+      data: [
+        {
+          id: "claude-x",
+          max_input_tokens: 200000,
+          capabilities: {
+            image_input: { supported: true },
+            pdf_input: { supported: true },
+          },
+        },
+      ],
+    }),
+  }));
+  const result = await discoverTemplateModels(
+    { templateId: "test-template", apiKey: "test-key" },
+    {
+      fetch,
+      template: templateView({
+        access: { type: "api-key" },
+        api: { type: "anthropic-messages", baseUrl: "https://api.anthropic.com" },
+      }),
+    },
+  );
+  assert.deepEqual(result, {
+    ok: true,
+    modelIds: ["claude-x"],
+    modelHints: {
+      "claude-x": { contextWindow: 200000, supportsImage: true, supportsPdf: true },
+    },
+  });
+});
+
+test("anthropic max_input_tokens of zero yields no context window hint", async () => {
+  const { fetch } = createRecordingFetch(() => ({
+    body: JSON.stringify({
+      data: [{ id: "claude-zero", max_input_tokens: 0 }],
+    }),
+  }));
+  const result = await discoverTemplateModels(
+    { templateId: "test-template", apiKey: "test-key" },
+    {
+      fetch,
+      template: templateView({
+        access: { type: "api-key" },
+        api: { type: "anthropic-messages", baseUrl: "https://api.anthropic.com" },
+      }),
+    },
+  );
+  // 无任何元数据字段 ⇒ 不产生 modelHints 键，仅贡献 id。
+  assert.deepEqual(result, { ok: true, modelIds: ["claude-zero"] });
+});
+
+test("openai-compatible discovery parses openrouter context_length and input modalities", async () => {
+  const { fetch } = createRecordingFetch(() => ({
+    body: JSON.stringify({
+      data: [
+        {
+          id: "org/m",
+          context_length: 1000000,
+          architecture: { input_modalities: ["text", "image", "audio"] },
+        },
+      ],
+    }),
+  }));
+  const result = await discoverTemplateModels(
+    { templateId: "test-template", apiKey: "test-key" },
+    {
+      fetch,
+      template: templateView({
+        access: { type: "api-key" },
+        api: { type: "openai-chat-completions", baseUrl: "https://openrouter.ai/api/v1" },
+      }),
+    },
+  );
+  assert.deepEqual(result, {
+    ok: true,
+    modelIds: ["org/m"],
+    modelHints: {
+      "org/m": { contextWindow: 1000000, supportsImage: true },
+    },
+  });
+});
+
+test("capability hints merge deterministically across anthropic pages without overwriting", async () => {
+  const { fetch, requests } = createRecordingFetch(({ url }) =>
+    url.searchParams.has("after_id")
+      ? {
+          // 第 2 页：model-x 补充 capabilities（填空不覆盖 ctx）；model-y 只带 ctx，
+          // 缺失的 capabilities 不得抹掉第 1 页已提取的 supportsImage。
+          body: JSON.stringify({
+            data: [
+              {
+                id: "model-x",
+                capabilities: {
+                  image_input: { supported: true },
+                  pdf_input: { supported: true },
+                },
+              },
+              { id: "model-y", max_input_tokens: 64000 },
+            ],
+          }),
+        }
+      : {
+          body: JSON.stringify({
+            data: [
+              { id: "model-x", max_input_tokens: 128000 },
+              { id: "model-y", capabilities: { image_input: { supported: true } } },
+            ],
+            has_more: true,
+            last_id: "model-y",
+          }),
+        },
+  );
+  const result = await discoverTemplateModels(
+    { templateId: "test-template", apiKey: "test-key" },
+    {
+      fetch,
+      template: templateView({
+        access: { type: "api-key" },
+        api: { type: "anthropic-messages", baseUrl: "https://api.anthropic.com" },
+      }),
+    },
+  );
+  assert.equal(requests.length, 2);
+  assert.ok(result.ok);
+  assert.deepEqual(result.modelHints, {
+    "model-x": { contextWindow: 128000, supportsImage: true, supportsPdf: true },
+    "model-y": { contextWindow: 64000, supportsImage: true },
+  });
+});
+
 test("non-200 responses surface as concise discovery errors", async () => {
   const { fetch } = createRecordingFetch(() => ({
     status: 401,
