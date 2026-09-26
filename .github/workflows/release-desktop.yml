@@ -50,6 +50,7 @@ jobs:
           # GitHub runner 访问官方 electron-builder-binaries 更稳定；
           # 404 时 bundle.mjs 会自动切回 npmmirror，无需在这里做 fallback。
           ELECTRON_BUILDER_BINARIES_MIRROR: https://github.com/electron-userland/electron-builder-binaries/releases/download/
+        # 本地推送前验证：pnpm smoke:windows-bundle 在 Docker 中复刻本步骤（scripts/smoke-windows-bundle.mjs）。
 
       - name: Upload installer artifact
         uses: actions/upload-artifact@v4

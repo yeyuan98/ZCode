@@ -38,6 +38,7 @@ Additional setup and build commands:
 | `pnpm prepare:remote-assets`   | Prepare remote runtime assets separately                                                                                            |
 | `pnpm bootstrap:with-remote`   | Set up dependencies and local and remote assets, then build the relevant packages sequentially; skip the desktop application bundle |
 | `pnpm build`                   | Recursively run each workspace package's build script, including its asset preparation steps                                        |
+| `pnpm smoke:windows-bundle`    | Reproduce the Windows installer build locally in Docker before pushing                                                              |
 
 The default `bootstrap` skips remote asset preparation and is suitable for local desktop development. Run the corresponding preparation command when working with remote workspaces or validating remote distribution assets.
 
@@ -145,6 +146,20 @@ pnpm bundle:desktop -- --help
 
 The default target is macOS arm64, and the default output directory is `packages/desktop/dist/`. `--os` accepts `mac`, `win`, or `linux`; `--arch` accepts `x64` or `arm64`. Packaging and signing require the tools and configuration for the target platform.
 
+### Local Windows cross-build smoke test
+
+After changing packaging scripts, electron-builder configuration, or the release workflow, you can reproduce the Windows build from `.github/workflows/release-desktop.yml` locally in Docker (Linux/amd64 host) before pushing:
+
+```bash
+pnpm smoke:windows-bundle
+# Use a registry mirror on unstable networks
+pnpm smoke:windows-bundle -- --registry https://registry.npmmirror.com
+# Reuse installed dependencies and only rerun the packaging stage
+pnpm smoke:windows-bundle -- --skip-install
+```
+
+The script stages your current working tree (including uncommitted changes) under `~/temp/zcode-smoke/<run-id>/` and runs the same install + bundle steps as the workflow inside a container. The run directory is removed by default (`--keep` retains it). pnpm/electron download caches live in a Docker named volume, and images (base and project-built) are kept by default for fast reruns; `--prune-image` / `--prune-caches` remove the project image and caches explicitly (the base node image is never removed).
+
 ### ZCode CLI distribution
 
 Run `pnpm build:zcode` to build the CLI/TUI, backend, and Web client, collect the TUI native libraries, workers, and runtime dependencies, then assemble the distribution. Running the distribution still requires Node.js; use the version specified in `mise.toml`.
@@ -190,6 +205,16 @@ node dist/zcode/debug/zcode/bin/zcode.mjs --web \
 ```
 
 Open `http://127.0.0.1:3030` to validate the complete flow, with one backend serving the Web pages and running the Agent. The port must be available; if `pnpm dev:web` is already running, choose another `--port`.
+
+## Releases
+
+`pnpm release` (release-it) is the only supported way to cut a release: it bumps the version, generates/updates [CHANGELOG.md](CHANGELOG.md) from conventional commits, commits `chore: release vX`, creates the annotated `vX` tag, and pushes. The tag push triggers the [Release Desktop](.github/workflows/release-desktop.yml) workflow, which builds `ZCode-<version>-win-x64.exe` on windows-latest and attaches it to the GitHub release.
+
+- Detailed changes are described as bullet lists in commit message bodies; release-it renders them as sub-items of the changelog entry.
+- Never create release tags manually with `git tag` — it bypasses CHANGELOG generation.
+- Preview with `pnpm release --dry-run` first; use `pnpm release --ci` for non-interactive runs.
+- After releasing, verify the Actions run and the release assets.
+- Before pushing workflow or packaging changes, validate locally with `pnpm smoke:windows-bundle`.
 
 ## Repository Structure
 

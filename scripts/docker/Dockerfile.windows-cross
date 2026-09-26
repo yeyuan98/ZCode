@@ -1,0 +1,23 @@
+# 本地 Windows 交叉打包冒烟镜像，由 scripts/smoke-windows-bundle.mjs 按 mise.toml 的
+# Node 版本与 packageManager 的 pnpm 版本注入 build-arg 构建。
+# 版本变化会生成新 tag，旧镜像留给系统级清理，不在脚本里删除。
+ARG NODE_VERSION
+FROM node:${NODE_VERSION}-bookworm-slim
+
+# python3/make/g++：node-pty postinstall 在 Linux 上必须 electron-rebuild；
+# wine + wine32:i386：electron-builder 打 win 包时，64 位 rcedit/signtool 走 wine64，
+# 但 NSIS 3.x 的 makensis.exe 是 32 位程序，缺 wine32 会在嵌入 __uninstaller.exe 阶段
+# 报出误导性的 "File ... no files found" 错误。
+# rsync：--skip-install 复用上次工作区时按排除规则同步源码改动。
+RUN dpkg --add-architecture i386 \
+  && apt-get update \
+  && apt-get install -y --no-install-recommends \
+    python3 make g++ git ca-certificates zip unzip rsync \
+    wine wine32:i386 winbind \
+  && rm -rf /var/lib/apt/lists/*
+
+ARG PNPM_VERSION
+RUN npm install -g pnpm@${PNPM_VERSION}
+
+ENV CI=true
+WORKDIR /repo

@@ -40,6 +40,7 @@ Agent CLI 与运行时源码位于 [apps/zcode-cli/](apps/zcode-cli/)，作为�
 | `pnpm prepare:remote-assets`   | 单独准备远程运行资源                                              |
 | `pnpm bootstrap:with-remote`   | 初始化依赖、本地与远程资源，并串行构建相关包；跳过桌面应用 bundle |
 | `pnpm build`                   | 递归执行各 workspace 包的构建脚本，包括包内的资源准备步骤         |
+| `pnpm smoke:windows-bundle`    | 本地 Docker 复刻 Windows 打包链路，推送前验证安装包构建           |
 
 默认 `bootstrap` 跳过远程资源准备，适合本地桌面开发。使用远程工作区或验证远程发行资源时，再运行对应准备命令。
 
@@ -157,6 +158,20 @@ pnpm bundle:desktop -- --help
 sudo xattr -rd com.apple.quarantine /Applications/ZCode.app
 ```
 
+### Windows 本地交叉打包冒烟
+
+改动打包脚本、electron-builder 配置或发布工作流后，可在推送前于本地 Docker（Linux/amd64 宿主）复刻 `.github/workflows/release-desktop.yml` 的 Windows 打包链路：
+
+```bash
+pnpm smoke:windows-bundle
+# 网络不稳时使用镜像源
+pnpm smoke:windows-bundle -- --registry https://registry.npmmirror.com
+# 复用已装依赖，仅重跑打包阶段（快速迭代）
+pnpm smoke:windows-bundle -- --skip-install
+```
+
+脚本在 `~/temp/zcode-smoke/<run-id>/` 暂存当前工作区（含未提交改动）并在容器内执行与工作流一致的 install + bundle 步骤；运行结束默认清理该目录（`--keep` 保留）。pnpm/electron 下载缓存放在 Docker named volume、基础镜像与项目镜像默认保留以加速复跑；`--prune-image` / `--prune-caches` 可显式清理项目镜像与缓存（基础 node 镜像不会删除）。
+
 ### ZCode 命令行版
 
 构建入口为 `pnpm build:zcode`。脚本会依次构建 CLI/TUI、后端和 Web，收集 TUI 的原生库、worker 与运行时依赖，再组装发行包；运行发行包仍需要 Node.js，版本以 `mise.toml` 为准。
@@ -202,6 +217,16 @@ node dist/zcode/debug/zcode/bin/zcode.mjs --web \
 ```
 
 浏览器打开 `http://127.0.0.1:3030`，即可验证同一后端服务托管 Web 页面和 Agent 的完整链路。该端口需要空闲；如正在运行 `pnpm dev:web`，可改用其他 `--port`。
+
+## 发布
+
+发版唯一入口是 `pnpm release`（release-it）：自动升版本、按 conventional commit 生成/更新 [CHANGELOG.md](CHANGELOG.md)、提交 `chore: release vX`、打 `vX` 注解标签并推送。标签推送触发 [Release Desktop](.github/workflows/release-desktop.yml) 工作流，在 windows-latest 上构建 `ZCode-<version>-win-x64.exe` 并挂到 GitHub Release。
+
+- 详细变更写在 commit 消息体的 bullet 列表中，release-it 会把它们渲染为 changelog 条目的子项。
+- 禁止手工 `git tag` 发版，会绕过 CHANGELOG 生成。
+- 发布前先 `pnpm release --dry-run` 预览；非交互场景使用 `pnpm release --ci`。
+- 发布后核对 Actions 运行结果与 Release 资产。
+- 推送工作流/打包脚本改动前，先运行 `pnpm smoke:windows-bundle` 做本地验证。
 
 ## 仓库结构
 
