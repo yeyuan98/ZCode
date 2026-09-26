@@ -673,11 +673,419 @@
           }
         },
         {
-          "modelMatch": ".*(?:ox-alpha|x-preview-f-free).*",
+          "modelMatch": ".*(?:ox-alpha|glm-x-preview-f|x-preview-f-free).*",
           "config": {
             "optionSpecs": {
               "maxOutputTokens": {
                 "max": 128000
+              }
+            }
+          }
+        },
+        {
+          "modelMatch": ".*glm-5(?:[.\\-:/\\[].*)?",
+          "config": {
+            "properties": {
+              "contextWindow": 200000,
+              "inputFormat": {
+                "supportsImage": false,
+                "supportsVideo": false
+              }
+            },
+            "optionSpecs": {
+              "reasoningLevel": {
+                "values": ["disabled", "enabled"]
+              },
+              "maxOutputTokens": {
+                "max": 64000
+              }
+            }
+          }
+        },
+        {
+          "modelMatch": ".*GLM-5\\.2(?:[.\\-:/\\[].*)?",
+          "config": {
+            "properties": {
+              "contextWindow": 1000000,
+              "inputFormat": {
+                "supportsImage": false,
+                "supportsVideo": false
+              }
+            },
+            "optionSpecs": {
+              "reasoningLevel": {
+                "values": ["disabled", "high", "max"]
+              },
+              "maxOutputTokens": {
+                "max": 128000
+              }
+            }
+          }
+        },
+        {
+          "modelMatch": ".*GLM-5-Turbo(?:[.\\-:/\\[].*)?",
+          "config": {
+            "properties": {
+              "contextWindow": 200000,
+              "inputFormat": {
+                "supportsImage": false,
+                "supportsVideo": false
+              }
+            },
+            "optionSpecs": {
+              "reasoningLevel": {
+                "values": ["disabled", "enabled"]
+              },
+              "maxOutputTokens": {
+                "max": 64000
+              }
+            }
+          }
+        },
+        {
+          "modelMatch": ".*glm-5\\.3(?:-flash)?(?:[.\\-:/\\[].*)?",
+          "config": {
+            "properties": {
+              "contextWindow": 1000000,
+              "inputFormat": {
+                "supportsImage": false,
+                "supportsVideo": false
+              }
+            },
+            "optionSpecs": {
+              "reasoningLevel": {
+                "values": ["low", "high", "max"]
+              },
+              "maxOutputTokens": {
+                "max": 128000
+              }
+            }
+          }
+        },
+        {
+          "modelMatch": ".*glm-5\\.3-flash(?:[.\\-:/\\[].*)?",
+          "config": {
+            "properties": {
+              "inputFormat": {
+                "supportsImage": true,
+                "supportsVideo": true,
+                "supportsPdf": true
+              }
+            }
+          }
+        },
+        {
+          "modelMatch": ".*glm-5\\.1(?:[.\\-:/\\[].*)?",
+          "config": {
+            "properties": {
+              "contextWindow": 200000,
+              "inputFormat": {
+                "supportsImage": false,
+                "supportsVideo": false
+              }
+            },
+            "optionSpecs": {
+              "reasoningLevel": {
+                "values": ["disabled", "enabled"]
+              },
+              "maxOutputTokens": {
+                "max": 64000
+              }
+            }
+          }
+        },
+        {
+          "modelMatch": ".*glm-5\\.1-highspeed(?:[.\\-:/\\[].*)?",
+          "config": {
+            "properties": {
+              "contextWindow": 200000,
+              "inputFormat": {
+                "supportsImage": false,
+                "supportsVideo": false
+              }
+            },
+            "optionSpecs": {
+              "reasoningLevel": {
+                "values": ["disabled", "enabled"]
+              },
+              "maxOutputTokens": {
+                "max": 64000
+              }
+            }
+          }
+        },
+        {
+          "modelMatch": ".*glm-5v-turbo(?:[.\\-:/\\[].*)?",
+          "config": {
+            "properties": {
+              "contextWindow": 200000,
+              "inputFormat": {
+                "supportsImage": true,
+                "supportsVideo": true
+              }
+            },
+            "optionSpecs": {
+              "reasoningLevel": {
+                "values": ["disabled", "enabled"]
+              },
+              "maxOutputTokens": {
+                "max": 131072
+              }
+            }
+          }
+        },
+        {
+          "modelMatch": ".*glm-4\\.7(?:[.\\-:/\\[].*)?",
+          "config": {
+            "properties": {
+              "contextWindow": 200000,
+              "inputFormat": {
+                "supportsImage": false,
+                "supportsVideo": false
+              }
+            },
+            "optionSpecs": {
+              "reasoningLevel": {
+                "values": ["disabled", "enabled"]
+              },
+              "maxOutputTokens": {
+                "max": 131072
+              }
+            }
+          }
+        },
+        {
+          "modelMatch": ".*glm-4\\.7-flashx(?:[.\\-:/\\[].*)?",
+          "config": {
+            "properties": {
+              "contextWindow": 200000,
+              "inputFormat": {
+                "supportsImage": false,
+                "supportsVideo": false
+              }
+            },
+            "optionSpecs": {
+              "reasoningLevel": {
+                "values": ["disabled", "enabled"]
+              },
+              "maxOutputTokens": {
+                "max": 131072
+              }
+            }
+          }
+        },
+        {
+          "modelMatch": ".*glm-4\\.7-flash(?:[.\\-:/\\[].*)?",
+          "config": {
+            "properties": {
+              "contextWindow": 200000,
+              "inputFormat": {
+                "supportsImage": false,
+                "supportsVideo": false
+              }
+            },
+            "optionSpecs": {
+              "reasoningLevel": {
+                "values": ["disabled", "enabled"]
+              },
+              "maxOutputTokens": {
+                "max": 131072
+              }
+            }
+          }
+        },
+        {
+          "modelMatch": ".*glm-4\\.6(?:[.\\-:/\\[].*)?",
+          "config": {
+            "properties": {
+              "contextWindow": 200000,
+              "inputFormat": {
+                "supportsImage": false,
+                "supportsVideo": false
+              }
+            },
+            "optionSpecs": {
+              "reasoningLevel": {
+                "values": ["disabled", "enabled"]
+              },
+              "maxOutputTokens": {
+                "max": 131072
+              }
+            }
+          }
+        },
+        {
+          "modelMatch": ".*glm-4\\.5(?:[.\\-:/\\[].*)?",
+          "config": {
+            "properties": {
+              "contextWindow": 131072,
+              "inputFormat": {
+                "supportsImage": false,
+                "supportsVideo": false
+              }
+            },
+            "optionSpecs": {
+              "reasoningLevel": {
+                "values": ["disabled", "enabled"]
+              },
+              "maxOutputTokens": {
+                "max": 98304
+              }
+            }
+          }
+        },
+        {
+          "modelMatch": ".*glm-4\\.5-air(?:[.\\-:/\\[].*)?",
+          "config": {
+            "properties": {
+              "contextWindow": 131072,
+              "inputFormat": {
+                "supportsImage": false,
+                "supportsVideo": false
+              }
+            },
+            "optionSpecs": {
+              "reasoningLevel": {
+                "values": ["disabled", "enabled"]
+              },
+              "maxOutputTokens": {
+                "max": 98304
+              }
+            }
+          }
+        },
+        {
+          "modelMatch": ".*glm-4\\.6v(?:[.\\-:/\\[].*)?",
+          "config": {
+            "properties": {
+              "contextWindow": 131072,
+              "inputFormat": {
+                "supportsImage": true,
+                "supportsVideo": false
+              }
+            },
+            "optionSpecs": {
+              "maxOutputTokens": {
+                "max": 32768
+              }
+            }
+          }
+        },
+        {
+          "modelMatch": ".*glm-4\\.6v-flash(?:[.\\-:/\\[].*)?",
+          "config": {
+            "properties": {
+              "contextWindow": 131072,
+              "inputFormat": {
+                "supportsImage": true,
+                "supportsVideo": false
+              }
+            },
+            "optionSpecs": {
+              "maxOutputTokens": {
+                "max": 32768
+              }
+            }
+          }
+        },
+        {
+          "modelMatch": ".*glm-4\\.6v-flashx(?:[.\\-:/\\[].*)?",
+          "config": {
+            "properties": {
+              "contextWindow": 131072,
+              "inputFormat": {
+                "supportsImage": true,
+                "supportsVideo": false
+              }
+            },
+            "optionSpecs": {
+              "maxOutputTokens": {
+                "max": 32768
+              }
+            }
+          }
+        },
+        {
+          "modelMatch": ".*glm-4\\.1v-thinking-flashx(?:[.\\-:/\\[].*)?",
+          "config": {
+            "properties": {
+              "contextWindow": 65536,
+              "inputFormat": {
+                "supportsImage": true,
+                "supportsVideo": false
+              }
+            },
+            "optionSpecs": {
+              "maxOutputTokens": {
+                "max": 32768
+              }
+            }
+          }
+        },
+        {
+          "modelMatch": ".*glm-4\\.1v-thinking-flash(?:[.\\-:/\\[].*)?",
+          "config": {
+            "properties": {
+              "contextWindow": 65536,
+              "inputFormat": {
+                "supportsImage": true,
+                "supportsVideo": false
+              }
+            },
+            "optionSpecs": {
+              "maxOutputTokens": {
+                "max": 32768
+              }
+            }
+          }
+        },
+        {
+          "modelMatch": ".*glm-4-flashx-250414(?:[.\\-:/\\[].*)?",
+          "config": {
+            "properties": {
+              "contextWindow": 131072,
+              "inputFormat": {
+                "supportsImage": false,
+                "supportsVideo": false
+              }
+            },
+            "optionSpecs": {
+              "maxOutputTokens": {
+                "max": 16384
+              }
+            }
+          }
+        },
+        {
+          "modelMatch": ".*glm-4-flash-250414(?:[.\\-:/\\[].*)?",
+          "config": {
+            "properties": {
+              "contextWindow": 131072,
+              "inputFormat": {
+                "supportsImage": false,
+                "supportsVideo": false
+              }
+            },
+            "optionSpecs": {
+              "maxOutputTokens": {
+                "max": 16384
+              }
+            }
+          }
+        },
+        {
+          "modelMatch": ".*glm-4v-flash(?:[.\\-:/\\[].*)?",
+          "config": {
+            "properties": {
+              "contextWindow": 16384,
+              "inputFormat": {
+                "supportsImage": true,
+                "supportsVideo": false
+              }
+            },
+            "optionSpecs": {
+              "maxOutputTokens": {
+                "max": 1024
               }
             }
           }
@@ -695,6 +1103,23 @@
             "optionSpecs": {
               "maxOutputTokens": {
                 "max": 32768
+              }
+            }
+          }
+        },
+        {
+          "modelMatch": ".*charglm-4(?:[.\\-:/\\[].*)?",
+          "config": {
+            "properties": {
+              "contextWindow": 8192,
+              "inputFormat": {
+                "supportsImage": false,
+                "supportsVideo": false
+              }
+            },
+            "optionSpecs": {
+              "maxOutputTokens": {
+                "max": 4096
               }
             }
           }
