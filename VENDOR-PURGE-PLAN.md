@@ -3,7 +3,7 @@
 - **Repo:** `/home/administrator/git/ZCode` (fork of ZCode v3.14.3, branch base `main`)
 - **Goal:** Remove all Z.ai / Zhipu / BigModel vendor-specific code — platform backend, logins, accounts/plans/subscriptions, vendor-bound skills/tools, vendor CDN/telemetry/infra — while keeping the product fully usable via generic API-key providers and local models. zai/bigmodel remain available as **ordinary, equal vendors**.
 - **Version policy:** stay upstream-consistent at **3.14.3**; per-phase test releases as `3.14.3-alpha.N`; final release is exactly `3.14.3`.
-- **Status:** EXECUTING. P0 done (`v3.14.3-alpha.1`); P2 done (`v3.14.3-alpha.2`, 2026-09-26); next: P1. Investigation: 4 parallel deep-dive subagents + 3 independent review rounds, all findings source-verified on `main`.
+- **Status:** EXECUTING. P0 done (`v3.14.3-alpha.1`); P2 done (`v3.14.3-alpha.2`, 2026-09-26) + wizard UX hotfix (`v3.14.3-alpha.3`); next: P1 (ships as alpha.4). Investigation: 4 parallel deep-dive subagents + 3 independent review rounds, all findings source-verified on `main`.
 - **Fresh-start policy:** no migration/compat shims for old setups; there are no existing libre-zcode users.
 
 ---
@@ -146,7 +146,7 @@
 
 ### P2 — Onboarding & gate rework → **alpha.2** (done; before schema surgery)
 
-Delivered as `v3.14.3-alpha.2` (merge `8e06f90`): gate = `!hasUsableProvider && !onboardingDismissed` (new optional `providerOnboardingDismissedAt` setting; waits for settings+model-selection hydration with error escapes); wizard with neutralized template catalog + custom/Ollama path + services-layer direct-HTTP test-key probe (superseded by P1 discovery); web token login page (fetch-status-only gate); feedback → GitHub Issues with redacted prefill, in-app center fully deleted, help config local-only. Extras landed in the same alpha: first e2e harness (Playwright, web build + mock provider, 8 scenarios) + ui/shared node-test suites, and ALL root+CLI format/lint baseline debt cleared (repo lint 0/0, fmt green both workspaces; CLI config-scoping bug fixed).
+Delivered as `v3.14.3-alpha.2` (merge `8e06f90`); wizard layout/header/window-controls hotfix in `v3.14.3-alpha.3` (merge `be6204b`): gate = `!hasUsableProvider && !onboardingDismissed` (new optional `providerOnboardingDismissedAt` setting; waits for settings+model-selection hydration with error escapes); wizard with neutralized template catalog + custom/Ollama path + services-layer direct-HTTP test-key probe (superseded by P1 discovery); web token login page (fetch-status-only gate); feedback → GitHub Issues with redacted prefill, in-app center fully deleted, help config local-only. Extras landed in the same alpha: first e2e harness (Playwright, web build + mock provider, 8 scenarios) + ui/shared node-test suites, and ALL root+CLI format/lint baseline debt cleared (repo lint 0/0, fmt green both workspaces; CLI config-scoping bug fixed).
 
 **Changes:**
 
