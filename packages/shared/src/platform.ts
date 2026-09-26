@@ -501,6 +501,15 @@ export const DesktopCommandIds = {
 export type DesktopCommandId = (typeof DesktopCommandIds)[keyof typeof DesktopCommandIds];
 
 /**
+ * 外部反馈（GitHub Issues）预填上下文：title 对应 issue 标题、body 对应 issue 正文，
+ * 由各反馈入口（错误横幅 / 任务菜单 / 帮助菜单）用脱敏后的现场信息构建。
+ */
+export interface OpenFeedbackContext {
+  title?: string;
+  body?: string;
+}
+
+/**
  * CUA Helper 的操作系统支持态（macOS 版本门槛判定结果，主进程经
  * GetCuaOsSupport 下发给 renderer）。
  * - supported：满足门槛（含非版本因素，如解析失败时按宽松处理）。
@@ -632,14 +641,11 @@ export interface IPlatformService {
     request: string | ApplicationIconRequest,
   ): Promise<ApplicationIconInfo | null>;
 
-  /** 打开反馈入口，由平台自行解析最终地址 */
-  openFeedback(): Promise<void>;
-
-  /** 订阅 main 进程打开内置反馈对话框事件（Desktop） */
-  onOpenFeedbackDialog?(handler: () => void): () => void;
-
-  /** 订阅 main 进程打开我的工单面板事件（Desktop） */
-  onOpenTicketsPanel?(handler: () => void): () => void;
+  /**
+   * 打开外部反馈入口（GitHub Issues）。可选 context 会以 title/body 查询参数
+   * 预填到 new-issue 页；地址由平台从本地帮助配置解析。
+   */
+  openFeedback(context?: OpenFeedbackContext): Promise<void>;
 
   /** 打开用户社群入口，由平台自行解析当前语言对应渠道 */
   openCommunity(): Promise<void>;

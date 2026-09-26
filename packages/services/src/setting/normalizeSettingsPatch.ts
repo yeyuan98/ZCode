@@ -89,5 +89,19 @@ export function normalizeSettingsPatch(patch: Partial<AppSettings>): Partial<App
       trimmedProviderFamilyDomain.length > 0 ? normalizedPatch.providerFamilyDomain : undefined;
   }
 
+  if (
+    "providerOnboardingDismissedAt" in normalizedPatch &&
+    typeof normalizedPatch.providerOnboardingDismissedAt === "string"
+  ) {
+    // 重置向导跳过状态（重新弹出首次配置向导）需要清掉旧时间戳。
+    // RPC 传输会吞掉 undefined，这里把空串归一成 undefined，避免旧的跳过时间一直残留。
+    const trimmedProviderOnboardingDismissedAt =
+      normalizedPatch.providerOnboardingDismissedAt.trim();
+    normalizedPatch.providerOnboardingDismissedAt =
+      trimmedProviderOnboardingDismissedAt.length > 0
+        ? trimmedProviderOnboardingDismissedAt
+        : undefined;
+  }
+
   return normalizedPatch;
 }

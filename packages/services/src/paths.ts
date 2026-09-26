@@ -166,17 +166,7 @@ export function getExportLogDir(): string {
   return join(getZCodeDataRootDir(), "export-log");
 }
 
-export function getFeedbackRootDir(): string {
-  return join(getZCodeDataRootDir(), "feedback");
-}
-
-export function getFeedbackAttachmentDir(): string {
-  return join(getFeedbackRootDir(), "attachments");
-}
-
-export function getFeedbackLogArchiveDir(): string {
-  return join(getFeedbackRootDir(), "logs");
-}
+// P2：feedback 目录（本地工单 / 附件 / 日志归档）helper 随内置反馈中心删除。
 
 export function getGitCheckpointIndexRootDir(): string {
   return join(getZCodeDataRootDir(), "git-checkpoint-index");

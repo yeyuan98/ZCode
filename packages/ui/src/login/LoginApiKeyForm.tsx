@@ -1,72 +1,58 @@
 import { useState } from "react";
 import { isApiKeyAccess } from "@zcode/provider";
-import { Loader2Icon, TriangleAlertIcon } from "lucide-react";
+import { CheckCircle2Icon, Loader2Icon, TriangleAlertIcon } from "lucide-react";
 import {
-  BIGMODEL_PROVIDER_ID,
   TID_LOGIN_API_KEY_CANCEL_BUTTON,
   TID_LOGIN_API_KEY_CONTINUE_BUTTON,
   TID_LOGIN_API_KEY_ERROR,
   TID_LOGIN_API_KEY_INPUT,
-  TID_LOGIN_API_KEY_PROVIDER_ITEM,
-  TID_LOGIN_API_KEY_PROVIDER_TRIGGER,
   TID_LOGIN_API_KEY_SKIP_BUTTON,
-  ZAI_PROVIDER_ID,
-  testId,
 } from "@zcode/shared";
 import { Alert, AlertDescription } from "@/components/ui/alert.js";
 import { Button } from "@/components/ui/button.js";
 import { Input } from "@/components/ui/input.js";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select.js";
 import { usePlatform } from "@/hooks/usePlatform.js";
+import { useProbeTemplateApiKey } from "@/hooks/useProbeTemplateApiKey.js";
 import { useProviderSettingsView } from "@/hooks/useProviderSettingsView.js";
 import { useServices } from "@/hooks/useServices.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import { logger } from "@/logger.js";
-import { renderOAuthProviderIcon } from "@/lib/oauthProviderIcon.js";
 import {
-  buildLoginApiKeyDefaultModelPreferenceFromSelection,
-  buildLoginApiKeySkipSettings,
-  resolveLoginApiKeyDefaultProvider,
-  resolveLoginApiKeyTemplateId,
-  resolveLoginApiKeyProviderLabel,
+  buildWizardSkipSettings,
   shouldShowLoginApiKeyLink,
-  type ApiKeyProviderChoice,
 } from "@/login/LoginApiKeyForm.helpers.js";
-import { useZCodeStore } from "@/store/StoreProvider.js";
 
 interface LoginApiKeyFormProps {
+  templateId: string;
+  /** 返回模板选择步骤。 */
   onCancel: () => void;
   onSaved: () => void | Promise<void>;
   onSkipped: () => void | Promise<void>;
 }
 
-export function LoginApiKeyForm({ onCancel, onSaved, onSkipped }: LoginApiKeyFormProps) {
+export function LoginApiKeyForm({
+  templateId,
+  onCancel,
+  onSaved,
+  onSkipped,
+}: LoginApiKeyFormProps) {
   const { intl, locale } = useZCodeIntl();
   const platform = usePlatform();
-  const { modelSelectionService, providerSettingsService, settingService } = useServices();
-  const markApiKeyLoginSuccess = useZCodeStore((state) => state.markApiKeyLoginSuccess);
-  const [providerChoice, setProviderChoice] = useState<ApiKeyProviderChoice>(() =>
-    resolveLoginApiKeyDefaultProvider(locale),
-  );
+  const { providerSettingsService, settingService } = useServices();
   const [apiKeyValue, setApiKeyValue] = useState("");
   const [saving, setSaving] = useState(false);
   const [skipping, setSkipping] = useState(false);
+  const [skipArmed, setSkipArmed] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const { state: probeState, probe, reset: resetProbe } = useProbeTemplateApiKey();
   const providerSettingsRead = useProviderSettingsView();
   const providerSettingsView =
     providerSettingsRead.state.status === "ready" ? providerSettingsRead.state.view : null;
 
-  const providerLabel = resolveLoginApiKeyProviderLabel(providerChoice);
-  const templateId = resolveLoginApiKeyTemplateId(providerChoice);
-  const templateAccess = providerSettingsView?.providerTemplates.find(
-    (template) => template.templateId === templateId,
-  )?.config.access;
+  const template = providerSettingsView?.providerTemplates.find(
+    (candidate) => candidate.templateId === templateId,
+  );
+  const templateAccess = template?.config.access;
   const apiKeyUrl = isApiKeyAccess(templateAccess) ? templateAccess.apiKeyManagementUrl : undefined;
   // 用户已经输入或回填 API Key 后，右侧获取入口会挤占密码输入区域。
   const showApiKeyLink = shouldShowLoginApiKeyLink(apiKeyValue, apiKeyUrl ?? undefined);
@@ -81,31 +67,22 @@ export function LoginApiKeyForm({ onCancel, onSaved, onSkipped }: LoginApiKeyFor
     setSaving(true);
     setError(null);
     try {
-      const template = (await providerSettingsService.getView()).providerTemplates.find(
+      const resolvedTemplate = (await providerSettingsService.getView()).providerTemplates.find(
         (item) => item.templateId === templateId,
       );
-      if (!template || !isApiKeyAccess(template.config.access)) {
-        setError(
-          intl.formatMessage(
-            { id: "login.apiKey.providerMissingError" },
-            { provider: providerLabel },
-          ),
-        );
+      if (!resolvedTemplate || !isApiKeyAccess(resolvedTemplate.config.access)) {
+        setError(intl.formatMessage({ id: "login.apiKey.providerMissingError" }, { templateId }));
         return;
       }
 
-      const created = await providerSettingsService.createPersonalProvider({
+      await providerSettingsService.createPersonalProvider({
         templateId,
-        initialConfig: { access: { type: template.config.access.type, apiKey } },
+        locale,
+        initialConfig: { access: { type: resolvedTemplate.config.access.type, apiKey } },
       });
-      const defaultModelPreference = buildLoginApiKeyDefaultModelPreferenceFromSelection(
-        await modelSelectionService.getView(),
-        created.providerId,
-      );
-      markApiKeyLoginSuccess(defaultModelPreference);
       await onSaved();
     } catch (saveError) {
-      logger.error("[LoginEntry] 保存 API Key provider 失败", {
+      logger.error("[Wizard] 保存 API Key provider 失败", {
         templateId,
         error: saveError,
       });
@@ -126,13 +103,12 @@ export function LoginApiKeyForm({ onCancel, onSaved, onSkipped }: LoginApiKeyFor
     setSkipping(true);
     setError(null);
     try {
-      // 跳过只表示用户确认当前 provider family 运行域，不能写入空 API Key
-      // 或触发 API Key 登录成功事件，否则后续模型选择会误以为已有可用凭据。
-      await settingService.update(buildLoginApiKeySkipSettings(providerChoice, Date.now()));
+      // 跳过只写入 providerOnboardingDismissedAt（启动门禁据此不再自动弹向导），
+      // 不能写入空 API Key 或触发 API Key 登录成功事件，否则后续模型选择会误以为已有可用凭据。
+      await settingService.update(buildWizardSkipSettings(new Date()));
       await onSkipped();
     } catch (skipError) {
-      logger.error("[LoginEntry] 跳过 API Key 登录失败", {
-        providerChoice,
+      logger.error("[Wizard] 跳过首次配置失败", {
         error: skipError,
       });
       setError(
@@ -148,6 +124,17 @@ export function LoginApiKeyForm({ onCancel, onSaved, onSkipped }: LoginApiKeyFor
     }
   };
 
+  const testApiKey = async () => {
+    const apiKey = apiKeyValue.trim();
+    if (!apiKey) {
+      setError(intl.formatMessage({ id: "login.apiKey.emptyError" }));
+      return;
+    }
+    setError(null);
+    // 探测失败只是提示（Key 可能仍然可用），不阻塞保存。
+    await probe(templateId, apiKey);
+  };
+
   const busy = saving || skipping;
 
   return (
@@ -157,45 +144,6 @@ export function LoginApiKeyForm({ onCancel, onSaved, onSkipped }: LoginApiKeyFor
           {intl.formatMessage({ id: "login.apiKey.title" })}
         </h2>
         <div className="space-y-2">
-          <div>
-            <Select
-              value={providerChoice}
-              onValueChange={(value) => setProviderChoice(value as ApiKeyProviderChoice)}
-              disabled={busy}
-            >
-              <SelectTrigger
-                id="login-api-key-provider"
-                size="lg"
-                className="h-10 w-full text-ui-base"
-                data-testid={TID_LOGIN_API_KEY_PROVIDER_TRIGGER}
-                aria-label={intl.formatMessage({
-                  id: "login.apiKey.providerLabel",
-                })}
-              >
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent align="end" className="rounded-lg">
-                <SelectItem
-                  value="zai"
-                  className="rounded-md"
-                  data-testid={testId(TID_LOGIN_API_KEY_PROVIDER_ITEM, "zai")}
-                >
-                  {renderOAuthProviderIcon(ZAI_PROVIDER_ID, "size-4")}
-                  {intl.formatMessage({ id: "login.apiKey.provider.zai" })}
-                </SelectItem>
-                <SelectItem
-                  value="bigmodel"
-                  className="rounded-md"
-                  data-testid={testId(TID_LOGIN_API_KEY_PROVIDER_ITEM, "bigmodel")}
-                >
-                  {renderOAuthProviderIcon(BIGMODEL_PROVIDER_ID, "size-4")}
-                  {intl.formatMessage({
-                    id: "login.apiKey.provider.bigmodel",
-                  })}
-                </SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
           <div className="relative">
             <Input
               id="login-api-key"
@@ -211,9 +159,13 @@ export function LoginApiKeyForm({ onCancel, onSaved, onSkipped }: LoginApiKeyFor
                 id: "login.apiKey.placeholder",
               })}
               autoComplete="off"
+              disabled={busy}
               onChange={(event) => {
                 setApiKeyValue(event.target.value);
                 setError(null);
+                if (probeState.status !== "idle") {
+                  resetProbe();
+                }
               }}
               onKeyDown={(event) => {
                 if (event.key === "Enter" && apiKeyValue.trim() && !busy) {
@@ -236,6 +188,35 @@ export function LoginApiKeyForm({ onCancel, onSaved, onSkipped }: LoginApiKeyFor
               </button>
             ) : null}
           </div>
+          {probeState.status !== "idle" ? (
+            <div
+              role="status"
+              className="flex items-center gap-2 text-ui-base text-foreground-subtle"
+            >
+              {probeState.status === "testing" ? (
+                <>
+                  <Loader2Icon className="size-4 animate-spin" aria-hidden="true" />
+                  {intl.formatMessage({ id: "login.wizard.testKeyTesting" })}
+                </>
+              ) : probeState.status === "success" ? (
+                <>
+                  <CheckCircle2Icon className="size-4 text-success" aria-hidden="true" />
+                  {intl.formatMessage(
+                    { id: "login.wizard.testKeySuccess" },
+                    { count: probeState.modelCount },
+                  )}
+                </>
+              ) : (
+                <>
+                  <TriangleAlertIcon className="size-4" aria-hidden="true" />
+                  {intl.formatMessage(
+                    { id: "login.wizard.testKeyFail" },
+                    { error: probeState.error },
+                  )}
+                </>
+              )}
+            </div>
+          ) : null}
         </div>
       </div>
 
@@ -263,6 +244,17 @@ export function LoginApiKeyForm({ onCancel, onSaved, onSkipped }: LoginApiKeyFor
           variant="outline"
           className="h-10 w-full text-ui-base"
           size="lg"
+          disabled={!apiKeyValue.trim() || busy || probeState.status === "testing"}
+          onClick={() => void testApiKey()}
+        >
+          {probeState.status === "testing" ? <Loader2Icon className="size-4 animate-spin" /> : null}
+          {intl.formatMessage({ id: "login.wizard.testKey" })}
+        </Button>
+        <Button
+          type="button"
+          variant="outline"
+          className="h-10 w-full text-ui-base"
+          size="lg"
           data-testid={TID_LOGIN_API_KEY_CANCEL_BUTTON}
           disabled={busy}
           onClick={onCancel}
@@ -275,10 +267,19 @@ export function LoginApiKeyForm({ onCancel, onSaved, onSkipped }: LoginApiKeyFor
           className="h-7 w-full text-ui-base text-foreground-subtle hover:text-foreground"
           data-testid={TID_LOGIN_API_KEY_SKIP_BUTTON}
           disabled={busy}
-          onClick={() => void skipApiKeyProvider()}
+          onClick={() => {
+            // 跳过会持久化 providerOnboardingDismissedAt，向导不再自动弹出；二次点击确认避免误触。
+            if (!skipArmed) {
+              setSkipArmed(true);
+              return;
+            }
+            void skipApiKeyProvider();
+          }}
         >
           {skipping ? <Loader2Icon className="size-4 animate-spin" /> : null}
-          {intl.formatMessage({ id: "login.skip" })}
+          {intl.formatMessage({
+            id: skipArmed ? "login.wizard.skipConfirm" : "login.skip",
+          })}
         </Button>
       </div>
     </div>

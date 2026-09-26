@@ -184,19 +184,11 @@ process.title = formatZCodeHostProcessName(process.env["ZCODE_PROCESS_LABEL"]);
 
 type HostLogLevel = "info" | "warn" | "error";
 
-interface PendingFeedbackLogArchiveRequest {
-  resolve: (archive: { path: string; size: number }) => void;
-  reject: (error: Error) => void;
-  onProgress?: (event: { processedBytes: number; totalBytes: number }) => void;
-}
-
 interface PendingLocalMediaPreviewPathAuthorization {
   resolve: (path: string) => void;
   reject: (error: Error) => void;
 }
 
-const pendingFeedbackLogArchiveRequests = new Map<string, PendingFeedbackLogArchiveRequest>();
-let nextFeedbackLogArchiveRequestSeq = 0;
 const pendingLocalMediaPreviewPathAuthorizations = new Map<
   string,
   PendingLocalMediaPreviewPathAuthorization
@@ -301,37 +293,6 @@ function writeHostLog(level: HostLogLevel, ...args: unknown[]): void {
     level === "error" ? rawConsole.error : level === "warn" ? rawConsole.warn : rawConsole.log;
   consoleFn(prefix, ...args);
   reportHostLog(level, [prefix, ...args]);
-}
-
-function createFullFeedbackLogArchiveViaMain(
-  sourceDir: string,
-  options?: {
-    onProgress?: (event: { processedBytes: number; totalBytes: number }) => void;
-  },
-): Promise<{ path: string; size: number }> {
-  const requestId = `feedback-log-archive-${Date.now()}-${nextFeedbackLogArchiveRequestSeq++}`;
-  options?.onProgress?.({ processedBytes: 0, totalBytes: 0 });
-
-  return new Promise((resolve, reject) => {
-    pendingFeedbackLogArchiveRequests.set(requestId, {
-      resolve,
-      reject,
-      onProgress: options?.onProgress,
-    });
-    // 问题反馈以前在 host service 内走 compactLogArchive 的 full fallback，
-    // 收集范围和“导出日志”不一致，缺少 zcode-cli 日志、rollout/debug 以及导出链路脱敏。
-    // 这里把完整日志打包委托给 main process 的导出日志同源逻辑，host 只拿 zip 路径继续上传。
-    try {
-      parentPort.postMessage({
-        type: HostResponseTypes.FeedbackLogArchiveRequest,
-        requestId,
-        sourceDir,
-      });
-    } catch (error) {
-      pendingFeedbackLogArchiveRequests.delete(requestId);
-      reject(error instanceof Error ? error : new Error(String(error)));
-    }
-  });
 }
 
 const logger = {
@@ -1509,8 +1470,8 @@ function warmUpZCodeAgent(
 // 后台输出轮询仍需独立的 debug logger，不能随其他日志调用方移除而丢失工厂导入。
 const rpcDebugLogger = createServiceLogger("rpc");
 
-// P0 遥测清理：feedback 本地工单身份改为 host 进程内临时 UUID（同一进程内稳定复用）。
-const feedbackDeviceMid = randomUUID();
+// P2：feedbackDeviceMid（本地工单 device-id）与 feedback 日志归档 IPC 随内置反馈中心删除；
+// 反馈改为外部 GitHub Issues，host 不再收集设备标识或日志附件。
 
 function logRpc(message: string, ...args: unknown[]): void {
   const level = resolveRpcLogLevel(message, ...args);
@@ -2270,21 +2231,6 @@ parentPort.on("message", async (e: Electron.MessageEvent) => {
     return;
   }
 
-  if (msg.type === HostMessageTypes.FeedbackLogArchiveResult) {
-    const pending = pendingFeedbackLogArchiveRequests.get(msg.requestId);
-    if (!pending) {
-      return;
-    }
-    pendingFeedbackLogArchiveRequests.delete(msg.requestId);
-    if (msg.ok && msg.path && typeof msg.size === "number") {
-      pending.onProgress?.({ processedBytes: msg.size, totalBytes: msg.size });
-      pending.resolve({ path: msg.path, size: msg.size });
-      return;
-    }
-    pending.reject(new Error(msg.error ?? "反馈日志归档创建失败"));
-    return;
-  }
-
   if (msg.type === HostMessageTypes.LocalMediaPreviewPathAuthorizeResult) {
     const pending = pendingLocalMediaPreviewPathAuthorizations.get(msg.requestId);
     if (!pending) return;
@@ -2790,14 +2736,6 @@ parentPort.on("message", async (e: Electron.MessageEvent) => {
               zcodeBuiltinProviderConfigFilePath: msg.zcodeBuiltinProviderConfigFilePath,
               processLifecycleReporter: runtimeProcessLifecycleReporter,
               taskRuntimeReporter: runtimeTaskReporter,
-              feedback: {
-                // P0 遥测清理：deviceMid 改为 host 进程内临时 UUID（不再持久化 telemetry-state）。
-                // 必须进程内复用同一值，feedbackService 本地工单按 deviceMid 归档。
-                // 厂商反馈通道保持可用，P2 将整体改造为 GitHub Issues。
-                apiBaseUrl: msg.feedbackApiBase,
-                createFullLogArchive: createFullFeedbackLogArchiveViaMain,
-                getDeviceMid: () => feedbackDeviceMid,
-              },
               forwardSessionMessageSendRequested: (request) => {
                 parentPort?.postMessage({
                   type: HostResponseTypes.SessionMessageSendRequested,

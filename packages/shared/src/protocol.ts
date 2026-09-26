@@ -2,7 +2,6 @@ import type { RemoteAssetInstallMode } from "./remoteAssetInstallMode.js";
 import type { RemoteResourcePackageSelection } from "./remoteResourcePackages.js";
 import type { ProviderFamilyDomain } from "./model-provider-family.js";
 import type { ProviderFamilyConnectionSelectionSettings } from "./provider-family-connection-selection.js";
-import type { ZCodeProvider } from "./zcode-task-types-core.js";
 import type { WorkspacePurpose } from "./workspacePurpose.js";
 import type { EmbeddedBrowserViewportPreference } from "./browser-use/command-metadata.js";
 
@@ -319,6 +318,11 @@ export interface AppSettings {
   providerFamilyDomainUpdatedAt?: number;
   /** 旧 oauth/provider 状态是否已经尝试迁移到 providerFamilyDomain。 */
   providerFamilyDomainMigrated?: boolean;
+  /**
+   * 用户在首次配置向导点击“跳过”的时间（ISO 字符串）；存在即表示启动门禁不再自动弹出向导。
+   * 必须保持可选：settings 加载走宽松 zod 解析并整体回退默认值，必填新字段会把老用户设置工厂重置。
+   */
+  providerOnboardingDismissedAt?: string;
   /** 新建或冷恢复 Session 是否为 Bash 注入 bfs/ugrep 增强；默认启用。 */
   nativeSearchEnhancementsEnabled?: boolean;
   /** 新建或冷恢复 Session 是否启用 Memory；默认关闭。 */

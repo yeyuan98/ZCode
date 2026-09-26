@@ -482,16 +482,6 @@ contextBridge.exposeInMainWorld("zcode", {
     }
     return () => openWorkspacePathCallbacks.delete(callback);
   },
-  onOpenFeedbackDialog: (callback: () => void): (() => void) => {
-    const handler = () => callback();
-    ipcRenderer.on(PlatformChannels.OpenFeedbackDialog, handler);
-    return () => ipcRenderer.removeListener(PlatformChannels.OpenFeedbackDialog, handler);
-  },
-  onOpenTicketsPanel: (callback: () => void): (() => void) => {
-    const handler = () => callback();
-    ipcRenderer.on(PlatformChannels.OpenTicketsPanel, handler);
-    return () => ipcRenderer.removeListener(PlatformChannels.OpenTicketsPanel, handler);
-  },
   /** 注册窗口全屏状态变化回调，返回 disposer */
   onWindowFullscreenChanged: (callback: (isFullscreen: boolean) => void): (() => void) => {
     const handler = (_event: unknown, isFullscreen: boolean) => callback(isFullscreen);
@@ -754,6 +744,9 @@ contextBridge.exposeInMainWorld("zcode", {
   /** 执行桌面窗口级命令 */
   executeDesktopCommand: (command: DesktopCommandId) =>
     ipcRenderer.invoke(PlatformChannels.ExecuteDesktopCommand, command),
+  /** 打开外部反馈入口（GitHub Issues），context 以 title/body 查询参数预填（P2） */
+  openFeedback: (context?: { title?: string; body?: string }) =>
+    ipcRenderer.invoke(PlatformChannels.OpenFeedback, context),
   /** 同步应用菜单语言 */
   setApplicationLocale: (locale: Locale) =>
     ipcRenderer.invoke(PlatformChannels.SetApplicationLocale, locale),

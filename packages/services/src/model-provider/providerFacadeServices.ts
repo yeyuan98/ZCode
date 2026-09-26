@@ -19,6 +19,12 @@ import {
 import { createServiceDescriptor } from "../descriptors.js";
 import type { ModelConnectivityResult } from "@zcode/shared";
 import { createServiceLogger } from "../logger/serviceLogger.js";
+import {
+  probeTemplateApiKey,
+  type ProbeTemplateApiKeyFetch,
+  type ProbeTemplateApiKeyInput,
+  type ProbeTemplateApiKeyResult,
+} from "./providerTemplateApiKeyProbe.js";
 
 export type {
   ProviderSettingsProviderView,
@@ -26,6 +32,10 @@ export type {
   ModelSelectionViewInput,
   ProviderSettingsView,
 } from "@zcode/provider";
+export type {
+  ProbeTemplateApiKeyInput,
+  ProbeTemplateApiKeyResult,
+} from "./providerTemplateApiKeyProbe.js";
 
 export interface IProviderSettingsService {
   readonly onDidChange: Event<ProviderSettingsView>;
@@ -68,6 +78,11 @@ export interface IProviderSettingsService {
   testModelConnectivity(
     input: ProviderSettingsConnectivityRequest,
   ): Promise<ModelConnectivityResult>;
+  /**
+   * 直接 HTTP 探测内置模板的 API Key（GET {baseUrl}/models）。
+   * A2 用直接 HTTP 探测（P1 的模型发现客户端将取代它），不创建 provider、不启动 agent。
+   */
+  probeTemplateApiKey(input: ProbeTemplateApiKeyInput): Promise<ProbeTemplateApiKeyResult>;
 }
 
 export const IProviderSettingsService = createServiceDescriptor<IProviderSettingsService>(
@@ -110,6 +125,7 @@ export function createProviderSettingsService(
   facade: ProviderSettingsFacade,
   ensureReady: () => Promise<void> = async () => {},
   testConnectivity?: ProviderSettingsConnectivityTester,
+  probeFetch?: ProbeTemplateApiKeyFetch,
 ): IProviderSettingsService {
   return {
     onDidChange: toEvent((listener) => facade.onDidChange(listener)),
@@ -205,6 +221,19 @@ export function createProviderSettingsService(
         providerId: input.providerId,
         modelId: input.modelId,
       });
+    },
+    probeTemplateApiKey: async (input) => {
+      await ensureReady();
+      if (!probeFetch) {
+        // 探测是向导的提示性能力，未装配 fetch（如测试环境）时明确失败而不是抛错，
+        // 让 UI 保持“可保存、探测不可用”的降级语义。
+        return { ok: false, error: "template api key probe is not available" };
+      }
+      const view = facade.getView();
+      const template = view.providerTemplates.find(
+        (candidate) => candidate.templateId === input.templateId,
+      );
+      return probeTemplateApiKey(input, { fetch: probeFetch, template });
     },
   };
 }

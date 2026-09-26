@@ -24,7 +24,6 @@ import {
 } from "@/components/ui/dropdown-menu.js";
 import { cn } from "@/components/lib/utils.js";
 import { ControlHintTooltip } from "@/ControlHintTooltip.js";
-import { useFeedbackStore } from "@/feedback/feedbackStore.js";
 import { useDesktopUpdateMenu } from "@/hooks/useDesktopUpdateMenu.js";
 import { usePlatform } from "@/hooks/usePlatform.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
@@ -44,14 +43,14 @@ export function WorkspaceHelpMenuButton({
   const { intl } = useZCodeIntl();
   const platform = usePlatform();
   const updateMenu = useDesktopUpdateMenu(isDesktop);
-  const openFeedbackSubmit = useFeedbackStore((state) => state.openSubmit);
-  const openFeatureRequest = useFeedbackStore((state) => state.openFeatureRequest);
   const helpMenuLabel = intl.formatMessage({ id: "workspaceHeader.help.menu" });
-  const helpMenuActions = createHelpMenuActionHandlers({
-    platform,
-    intl,
-    openSubmit: openFeedbackSubmit,
-  });
+  // P2：内置反馈中心删除，问题上报 / 产品建议都改为外部 GitHub Issues 预填跳转。
+  const helpMenuActions = createHelpMenuActionHandlers({ platform, intl });
+  const handleOpenFeatureRequest = () => {
+    void platform.openFeedback({
+      title: intl.formatMessage({ id: "workspaceHeader.help.productRequestDraft" }),
+    });
+  };
   const handleOpenCommunity = () => {
     void platform.openCommunity();
   };
@@ -100,7 +99,7 @@ export function WorkspaceHelpMenuButton({
           <MessageSquareIcon className="size-4" />
           {intl.formatMessage({ id: "workspaceHeader.help.issueReport" })}
         </DropdownMenuItem>
-        <DropdownMenuItem onSelect={openFeatureRequest}>
+        <DropdownMenuItem onSelect={handleOpenFeatureRequest}>
           <LightbulbIcon className="size-4" />
           {intl.formatMessage({ id: "workspaceHeader.help.productRequest" })}
         </DropdownMenuItem>

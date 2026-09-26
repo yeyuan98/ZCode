@@ -13,6 +13,8 @@ import "@zcode/ui/styles.css";
 import { connectViaWebSocket } from "@zcode/client";
 import { WebCallbackPage } from "./auth/WebCallbackPage.js";
 import { createWebAuthService } from "./auth/webAuthService.js";
+import { ServerTokenLoginPage } from "./login/ServerTokenLoginPage.js";
+import { probeWebServerTokenGate } from "./login/serverTokenLogin.js";
 import { WEB_ZAI_OAUTH_CONFIG, resolveWebAuthDevReturnTo } from "./auth/webZaiOAuthConfig.js";
 import { parseOAuthState, resolveSafeAppReturnTo } from "./auth/oauthStateCodec.js";
 import { resolveWebCommunityUrl, resolveWebHelpConfig } from "./communityUrl.js";
@@ -28,7 +30,13 @@ import {
   isConversationSharePath,
   resolveConversationShareCodeFromPath,
 } from "./share/conversationShareRoute.js";
-import type { IPlatformService, RemoteTarget, ServerRemoteInfo } from "@zcode/shared";
+import {
+  buildGitHubIssueUrl,
+  DEFAULT_GITHUB_ISSUES_URL,
+  type IPlatformService,
+  type RemoteTarget,
+  type ServerRemoteInfo,
+} from "@zcode/shared";
 import { WEB_DEFAULT_THEME, resolveWebInitialTheme } from "./webThemeSeed.js";
 
 function resolveWebThemePreference(defaultTheme: Theme = WEB_DEFAULT_THEME): Theme {
@@ -69,7 +77,6 @@ function resolveWebThemePreference(defaultTheme: Theme = WEB_DEFAULT_THEME): The
 async function resolveFeedbackUrl(): Promise<string | undefined> {
   return (await resolveWebHelpConfig()).feedback_url;
 }
-
 const root = createRoot(document.getElementById("root")!);
 const webAuthService = createWebAuthService();
 
@@ -234,12 +241,19 @@ function createWebPlatform(): IPlatformService {
     openExternal: (url) => {
       window.open(url, "_blank", "noopener,noreferrer");
     },
-    openFeedback: async () => {
-      const feedbackUrl = await resolveFeedbackUrl();
-      if (!feedbackUrl) {
-        return;
-      }
-      window.open(feedbackUrl, "_blank", "noopener,noreferrer");
+    openFeedback: async (context) => {
+      // P2：反馈入口改为外部 GitHub Issues；context（错误摘要 / 任务 id）以 title/body 查询参数预填。
+      // 配置缺失时回退默认入口，与桌面端 openFeedbackExternal 的兜底口径一致——反馈按钮不能静默失效。
+      const feedbackUrl = (await resolveFeedbackUrl()) ?? DEFAULT_GITHUB_ISSUES_URL;
+      window.open(
+        buildGitHubIssueUrl({
+          baseUrl: feedbackUrl,
+          title: context?.title,
+          body: context?.body,
+        }),
+        "_blank",
+        "noopener,noreferrer",
+      );
     },
     openCommunity: async () => {
       const locale = document.documentElement.lang === "en-US" ? "en-US" : "zh-CN";
@@ -420,6 +434,18 @@ function renderWebBootstrapError(error: unknown): void {
   );
 }
 
+function renderServerTokenLoginPage(): void {
+  document.title = "ZCode - Sign In";
+  root.render(
+    <ServerTokenLoginPage
+      onAuthenticated={() => {
+        // 令牌校验通过（Cookie 已由服务端写入）后重跑启动流程，无刷新切换到工作区视图。
+        void bootstrapWebApp();
+      }}
+    />,
+  );
+}
+
 async function bootstrapWebApp() {
   const params = new URLSearchParams(window.location.search);
   if (isWebOAuthCallback(params)) {
@@ -430,6 +456,27 @@ async function bootstrapWebApp() {
   if (isConversationSharePath(window.location.pathname)) {
     await renderConversationSharePage();
     return;
+  }
+
+  // 自托管登录门禁：仅凭 /api/server-info 的 fetch 状态码判断登录态
+  // （WebSocket 报错无状态码，用于跳转会形成回环）。401 → 登录页；
+  // 200 / 网络错误 → 照常走原启动流程（服务器不可达由既有 WS 引导错误 UI 呈现）。
+  const authGate = await probeWebServerTokenGate();
+  if (authGate === "login-required") {
+    renderServerTokenLoginPage();
+    return;
+  }
+
+  // 跨实例跳转携带的 ?zcode_login=1 只是入口标记；登录门禁通过后立即清理，
+  // 避免无意义的参数长期留在地址栏/历史记录里。
+  if (params.has("zcode_login")) {
+    params.delete("zcode_login");
+    const remainingQuery = params.toString();
+    window.history.replaceState(
+      null,
+      "",
+      `${window.location.pathname}${remainingQuery ? `?${remainingQuery}` : ""}`,
+    );
   }
 
   let bootstrap: WebBootstrapResult;
