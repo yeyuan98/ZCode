@@ -111,7 +111,6 @@ export function createWindow(options: {
   }
 
   const wcId = win.webContents.id;
-  const browserWindowId = win.id;
   let domReadyGeneration = 0;
   let cancelRuntimeProcessEnvWait: (() => void) | null = null;
   win.webContents.on("dom-ready", async () => {
