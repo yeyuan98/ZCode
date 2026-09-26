@@ -838,7 +838,9 @@ export const v4AttachmentBeginParamsSchema = z
       .string()
       .min(1)
       .max(255)
-      .regex(/^[^\0\r\n]+$/),
+      // 文件名禁止控制字符。原字面量 /^\0\r\n/ 只挡 NUL/CR/LF；改用 \p{Cc}
+      // 覆盖全部 Unicode 控制字符（校验更严格，且不再触发 no-control-regex）。
+      .regex(/^[^\p{Cc}\r\n]+$/u),
     mime: z
       .string()
       .min(3)

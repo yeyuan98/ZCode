@@ -21,7 +21,7 @@ Status: implementing P2. Owners: UI root (`packages/ui/src/Root.tsx`, `root/useP
    (reason `manual-login`) and all existing open reasons.
 3. **Test-key probe = direct HTTP from the services layer.** A new provider-facade method calls
    the template protocol's model-list endpoint (`GET {baseUrl}/v1/models`; `Authorization:
-   Bearer` for openai-compatible, `x-api-key` + `anthropic-version` for anthropic-compatible)
+Bearer` for openai-compatible, `x-api-key` + `anthropic-version` for anthropic-compatible)
    through the host network transport (proxy settings honored). It never spawns the agent
    runtime; the settings-page agent-based connectivity test is unchanged; P1's discovery client
    supersedes this probe.

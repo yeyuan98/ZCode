@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+/* eslint-disable max-lines -- 冒烟脚本集中编排复制/构建/断言步骤，保持单文件闭环更易对照工作流审计。 */
 
 // 本地 Windows 安装包交叉打包冒烟工具：在 Linux Docker 容器里复刻
 // .github/workflows/release-desktop.yml 的构建步骤，让工作流/打包脚本改动
@@ -13,7 +14,16 @@
 //   项目构建镜像 zcode-smoke-win-cross 也默认保留，仅 --prune-image 显式删除。
 
 import { spawnSync } from "node:child_process";
-import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statfsSync, writeFileSync } from "node:fs";
+import {
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  statfsSync,
+  writeFileSync,
+} from "node:fs";
 import { createHash } from "node:crypto";
 import { homedir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
@@ -156,7 +166,9 @@ function runAndReadStdout(command, args) {
 }
 
 function readPinnedNodeVersion() {
-  const match = readFileSync(join(repoRoot, "mise.toml"), "utf8").match(/^\s*node\s*=\s*"([^"]+)"/m);
+  const match = readFileSync(join(repoRoot, "mise.toml"), "utf8").match(
+    /^\s*node\s*=\s*"([^"]+)"/m,
+  );
   if (!match) {
     throw new Error("mise.toml 中未找到 node 版本");
   }
@@ -177,7 +189,11 @@ function preflight(force) {
     throw new Error("本工具只支持 Linux 宿主（依赖 tar/statfs 与 linux 容器）");
   }
 
-  const dockerInfo = runAndReadStdout("docker", ["info", "--format", "{{.OSType}} {{.Architecture}}"]);
+  const dockerInfo = runAndReadStdout("docker", [
+    "info",
+    "--format",
+    "{{.OSType}} {{.Architecture}}",
+  ]);
   if (!dockerInfo) {
     throw new Error("docker 不可用，请确认 Docker 已安装并启动");
   }
@@ -218,10 +234,14 @@ function buildProjectImage(nodeVersion, pnpmVersion, noCache) {
     [
       "build",
       ...(noCache ? ["--no-cache"] : []),
-      "--build-arg", `NODE_VERSION=${nodeVersion}`,
-      "--build-arg", `PNPM_VERSION=${pnpmVersion}`,
-      "-t", imageTag,
-      "-f", join("scripts", "docker", "Dockerfile.windows-cross"),
+      "--build-arg",
+      `NODE_VERSION=${nodeVersion}`,
+      "--build-arg",
+      `PNPM_VERSION=${pnpmVersion}`,
+      "-t",
+      imageTag,
+      "-f",
+      join("scripts", "docker", "Dockerfile.windows-cross"),
       join("scripts", "docker"),
     ],
     { cwd: repoRoot },
@@ -291,7 +311,7 @@ function createContainerScript(options) {
     // 与 release-desktop.yml 的 Build 步骤保持同一组环境变量；改动需同步两侧。
     "pnpm bundle:desktop -- --os win --arch x64 --skip-prepare",
     "ls -la packages/desktop/dist/*.exe",
-    'cp packages/desktop/dist/ZCode-*-win-x64.exe /out/',
+    "cp packages/desktop/dist/ZCode-*-win-x64.exe /out/",
   ]
     .filter(Boolean)
     .join("\n");
@@ -307,18 +327,29 @@ function runContainerBuild({ imageTag, runDir, archivePath, options, commitId })
     "run",
     "--rm",
     `--name=zcode-smoke-${process.pid}`,
-    "--user", `${process.getuid()}:${process.getgid()}`,
-    "-e", "HOME=/tmp/zcode-home",
-    "-e", "HUSKY=0",
-    "-e", "ZCODE_ENV=production",
-    "-e", "ZCODE_SKIP_REMOTE_ASSETS=1",
-    "-e", `ZCODE_COMMIT=${commitId}`,
-    "-e", "ELECTRON_CACHE=/cache/electron",
-    "-e", "ELECTRON_BUILDER_CACHE=/cache/electron-builder",
+    "--user",
+    `${process.getuid()}:${process.getgid()}`,
+    "-e",
+    "HOME=/tmp/zcode-home",
+    "-e",
+    "HUSKY=0",
+    "-e",
+    "ZCODE_ENV=production",
+    "-e",
+    "ZCODE_SKIP_REMOTE_ASSETS=1",
+    "-e",
+    `ZCODE_COMMIT=${commitId}`,
+    "-e",
+    "ELECTRON_CACHE=/cache/electron",
+    "-e",
+    "ELECTRON_BUILDER_CACHE=/cache/electron-builder",
     ...(options.registry ? ["-e", `NPM_CONFIG_REGISTRY=${options.registry}`] : []),
-    "-v", `${archivePath}:/staged-tree.tar:ro`,
-    "-v", `${outDir}:/out`,
-    "-v", `${cacheVolumeName}:${cacheMountDir}`,
+    "-v",
+    `${archivePath}:/staged-tree.tar:ro`,
+    "-v",
+    `${outDir}:/out`,
+    "-v",
+    `${cacheVolumeName}:${cacheMountDir}`,
     // 不能用 -w 指到 volume 内路径：workdir 缺失时 docker 守护进程会以 root 重建
     // /cache 并把 volume 根属主重置回 root，覆盖 chown 初始化；容器脚本自行 cd。
     imageTag,
@@ -329,7 +360,10 @@ function runContainerBuild({ imageTag, runDir, archivePath, options, commitId })
 
   console.log(`[smoke] 容器内执行构建（日志: ${logPath}）`);
   // 输出同时进终端与日志文件；pipefail 保证 docker 失败时脚本拿到非零退出码。
-  run("bash", ["-c", `set -o pipefail; docker ${shellJoin(dockerArgs)} 2>&1 | tee ${quote(logPath)}`]);
+  run("bash", [
+    "-c",
+    `set -o pipefail; docker ${shellJoin(dockerArgs)} 2>&1 | tee ${quote(logPath)}`,
+  ]);
 
   const installerPath = findInstallerInDir(outDir);
   if (!installerPath) {
@@ -376,7 +410,9 @@ function printLogTail(logPath, maxLines = 40) {
     return;
   }
   const lines = readFileSync(logPath, "utf8").split("\n");
-  console.error(`\n[smoke] 失败，日志末尾（完整日志 ${logPath}）:\n${lines.slice(-maxLines).join("\n")}`);
+  console.error(
+    `\n[smoke] 失败，日志末尾（完整日志 ${logPath}）:\n${lines.slice(-maxLines).join("\n")}`,
+  );
 }
 
 function prune(options) {

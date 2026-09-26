@@ -25,7 +25,6 @@ import {
   type ZCodeProtocolRequest,
   type ZCodeProtocolRequestId,
   type ZCodeProtocolTrace,
-  type ZCodeSessionMode,
   type ZCodeSessionPersistence,
   type ZCodeWorkspaceRef,
 } from "@zcode/shared";
