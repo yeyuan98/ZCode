@@ -67,3 +67,5 @@ jobs:
           files: packages/desktop/dist/ZCode-*-win-x64.exe
           fail_on_unmatched_files: true
           generate_release_notes: true
+          # 阶段测试版（v3.14.3-alpha.N）标记为 pre-release，正式版（v3.14.3）不受影响。
+          prerelease: ${{ contains(github.ref_name, '-') }}
