@@ -5,6 +5,9 @@
     "third-party/inventory.json",
     "third-party/upstream/**",
     "third-party/native-search/licenses/**",
-    "third-party/runtime/*.txt"
+    "third-party/runtime/*.txt",
+    // CHANGELOG.md 由 release-it/conventional-changelog 在每次发版时整体重写（生成器自有排版），
+    // 版本间手工格式化会在下一次发版被生成器覆盖回来，形成格式化-再生成的循环；与 notices 同等对待。
+    "CHANGELOG.md"
   ]
 }
