@@ -1,5 +1,95 @@
 # Changelog
 
+## [3.14.3-alpha.4](https://github.com/yeyuan98/ZCode/compare/v3.14.3-alpha.3...v3.14.3-alpha.4) (2026-09-26)
+
+### Features
+
+* **provider:** P1 catalog rework — equal-vendor templates, ollama, zero GLM/websearch rules ([10057e1](https://github.com/yeyuan98/ZCode/commit/10057e11a2608e962e57fdd665a04b8e52636bed))
+  * convert zai/bigmodel templates to plain api-key access, de-brand 'Coding Plan' names, drop their builtinModelIds (models now come from discovery/manual add)
+  * delete 8 account:* providerRules, all builtinProviderModelRules, all glm-keyed model/template/site rules; strip glm ids from aggregator builtinModelIds (openrouter/opencode-go/opencode-zen)
+  * delete zcode.z.ai-keyed site rules; remove supportsNativeWebSearch from all remaining rules (keep inputFormat/supportsMidConversationSystem capabilities for surviving endpoints)
+  * add ollama template (openai-chat-completions, http://localhost:11434/v1, no access block)
+  * catalog invariant: zero case-insensitive glm matches, zero account:/zhipu/websearch strings (locked by builtinProviderCatalog.test)
+  * add services test runner (tsLoader shims + package.json test script; 3 pre-existing tests now gated)
+  * default supportsNativeWebSearch=false in ModelPropertiesConfig assembly: catalog no longer carries the flag while the complete schema still requires it (field itself dies in P4)
+
+* **wizard:** P1 model auto-discovery client + wizard persistence ([abf28b6](https://github.com/yeyuan98/ZCode/commit/abf28b6e45e105a63befe26f496354180a0c752a))
+  * new providerModelDiscovery.ts absorbs the P2 test-key probe: openai-compat GET {baseUrl}/models (Bearer only when key present), anthropic GET {baseUrl}/v1/models with x-api-key + anthropic-version + after_id cursor paging (10-page cap); proxy-aware fetch, versioned-path normalization, never spawns the agent runtime
+  * facade probeTemplateApiKey → discoverTemplateModels (interface, impl, runtime fetch threading, node.ts wiring)
+  * CreatePersonalProviderInput.initialModelIds: wizard persists discovered model ids into the created provider (gate requires models.length>0; template providers start empty since P1 dropped vendor builtinModelIds — without persistence the wizard would dead-loop the startup gate)
+  * wizard key step: 'test key' → 'test & discover' with model-count feedback; key-less templates (ollama) skip the key input and discover unauthenticated; step-aware keyless header copy
+  * i18n: login.wizard.testKey* → discoverKey* in both locales (+keylessStepDescription)
+  * e2e: updated test&discover assertions + new wizard-complete⇒usable (gate-closed) lock
+
+
+### Bug Fixes
+
+* **p1:** apply ulw review fixes (empty-list policy, CLI login residue, e2e locks) ([dd6db8f](https://github.com/yeyuan98/ZCode/commit/dd6db8f8693c84b91832361d92e7635d091f65aa))
+  * discovery: empty model list now degrades to failure ('no models returned') per spec — avoids misleading 'works · 0 models' saves that would reopen the wizard gate on next startup; unit tests added (empty list, anthropic /v1-prefixed baseUrl normalization, abort timeout)
+  * e2e: failure test extended to save-after-401 and assert the wizard closes (spec acceptance 3); teardown ENOTEMPTY race fixed with bounded retries (SQLite handle release vs rm)
+  * catalog: bigmodel-api key-management URL repointed to the real API-key console (was coding-plan overview)
+  * CLI: remove P1-dead login residue — help lines (login/logout commands, --no-browser, /login //logout), command-center /login //logout branches + deps + login-flow.ts + loginSetup i18n block/types (both locales); loginRequired copy reworded to provider-API-key guidance (no /login mention)
+  * spec: §4 kept-until-P3 list corrected (legacyAccountConnectionSettings + legacyTeamOrganizationResolver died fully dead in slice 1); expected-death list extended (CLI account-login surface, custom-path zero-model saves); e2e README wording
+
+
+### Chores
+
+* **fmt:** exclude generator-owned CHANGELOG.md from oxfmt ([0ed9c86](https://github.com/yeyuan98/ZCode/commit/0ed9c862237b81ad61c1ef39867d7c79125b4cac))
+
+* **fmt:** format spec markdown ([841a318](https://github.com/yeyuan98/ZCode/commit/841a318d70c7f4927814482e37db2209107f9873))
+
+* **knip:** remove P1-fanout orphaned files and exports ([f81e2b7](https://github.com/yeyuan98/ZCode/commit/f81e2b77882de689acddbbe2bb74d1fed44c107b))
+  * delete dead files (consumers died in slices 1-2): codingPlanProviderAvailability, bigmodelStartPlanZcodeJwt, providers/api barrel + apiKeyHeaders, ui oauthTeamPricing
+  * unexport/delete orphaned symbols (zaiStartPlanBilling model list, coding-plan login headers, sidebar usage preference writer, footer badge helpers, ModelProviderSection test-support re-exports, CLI server/run type re-exports)
+  * knip gate: zero genuinely-new entries vs branch-point baseline; 21 baseline entries eliminated
+
+
+### Documentation
+
+* **plan:** record P1 delivery, amendments A1-A4, decision D8; re-shift alpha numbering ([5443413](https://github.com/yeyuan98/ZCode/commit/544341346552e8bbf5704da311bfd74c47aa0b63))
+  * P1 section: delivered summary (catalog/discovery/excision/tests/amendments)
+  * §3: D8 = compile-forced natural death / no pre-hiding / no over-deletion (was mis-cited as D5)
+  * P3→alpha.5 … P6→alpha.8 (RC); matrix rows updated (A3 = P2 hotfix, A4 = P1)
+
+* **plan:** record wizard UX hotfix alpha.3; P1 shifts to alpha.4 ([634cc60](https://github.com/yeyuan98/ZCode/commit/634cc60df79ad54636d64575f371d6564bd7ba1f))
+
+* **spec:** P1 provider catalog & model discovery spec ([4b1a9aa](https://github.com/yeyuan98/ZCode/commit/4b1a9aa6c4279aa88073c22f80c7055dc961dbbc))
+  * new specs/provider-catalog-and-discovery.md: 21-template equal-vendor catalog invariants (zero glm matches, zero account providers, zero websearch props), runtime model discovery contract (openai-compat + anthropic /v1/models, no agent spawn), wizard test-and-discover with mandatory model persistence, schema excision scope incl. P3 retention boundary, expected-death list, migration boundary
+  * amend specs/onboarding-and-gate.md §Behavior 3: P2 test-key probe superseded by P1 discovery client
+
+* **spec:** wizard layout/header contract (alpha.3) + implemented status ([ae78e69](https://github.com/yeyuan98/ZCode/commit/ae78e69b79b992e80478de06c8b1cc631dd71488))
+
+
+### Refactorings
+
+* **cli:** delete GLM selection backfill migrations 0020-0022 (P1 hard-cut) ([5627a4c](https://github.com/yeyuan98/ZCode/commit/5627a4cfe125a76eed4a2b181974b26c0ae30203))
+  * remove the three tail SQLITE_MIGRATIONS entries + their SQL imports/files: 0020 provider-model-selection backfill, 0021 official-glm-selection id recasing, 0022 backfilled-session-reasoning repair (joins 0020's ledger row — one unit, all three go)
+  * checksum-ledger runner iterates only present entries: safe for fresh and existing databases
+  * ledger comment: ids 0020-0022 must never be reused with different SQL (old databases carry checksums for the original SQL); next migration starts at 0023
+
+* **history:** delete GLM id/migration history (P1 slice 3, hard-cut) ([478a2dd](https://github.com/yeyuan98/ZCode/commit/478a2ddc89685af26d744c06f1bd20922c40a2bb))
+  * delete official-glm-model-id.ts + legacy-model-provider-identity.ts: migrateLegacyModelProviderId existed solely to map six zai/bigmodel legacy ids — deleted; subagent state/markdown migrations keep pure format conversion; bots migrateSelection drops dead builtin: selections (same semantics as the old unknown-builtin branch)
+  * remove no-op user-markdown migration walker (existed only for the provider-id rewrite) across services + CLI
+  * delete official-glm-selection-v3.ts + its 0003 registration in services tasksDatabase migrations (import, definitions entry, dispatch branch; ledger ignores stale 0003 rows; id never reused — noted in comment)
+  * legacyZCodeConfigProviderReader: vendor parts only removed (preset GLM id set, BigModel anthropic normalization, runtime-URL kind inference, BigModel endpoint branches); generic config.json importer intact + regression test (former vendor preset id routes generically with declared kind + verbatim baseURL)
+  * zaiStartPlanBilling inlines its canonical start-plan model list (shared file gone; billing file itself is P3 deletion scope)
+
+* **provider:** excise zhipu account access types + overlay; adapt CLI (P1 slice 2+2b) ([53f9a20](https://github.com/yeyuan98/ZCode/commit/53f9a20c2be77aa3b2abd04a00188d2ca6a6ab20))
+  * delete zhipu-account/zhipu-coding-plan-api-key zod literals (access is api-key only), ZhipuAccountAccessConfig class, account overlay layer (account-provider-resolution/service/state, accountProviderConnectionResolver/Invalidation), account branches across config-service/resolver/registry-service/facades/sources/effective-model-selection
+  * services wiring: node.ts/zcodeAgentService.ts account-config sync to agent removed; resolveCurrentAccountAccess/resolveAccountProvider become inert nulls (registry can no longer publish account providers); provisioning account-provider scope dropped (shared provider-provisioning.ts)
+  * CLI (compiles against root packages via symlinks): delete standalone-account-provider-runtime + compile-forced chain (auth-login*, tui-auth, login-command, zcode-protocol/account-provider-config, login/logout dispatch) — these died with the account runtime; /login /logout surface gone transitively
+  * runtime-string sweep: zero zhipu-account/zhipu-coding-plan literals outside protected shared protocol schemas (kept until P3 per master-plan amendment A1)
+  * new providerVendorAccessExcision.test.ts: schema rejects both vendor access types; stale personal.json with vendor access fails whole-file parse (containment per spec)
+  * protected P3 domains untouched: oauth/**, coding-plan-subscription/**, usage-stats/**, offPeakRuntimeModel, codingPlanProviderAvailability, accountProviderApiClient/CredentialService chain, protocol account schemas
+
+* **settings:** delete providerFamilyDomain* field family + providerFamilyConnectionSelections (P1 slice 1) ([fa9dce2](https://github.com/yeyuan98/ZCode/commit/fa9dce2c2cac9799832c113e4aee7e222193378f))
+  * remove providerFamilyDomain/providerFamilyDomainUpdatedAt/providerFamilyDomainMigrated/providerFamilyConnectionSelections from validationAppSettings (both schemas), protocol AppSettings, normalizeSettingsPatch, setting broadcast keys, settingService comparisons
+  * compile-driven UI fan-out (~30 files): coding-plan Connect/Upgrade visibility, sidebar usage summary sections, composer start-plan quick-select, off-peak eligibility reads, account-connection-loss suggestion, plan-mode switch persistence all die with the field (per spec expected-death list; off-peak/account entitlement becomes inert until P3)
+  * P3-scoped services: surgical read-removal only (codingPlanProviderAvailability team context constant-unknown; accountProviderConnectionResolver constant-null access; provisioning envelope drops accountSettings member; settingService legacy import/rollback machinery deleted — legacyAccountConnectionSettings + legacyTeamOrganizationResolver existed solely to feed the deleted field and are removed whole)
+  * delete UI libs that existed only for the field (providerFamilyDomainSettings, modelProviderFamilyConnectionSelection, oauthProviderFamilySelectionRefresh, accountConnectionLossSuggestion)
+  * i18n: 6 orphaned keys removed from both locales (usage/connection-suggestion strings)
+  * old setting.json keys strip harmlessly on parse (verified runtime lenient parse; no migration per alpha policy)
+
 ## [3.14.3-alpha.3](https://github.com/yeyuan98/ZCode/compare/v3.14.3-alpha.2...v3.14.3-alpha.3) (2026-09-26)
 
 ### Bug Fixes
