@@ -79,7 +79,6 @@ export function createDesktopContextPromptRollout(options: {
 
 export function createElectronDesktopContextPromptConfigFetcher(options: {
   appVersion: string;
-  deviceMid: string;
   resolveEndpointOrigin: () => Promise<string>;
 }): (signal: AbortSignal) => Promise<unknown> {
   return async (signal) => {
@@ -113,7 +112,7 @@ export function createElectronDesktopContextPromptConfigFetcher(options: {
       const sourceHeaders = buildZCodeSourceHeadersFromContext({
         appVersion: options.appVersion,
         arch: process.arch,
-        deviceMid: options.deviceMid,
+        // P0 遥测清理：灰度配置请求不再携带设备标识（X-Device-Mid）。
         endpointOrigin,
         platform: process.platform,
         releaseChannel: ZCODE_ENV,

@@ -94,9 +94,8 @@ const requiredRuntimeModules = [
   // 与注入闭包同口径：校验 OTLP proto 导出链（exporter → otlp-transformer → protobufjs）完整进包。
   "@opentelemetry/exporter-trace-otlp-proto",
   "@opentelemetry/exporter-metrics-otlp-proto",
-  // @arms/rum-core 运行时会从 CJS 入口继续 require('@babel/runtime/helpers/*')。
-  // 它把 @babel/runtime 挂在 peerDependencies，pnpm workspace 开发态通常能解析，
-  // 但如果生产包没把该 peer 运行时带进 app.asar，已安装应用会在主进程启动阶段直接崩溃。
+  // 其他 CJS 依赖闭包（如 protobufjs）会继续 require('@babel/runtime/helpers/*')。
+  // 如果生产包没把该运行时带进 app.asar，已安装应用会在主进程启动阶段直接崩溃。
   // 这里把 @babel/runtime 纳入 bundle 后机械校验，防止坏包继续流出。
   "@babel/runtime",
   // services 里的代理探测会在运行时 require("undici")。

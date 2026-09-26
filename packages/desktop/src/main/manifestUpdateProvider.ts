@@ -26,7 +26,6 @@ const MANIFEST_ACCEPT_HEADER = "application/x-yaml,text/yaml,text/plain,*/*";
 interface ManifestUpdateProviderOptions extends CustomPublishOptions {
   endpointOrigin?: string;
   manifestUrl?: string;
-  deviceMid?: string;
   releasePlatform?: string;
   releaseChannel?: ElectronReleaseChannel;
   resolveEndpointOrigin?: () => string | Promise<string>;
@@ -78,16 +77,12 @@ function buildElectronManifestUrl(options: {
   endpointOrigin: string;
   manifestUrl?: string;
   platform: string;
-  deviceMid?: string;
   channel: ElectronReleaseChannel;
 }): URL {
   const url = options.manifestUrl?.trim()
     ? new URL(options.manifestUrl.trim())
     : new URL(ELECTRON_MANIFEST_API_PATH, normalizeZCodeEndpointOrigin(options.endpointOrigin));
   url.searchParams.set("platform", options.platform);
-  if (options.deviceMid?.trim()) {
-    url.searchParams.set("device_mid", options.deviceMid.trim());
-  }
   url.searchParams.set("channel", mapReleaseChannelToApiValue(options.channel));
   return url;
 }
@@ -209,17 +204,16 @@ export class ManifestUpdateProvider extends Provider<UpdateInfo> {
       endpointOrigin,
       manifestUrl: this.options.manifestUrl,
       platform: this.releasePlatform,
-      deviceMid: this.options.deviceMid,
       channel: releaseChannel,
     });
     this.resolveBaseUrl = new URL("/", manifestUrl);
     const releaseChannelApiValue = mapReleaseChannelToApiValue(releaseChannel);
 
+    // P0 遥测清理：更新链路不再携带设备标识（device_mid 参数与 X-Device-Mid 头均已移除）。
     const raw = await this.httpRequest(manifestUrl, {
       accept: MANIFEST_ACCEPT_HEADER,
       "X-Platform": this.releasePlatform,
       "X-Release-Channel": releaseChannelApiValue,
-      ...(this.options.deviceMid?.trim() ? { "X-Device-Mid": this.options.deviceMid.trim() } : {}),
     });
     if (!raw) {
       throw new Error(`Empty electron update manifest: ${manifestUrl.toString()}`);

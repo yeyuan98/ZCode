@@ -11,6 +11,9 @@ const unsupportedCanvas = new Set([
   "@napi-rs/canvas-android-arm64",
   "@napi-rs/canvas-linux-arm-gnueabihf",
   "@napi-rs/canvas-linux-riscv64-gnu",
+  // glibc 主机上不会安装的 musl 可选平台包，与上面同类，缺失时跳过门禁。
+  "@napi-rs/canvas-linux-arm64-musl",
+  "@napi-rs/canvas-linux-x64-musl",
 ]);
 const noticeName =
   /(?:^|[._-])(?:licen[sc]es?|copying|notice|copyright|unlicense|third.party|ofl)(?:[._-]|$)/iu;
