@@ -1,6 +1,6 @@
 # Spec: Onboarding & Gate Policy (libre-zcode P2)
 
-Status: implementing P2. Owners: UI root (`packages/ui/src/Root.tsx`, `root/useProviderAvailabilityLoginEntryGuard.ts`), provider settings facade (`packages/services/src/model-provider/`), web entry (`packages/web/src/`).
+Status: implemented-by P2 (`v3.14.3-alpha.2`), wizard layout/header contract refined by the `v3.14.3-alpha.3` hotfix. Owners: UI root (`packages/ui/src/Root.tsx`, `root/useProviderAvailabilityLoginEntryGuard.ts`), provider settings facade (`packages/services/src/model-provider/`), web entry (`packages/web/src/`).
 
 ## Behavior
 
@@ -19,6 +19,13 @@ Status: implementing P2. Owners: UI root (`packages/ui/src/Root.tsx`, `root/useP
    (`http://localhost:11434/v1`; builtin Ollama template lands in P1). **Skip** persists
    `providerOnboardingDismissedAt`; the wizard stays reachable via the Settings login entry
    (reason `manual-login`) and all existing open reasons.
+   **Layout/header contract (alpha.3):** fullscreen shell follows the OccupationOnboarding
+   idiom — drag-bar `pt-12` clearance, optional `DesktopWindowControls` on Win/Linux, card
+   capped at viewport height with the step header pinned above an in-card scrollable body
+   (the header must NEVER scroll away or clip); headers are step-aware — key step shows the
+   chosen provider's name/logo/provider-specific description, never the generic "pick a
+   provider" copy. Locked by `e2e/wizard-scroll.spec.ts` + the provider-heading assertion in
+   `e2e/wizard.spec.ts`.
 3. **Test-key probe = direct HTTP from the services layer.** A new provider-facade method calls
    the template protocol's model-list endpoint (`GET {baseUrl}/v1/models`; `Authorization:
 Bearer` for openai-compatible, `x-api-key` + `anthropic-version` for anthropic-compatible)
