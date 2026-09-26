@@ -6,6 +6,7 @@ import {
   desktopMenuMessageIds,
   formatDesktopMenuMessage,
   getDesktopMenuMessage,
+  isVendorManifestUpdateFeedWired,
   PlatformChannels,
   resolveRuntimeZCodeEndpointOrigin,
   ZCODE_VERSION,
@@ -114,7 +115,6 @@ interface InitAutoUpdaterOptions {
   settingService?: SettingServiceLike;
   locale?: Locale;
   updateFeedSource?: RuntimeUpdateFeedSource;
-  deviceMid?: string;
   resolveEndpointOrigin?: () => string | Promise<string>;
 }
 
@@ -759,7 +759,6 @@ function applyManifestUpdateProvider(options: InitAutoUpdaterOptions): void {
     endpointOrigin: DEFAULT_ZCODE_ENDPOINT_ORIGIN,
     ...(manifestUrl ? { manifestUrl } : {}),
     releasePlatform: getElectronReleasePlatform(),
-    deviceMid: options.deviceMid,
     resolveEndpointOrigin:
       options.resolveEndpointOrigin ?? (() => resolveRuntimeZCodeEndpointOrigin(process.env)),
     resolveReleaseChannel: async () => {
@@ -1857,9 +1856,13 @@ export function checkForUpdateMenuClick(originWindow?: BrowserWindow | null) {
     return;
   }
 
-  if (autoUpdaterDisabledForProductFlavor) {
+  if (autoUpdaterDisabledForProductFlavor || isVendorManifestUpdateFeedWired()) {
     // 入口本应已按产品身份隐藏；这里是最后一道闸，不让未初始化的 updater 实例向占位 feed 发请求。
-    logger.info("[auto-update] skip manual check: updater disabled for this product flavor");
+    // 厂商 manifest feed 接线期间同样禁用（见 shared/updateFeedPolicy.ts）：semver 上
+    // 3.14.3 > 3.14.3-alpha.N，手动检查会把 alpha"升级"回厂商构建，故 fail-closed。
+    logger.info(
+      "[auto-update] skip manual check: updater disabled for this product flavor or vendor feed policy",
+    );
     targetWindow.webContents.send(PlatformChannels.UpdateCheckResult, {
       kind: "dev-skipped",
     } satisfies UpdateCheckResultPayload);

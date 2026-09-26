@@ -600,14 +600,8 @@ export function SettingsPage({
     [activeSection],
   );
   const handleOpenCodingPlanUpgradeSettings = useCallback(
-    (
-      providerId: string,
-      funnelContext?: import("@/lib/codingPlanFunnelTelemetry.js").CodingPlanFunnelContext,
-    ) => {
-      openCodingPlanUpgrade({
-        providerId,
-        funnelContext,
-      });
+    (providerId: string) => {
+      openCodingPlanUpgrade({ providerId });
     },
     [openCodingPlanUpgrade],
   );
