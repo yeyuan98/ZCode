@@ -69,3 +69,7 @@ packages/desktop/.e2e-artifacts/
 packages/desktop/.e2e-cache/
 packages/desktop/.e2e-network-capture/
 .zcode-runtime/
+# Web 端 Playwright E2E 运行产物：每测隔离的临时 home/工作区、报告与失败截图。
+e2e/.playwright/
+playwright-report/
+test-results/
