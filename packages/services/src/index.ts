@@ -6,8 +6,8 @@ export {
   IProviderSettingsService,
   type ModelSelectionView,
   type ModelSelectionViewInput,
-  type ProbeTemplateApiKeyInput,
-  type ProbeTemplateApiKeyResult,
+  type DiscoverTemplateModelsInput,
+  type DiscoverTemplateModelsResult,
   type ProviderSettingsProviderView,
   type ProviderSettingsView,
 } from "./model-provider/providerFacadeServices.js";

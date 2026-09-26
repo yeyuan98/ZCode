@@ -1608,8 +1608,8 @@ export function createLocalServices(options: {
     modelSelectionConfiguredDefaultSource,
     disposeModelSelectionConfiguredDefaultSource: () =>
       modelSelectionConfiguredDefaultSource.dispose(),
-    // 模板 API Key 探测走 Host 网络 transport，与其它 Host API 出口共用代理与 CA 设置。
-    probeFetch: hostApiNetworkTransport.fetch,
+    // 模板模型发现走 Host 网络 transport，与其它 Host API 出口共用代理与 CA 设置。
+    discoveryFetch: hostApiNetworkTransport.fetch,
     testConnectivity: createProviderSettingsConnectivityTester({
       testModelConnectivity: async (input) => {
         if (!providerConnectivityAgentService) {
