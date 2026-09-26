@@ -8,8 +8,7 @@ interface AccountProviderInvalidationOptions {
 }
 
 const ACCOUNT_PROVIDER_SETTING_KEYS = new Set([
-  "providerFamilyDomain",
-  "providerFamilyConnectionSelections",
+  // P1：providerFamilyDomain / providerFamilyConnectionSelections 设置键已删除，仅端点变更仍触发刷新。
   "zcodeEndpointOrigin",
 ]);
 

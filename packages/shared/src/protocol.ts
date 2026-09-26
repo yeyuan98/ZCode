@@ -1,7 +1,5 @@
 import type { RemoteAssetInstallMode } from "./remoteAssetInstallMode.js";
 import type { RemoteResourcePackageSelection } from "./remoteResourcePackages.js";
-import type { ProviderFamilyDomain } from "./model-provider-family.js";
-import type { ProviderFamilyConnectionSelectionSettings } from "./provider-family-connection-selection.js";
 import type { WorkspacePurpose } from "./workspacePurpose.js";
 import type { EmbeddedBrowserViewportPreference } from "./browser-use/command-metadata.js";
 
@@ -310,14 +308,6 @@ export interface AppSettings {
   askUserQuestionAutoResolutionEnabled?: boolean;
   /** 是否完整保留 Model I/O；开启后不轮转、不限额重置、不压缩或裁剪，鉴权信息仍会脱敏。 */
   modelIoFullRetentionEnabled?: boolean;
-  /** 设置页中每个 Provider Family 当前唯一的结构化连接选择。 */
-  providerFamilyConnectionSelections?: ProviderFamilyConnectionSelectionSettings;
-  /** 用户通过 WelcomeScreen 成功连接后确认的 ZAI / BigModel provider family 运行域。 */
-  providerFamilyDomain?: ProviderFamilyDomain;
-  /** 最近一次设置或清空 providerFamilyDomain 的时间。 */
-  providerFamilyDomainUpdatedAt?: number;
-  /** 旧 oauth/provider 状态是否已经尝试迁移到 providerFamilyDomain。 */
-  providerFamilyDomainMigrated?: boolean;
   /**
    * 用户在首次配置向导点击“跳过”的时间（ISO 字符串）；存在即表示启动门禁不再自动弹出向导。
    * 必须保持可选：settings 加载走宽松 zod 解析并整体回退默认值，必填新字段会把老用户设置工厂重置。

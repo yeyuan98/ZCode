@@ -75,10 +75,7 @@ export { createGitCheckpointService } from "./git/gitCheckpointService.js";
 export { createSystemService } from "./system/systemService.js";
 export { listSSHConfigAliasesFromLocalConfig } from "./system/sshConfigAlias.js";
 export { createTerminalService } from "./terminal/terminalService.js";
-export {
-  createSettingService,
-  createSettingServiceWithMigrations,
-} from "./setting/settingService.js";
+export { createSettingService } from "./setting/settingService.js";
 export { createCredentialService } from "./credential/credentialService.js";
 export { createBroadcastService } from "./broadcast/broadcastService.js";
 export { createZCodeAgentService } from "./zcode-agent/zcodeAgentService.js";
@@ -142,7 +139,6 @@ export { bindAccountProviderInvalidation } from "./model-provider/accountProvide
 export type {
   AccountProviderConfigSourceOptions,
   AccountProviderConnectionResolverOptions,
-  AccountProviderConnectionSettings,
   AccountProviderFamilyAvailabilityInput,
   AccountProviderFamilyAvailabilityResolver,
   CodingPlanFamilyAvailabilityResolverOptions,
@@ -329,9 +325,8 @@ import { GitCommitMessageGenerator } from "./git/gitCommitMessageGenerator.js";
 import { createGitCheckpointService } from "./git/gitCheckpointService.js";
 import { createSystemService } from "./system/systemService.js";
 import { createTerminalService } from "./terminal/terminalService.js";
-import { createSettingServiceWithMigrations } from "./setting/settingService.js";
+import { createSettingService } from "./setting/settingService.js";
 import { createOnboardingRecordService } from "./onboarding/onboardingRecordService.js";
-import { createLegacyTeamOrganizationResolver } from "./model-provider/legacyTeamOrganizationResolver.js";
 import { createObservableSettingService } from "./setting/observableSettingService.js";
 import { createCredentialService } from "./credential/credentialService.js";
 import { createBroadcastService } from "./broadcast/broadcastService.js";
@@ -1273,10 +1268,6 @@ export function createLocalServices(options: {
   parentPort?: Parameters<typeof createBroadcastService>[0];
   /** Host 装配层注入的设置权威；与网络 transport 必须来自同一 Window Host 生命周期。 */
   settingService?: ISettingService;
-  /** 与注入的本地 Setting 共用写队列；外部远端 Setting 不传，由其权威 Host 完成迁移。 */
-  prepareLegacyAccountConnections?: ReturnType<
-    typeof createSettingServiceWithMigrations
-  >["prepareLegacyAccountConnections"];
   /** 注入后由 ServiceCollection 接管释放，并供 Host 其它 app-managed 下载复用。 */
   hostApiNetworkTransport?: HostApiNetworkTransport;
   /** Desktop Host 请求 Main 登记 Agent 已授权的精确本地视频路径。 */
@@ -1376,10 +1367,8 @@ export function createLocalServices(options: {
     console.error(formatLogPrefix("appCaCert", process.pid), "ensure app CA cert failed:", error);
   }
 
-  const localSettings = options?.settingService ? null : createSettingServiceWithMigrations();
-  const settingService = createObservableSettingService(
-    options?.settingService ?? localSettings!.service,
-  );
+  const localSettings = options?.settingService ? null : createSettingService();
+  const settingService = createObservableSettingService(options?.settingService ?? localSettings!);
   const resolveCurrentZCodeEndpointOrigin = async () =>
     resolveRuntimeZCodeEndpointOrigin(process.env, {
       overrideOrigin: (await settingService.get()).zcodeEndpointOrigin,
@@ -1452,24 +1441,6 @@ export function createLocalServices(options: {
         accessToken,
       ),
   });
-  const resolveLegacyTeamOrganization = createLegacyTeamOrganizationResolver({
-    apiClient,
-    loadOAuthTokenSet: (family) =>
-      oauthCredentialRepo.loadTokenSet(family === "zai" ? ZAI_PROVIDER_ID : BIGMODEL_PROVIDER_ID),
-  });
-  const readAccountProviderSettings = async () => {
-    // 迁移只在账号事实入口协调。ApiClient 的代理/端点仍读普通 Setting，不递归等待迁移。
-    // 外部注入的 Setting（远端 attachment）由其所属 Host 管理，不读取本机旧文件。
-    const prepare =
-      options?.prepareLegacyAccountConnections ?? localSettings?.prepareLegacyAccountConnections;
-    const unresolvedFamilies = (await prepare?.(resolveLegacyTeamOrganization)) ?? [];
-    const settings = await settingService.get();
-    return {
-      providerFamilyDomain: settings.providerFamilyDomain ?? null,
-      selections: settings.providerFamilyConnectionSelections ?? {},
-      unresolvedFamilies,
-    };
-  };
   const loadAccountIdentity = async (family: ProviderFamilyDomain) => {
     const oauthProviderId = family === "zai" ? ZAI_PROVIDER_ID : BIGMODEL_PROVIDER_ID;
     return (await oauthCredentialRepo.loadUserProfile(oauthProviderId))?.id ?? null;
@@ -1479,7 +1450,6 @@ export function createLocalServices(options: {
       resolveCurrentAccountAccess: (access) =>
         resolveCurrentAccountAccess({
           access,
-          readSettings: readAccountProviderSettings,
           loadAccountIdentity,
         }),
       loadOAuthTokenSet: (providerId) => oauthCredentialRepo.loadTokenSet(providerId),
@@ -1544,7 +1514,6 @@ export function createLocalServices(options: {
   });
   const accountProviderConfigSource = createAccountProviderConfigSource({
     configSource: providerConfigRuntime.configService,
-    readSettings: readAccountProviderSettings,
     async loadCodingPlanApiKey(providerId, family, accountIdentity, forceRefresh) {
       if (isStartPlanModelProviderId(providerId)) return null;
       return accountProviderCredentialService.loadCodingPlanApiKey({
@@ -1566,7 +1535,6 @@ export function createLocalServices(options: {
   });
   const providerProvisioningSource = createProviderProvisioningSource({
     personalRepository: providerConfigRuntime.personalRepository,
-    settingService,
     credentialFilePath: resolveCredentialFilePath(resolveAppConfigDir()),
     personalConfigFilePath: join(resolveAppConfigDir(), PERSONAL_PROVIDER_CONFIG_FILE_NAME),
   });
@@ -1578,14 +1546,8 @@ export function createLocalServices(options: {
         options.onProviderProvisioningSourceChanged?.("personal-config");
       }
     }),
-    settingService.onDidUpdate((event) => {
-      if (
-        event.keys.includes("providerFamilyDomain") ||
-        event.keys.includes("providerFamilyConnectionSelections")
-      ) {
-        options.onProviderProvisioningSourceChanged?.("account-settings");
-      }
-    }),
+    // P1：providerFamilyDomain / providerFamilyConnectionSelections 设置键已删除，
+    // account-settings 不再是 Provisioning 的同步触发源。
   ];
   const disposeAccountProviderInvalidation = bindAccountProviderInvalidation({
     onDidUpdateSetting: (listener) => settingService.onDidUpdate(listener),
@@ -2597,7 +2559,6 @@ export function createLocalServices(options: {
         personalRepository: providerConfigRuntime.personalRepository,
         accountProviderSource: accountProviderConfigSource,
         credentialService,
-        settingService,
         personalConfigFilePath: join(resolveAppConfigDir(), PERSONAL_PROVIDER_CONFIG_FILE_NAME),
         stateFilePath: join(resolveAppConfigDir(), "runtime", "provider", "provisioning.json"),
         listProvisioningCredentialKeys: () =>

@@ -133,8 +133,6 @@ export const WorkspaceSidebarFooter = memo(function WorkspaceSidebarFooterCompon
   const showAuthRestoreLoading = !user && isRestoringOAuthSession;
   const usageSummaryState = useWorkspaceSidebarFooterUsageSummaryState({
     enabled: true,
-    workspaceIdentity,
-    workspacePath,
   });
   const profileContent = (
     <>

@@ -11,11 +11,9 @@ export function useOffPeakEligibility(
   const { offPeakTaskService, codingPlanSubscriptionService } = useServices();
   const initialize = useOffPeakTaskStore((state) => state.initialize);
   const refresh = useOffPeakTaskStore((state) => state.refreshCodingPlanSupport);
-  const family = settings?.providerFamilyDomain;
-  const connection = family ? settings?.providerFamilyConnectionSelections?.[family] : undefined;
-  const freshnessKey = settings
-    ? JSON.stringify([registryRevision, family, connection])
-    : undefined;
+  // P1：providerFamilyDomain / providerFamilyConnectionSelections 已删除，
+  // 闲时资格失去连接变化失效信号，只用 Registry revision 作为刷新键（P3 重建）。
+  const freshnessKey = settings ? JSON.stringify([registryRevision]) : undefined;
 
   useEffect(() => {
     void initialize({ offPeakTaskService, codingPlanSubscriptionService });

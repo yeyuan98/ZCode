@@ -16,7 +16,6 @@ import {
   createCredentialCipherProvider,
   type CredentialCipherProvider,
 } from "../credential/providers/credentialCipherProvider.js";
-import type { ISettingService } from "../setting/setting.js";
 
 const CREDENTIAL_FILE_NAME = "credentials.json";
 export const PROVIDER_PROVISIONING_OAUTH_CREDENTIAL_KEYS = [
@@ -36,7 +35,6 @@ export interface ProviderProvisioningSource {
 
 export interface ProviderProvisioningSourceOptions {
   readonly personalRepository: PersonalProviderConfigRepository;
-  readonly settingService: ISettingService;
   readonly credentialFilePath: string;
   readonly personalConfigFilePath: string;
   readonly cipherProvider?: CredentialCipherProvider;
@@ -48,22 +46,17 @@ export function createProviderProvisioningSource(
 ): ProviderProvisioningSource {
   return {
     async read(syncId: string): Promise<ProviderProvisioningEnvelope> {
-      const [personal, settings, credentials] = await Promise.all([
+      const [personal, credentials] = await Promise.all([
         readProvisionablePersonalConfig(options.personalRepository, options.personalConfigFilePath),
-        options.settingService.get(),
         readProvisioningCredentials(options.credentialFilePath, options.cipherProvider),
       ]);
       // 默认与规则来自同一份持锁读取，不能把两次读取的值拼成不存在的配置版本。
       const personalConfig = encodeProviderConfigFile(personal).config;
-      const accountSettings = {
-        providerFamilyDomain: settings.providerFamilyDomain ?? null,
-        providerFamilyConnectionSelections: settings.providerFamilyConnectionSelections ?? {},
-      };
+      // P1：账号连接设置（providerFamilyDomain / providerFamilyConnectionSelections）已删除，不再进入同步信封。
       return providerProvisioningEnvelopeSchema.parse({
         schemaVersion: 1,
         syncId,
         personalConfig,
-        accountSettings,
         credentials,
       });
     },

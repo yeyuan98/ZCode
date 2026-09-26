@@ -157,10 +157,6 @@ const zhCN: Record<string, string> = {
   "offPeak.chatCreated.boundHint": "将在本会话中运行",
   "settings.computerUse.disabledToast": "电脑控制已关闭，已有对话需重启 ZCode 后生效。",
   "settings.modelProvider.connectionUnavailableNotice": "当前套餐已不可用。",
-  "settings.modelProvider.switchConnection": "切换至「{connection}」",
-  "settings.modelProvider.connectionSuggestionStale": "套餐状态已变化，请在模型设置中重新选择。",
-  "settings.modelProvider.connectionSwitchFailed": "切换套餐失败，原连接未更改。请重试。",
-  "settings.modelProvider.connectionUnavailable": "原连接方式已不可用，请重新选择。",
   "settings.modelProvider.navigationUnavailable": "要查看的供应商不可用，请选择其他供应商。",
   "workspace.context.lastActivity": "最近活动 {time}",
   // 通用
@@ -2628,7 +2624,6 @@ const zhCN: Record<string, string> = {
   "settings.modelProvider.connectionMode.codingPlanBadge": "个人",
   "settings.modelProvider.connectionMode.startPlanBadge": "免费",
   "settings.modelProvider.connectionMode.teamPlanBadge": "团队",
-  "settings.modelProvider.connectionMode.loadFailed": "连接方式获取失败",
   "settings.modelProvider.connectionMode.noAvailablePlan": "无可用套餐",
   "settings.modelProvider.accountProviderConfigMissing":
     "账号 Provider 配置暂不可用，请刷新后重试。",
@@ -2719,7 +2714,6 @@ const zhCN: Record<string, string> = {
   "settings.modelProvider.codingPlan.purchase.paymentTitle": "支付",
   "settings.modelProvider.codingPlan.purchase.personal": "个人",
   "settings.modelProvider.codingPlan.purchase.team": "团队",
-  "settings.modelProvider.codingPlan.purchase.individualsSectionTitle": "个人套餐",
   "settings.modelProvider.codingPlan.purchase.teamsSectionTitle": "团队套餐",
   "settings.modelProvider.codingPlan.purchaseBanner.startPlanTitle": "体验套餐",
   "settings.modelProvider.codingPlan.purchaseBanner.startPlanDescription":

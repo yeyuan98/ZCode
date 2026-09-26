@@ -11,9 +11,6 @@ import {
   isStartPlanModelProviderId,
   type BuiltinModelProviderId,
   type ModelConnectivityResult,
-  type ProviderFamilyConnectionSelection,
-  type ProviderFamilyConnectionSelectionSettings,
-  type ProviderFamilyDomain,
   type OAuthProviderId,
   resolveModelProviderFamilyIdByProviderId,
   resolveModelProviderFamilySpecByProviderId,
@@ -56,8 +53,6 @@ import {
   useCodingPlanEntitlements,
 } from "./model-provider-section/useCodingPlanEntitlements.js";
 import { sortModelProvidersForDisplay } from "@/lib/modelProviderOrdering.js";
-import { useSettings } from "@/hooks/useSettingService.js";
-import { resolveLogoutProviderFamilyDomain } from "@/lib/providerFamilyDomainSettings.js";
 import {
   addPendingSettingsSectionListener,
   consumePendingSettingsModelProviderTarget,
@@ -90,20 +85,6 @@ function resolveCodingPlanProviderSyncAttemptKey({
   }
   // 操作身份只由稳定的 provider/auth 事实组成，禁止把 checking 等展示状态放入 key。
   return `${providerId}:${activeOAuthProvider}`;
-}
-
-function shouldRetryUnchangedCodingPlanProviderSync({
-  attemptKey,
-  attemptStatus,
-  modeUnchanged,
-  selectedKeyUnchanged,
-}: {
-  attemptKey: string | null;
-  attemptStatus: "inFlight" | "succeeded" | "failed" | undefined;
-  modeUnchanged: boolean;
-  selectedKeyUnchanged: boolean;
-}): boolean {
-  return modeUnchanged && selectedKeyUnchanged && attemptKey !== null && attemptStatus === "failed";
 }
 
 function resolveCodingPlanIntentProviderId(
@@ -165,51 +146,10 @@ function resolveBuiltinPresetOAuthProvider(
   return null;
 }
 
-function shouldShowPresetProviderForActiveOAuth(
-  presetId: BuiltinModelProviderId,
-  providerFamilyDomain: ProviderFamilyDomain | null | undefined,
-): boolean {
-  const presetOAuthProvider = resolveBuiltinPresetOAuthProvider(presetId);
-  if (!providerFamilyDomain || !presetOAuthProvider) {
-    return true;
-  }
-  return resolveModelProviderFamilyIdByProviderId(presetId) === providerFamilyDomain;
-}
-
-function clearPendingProviderFamilyConnectionSelection(
-  selections: ProviderFamilyConnectionSelectionSettings,
-  familyId: ProviderFamilyDomain,
-  selection: ProviderFamilyConnectionSelection,
-): ProviderFamilyConnectionSelectionSettings {
-  if (JSON.stringify(selections[familyId]) !== JSON.stringify(selection)) {
-    return selections;
-  }
-  const { [familyId]: _removed, ...rest } = selections;
-  return rest;
-}
-
 function resolveProviderFamilySideNodeKey(providerId: BuiltinModelProviderId): string | null {
   if (isStartPlanModelProviderId(providerId)) return createCodingPlanProviderNodeKey(providerId);
   const familySpec = resolveModelProviderFamilySpecByProviderId(providerId);
   return familySpec ? createPresetProviderNodeKey(familySpec.startPlanProviderId) : null;
-}
-
-function resolveConnectionSelectionForNavItem(
-  item: Extract<
-    ModelProviderNavGroup["items"][number],
-    { type: "preset" | "codingPlan" | "teamPlan" }
-  >,
-): ProviderFamilyConnectionSelection | null {
-  if (item.type === "preset") return null;
-  if (item.type === "teamPlan") {
-    const productId = item.currentProductId?.trim() ?? "";
-    const organizationId = item.organizationId?.trim() ?? "";
-    const projectId = item.projectId?.trim() ?? "";
-    return productId && organizationId && projectId
-      ? { kind: "team-coding-plan", productId, organizationId, projectId }
-      : null;
-  }
-  return isStartPlanModelProviderId(item.presetId) ? null : { kind: "individual-coding-plan" };
 }
 
 function resolveModelProviderSideSelectionKey(
@@ -376,8 +316,6 @@ export function ModelProviderSection({
     setCodingPlanPurchaseTokenAuthenticatedByProviderId,
   ] = useState<Partial<Record<BuiltinModelProviderId, boolean>>>({});
   const [activeOAuthProvider, setActiveOAuthProvider] = useState<OAuthProviderId | null>(null);
-  const [pendingConnectionSelections, setPendingConnectionSelections] =
-    useState<ProviderFamilyConnectionSelectionSettings>({});
   const presetSubscriptionCompletionProviderIdRef = useRef<BuiltinModelProviderId | null>(null);
   const codingPlanStatusSyncAttemptsRef = useRef(
     new Map<string, "inFlight" | "succeeded" | "failed">(),
@@ -386,12 +324,8 @@ export function ModelProviderSection({
   const setUser = useZCodeStore((state) => state.setUser);
   const oauthError = useZCodeStore((state) => state.oauthError);
   const setOAuthError = useZCodeStore((state) => state.setOAuthError);
-  const {
-    settings: sharedSettings,
-    loading: sharedSettingsLoading,
-    error: sharedSettingsError,
-    update: updateSharedSettings,
-  } = useSettings();
+  // P1：providerFamilyDomain / providerFamilyConnectionSelections 已删除，
+  // 设置页不再读取连接选择快照；family 过滤改用 OAuth active provider 推导。
   const authenticatedEnterpriseProducts = useEnterpriseCodingPlanProducts({
     enabled:
       codingPlanPurchaseTokenAuthenticatedByProviderId[
@@ -431,46 +365,13 @@ export function ModelProviderSection({
       authenticatedZaiEnterpriseProducts.snapshot?.productList,
     ],
   );
-  const connectionSelections = sharedSettings?.providerFamilyConnectionSelections ?? {};
-  const familyConnectionSettingsFailed = sharedSettingsError !== null && sharedSettings === null;
-  const effectiveConnectionSelections = useMemo(
-    () => ({
-      ...connectionSelections,
-      ...pendingConnectionSelections,
-    }),
-    [connectionSelections, pendingConnectionSelections],
-  );
-  // 原仅检查 bigmodel selectedKey 是否为 team plan，zai team key
-  // 永远不会触发已购团队 fallback（断裂）。改为任一 family 有持久化 team key 即显示。
-  const showPurchasedTeamPlanFallback = Boolean(
-    effectiveConnectionSelections.bigmodel?.kind === "team-coding-plan" ||
-    effectiveConnectionSelections.zai?.kind === "team-coding-plan",
-  );
-  const effectiveProviderFamilyDomain =
-    sharedSettings?.providerFamilyDomain ??
+  const activeProviderFamilyDomain =
     resolveProviderFamilyDomainFromOAuthProvider(activeOAuthProvider);
   const { entitlements: codingPlanEntitlements, refresh: refreshCodingPlanEntitlements } =
     useCodingPlanEntitlements({
       providerSettingsView,
-      connectionSelections: effectiveConnectionSelections,
       suppressProviderFingerprintAutoRefresh: codingPlanStatusSyncProviderId !== null,
     });
-  useEffect(() => {
-    setPendingConnectionSelections((current) => {
-      let next = current;
-      for (const [familyId, selection] of Object.entries(current) as Array<
-        [ProviderFamilyDomain, ProviderFamilyConnectionSelection]
-      >) {
-        if (JSON.stringify(connectionSelections[familyId]) !== JSON.stringify(selection)) {
-          continue;
-        }
-        // API Key/Coding Plan tab 点击后 settings 落盘和 hook 刷新是异步的。
-        // 等持久化快照真的追上再清 pending，避免旧 mode 把选中项短暂纠偏回去造成闪烁。
-        next = clearPendingProviderFamilyConnectionSelection(next, familyId, selection);
-      }
-      return next;
-    });
-  }, [connectionSelections]);
 
   const refreshCodingPlanProducts = useCallback(() => {
     setCodingPlanProductsRefreshToken((current) => current + 1);
@@ -606,13 +507,18 @@ export function ModelProviderSection({
 
   const presetProviders = useMemo(
     () =>
-      PRESET_PROVIDER_SPECS.filter((preset) =>
-        shouldShowPresetProviderForActiveOAuth(preset.id, effectiveProviderFamilyDomain),
-      ).map((preset) => ({
+      PRESET_PROVIDER_SPECS.filter((preset) => {
+        // P1：family 过滤原依赖 providerFamilyDomain 设置字段，现按 OAuth active provider 推导。
+        const presetOAuthProvider = resolveBuiltinPresetOAuthProvider(preset.id);
+        if (!presetOAuthProvider || !activeProviderFamilyDomain) {
+          return true;
+        }
+        return resolveModelProviderFamilyIdByProviderId(preset.id) === activeProviderFamilyDomain;
+      }).map((preset) => ({
         ...preset,
         provider: modelProviders.find((provider) => provider.providerId === preset.id) ?? null,
       })),
-    [effectiveProviderFamilyDomain, modelProviders],
+    [activeProviderFamilyDomain, modelProviders],
   );
 
   useEffect(() => {
@@ -674,25 +580,19 @@ export function ModelProviderSection({
     };
   }, [presetSubscriptionProviderId]);
 
-  const { navigationGroups, navigationItems, selectedNavItem, navigationUnavailable } =
-    useModelProviderNavigation({
-      presetProviders,
-      modelProviders,
-      entitledAccountProviderIds,
-      modelProvidersLoading: loading,
-      displayOrder,
-      codingPlanEntitlements,
-      subscribedTeamProducts,
-      providerFamilyDomain: effectiveProviderFamilyDomain,
-      connectionSelections: effectiveConnectionSelections,
-      pendingConnectionSelections,
-      showPurchasedTeamPlanFallback,
-      familyConnectionSettingsLoading: sharedSettingsLoading && sharedSettings === null,
-      familyConnectionSettingsFailed,
-      selectedNodeKey,
-      setSelectedNodeKey,
-      intl,
-    });
+  const { navigationGroups, navigationItems, selectedNavItem } = useModelProviderNavigation({
+    presetProviders,
+    modelProviders,
+    entitledAccountProviderIds,
+    modelProvidersLoading: loading,
+    displayOrder,
+    codingPlanEntitlements,
+    subscribedTeamProducts,
+    providerFamilyDomain: activeProviderFamilyDomain,
+    selectedNodeKey,
+    setSelectedNodeKey,
+    intl,
+  });
   const selectedPlanAccessKey =
     selectedNavItem?.type === "codingPlan" || selectedNavItem?.type === "teamPlan"
       ? selectedNavItem.key
@@ -825,19 +725,12 @@ export function ModelProviderSection({
         });
         // ZAI/BigModel provider 已恢复为 App 登录镜像。
         // 这里的 Unlink 必须走 provider logout，退出当前 active provider 并触发另一组 provider 恢复 Connect。
-        const nextProviderFamilyDomain = resolveLogoutProviderFamilyDomain({
-          currentDomain: sharedSettings?.providerFamilyDomain,
-        });
+        // P1：解绑不再清空 providerFamilyDomain（设置字段已删除，P3 重建）。
         await oauthService.logout(providerId);
         // Coding Plan 官网 webview 使用独立持久 partition，provider Unlink 也属于账号边界。
         if (typeof platform.executeDesktopCommand === "function") {
           await platform.executeDesktopCommand(DesktopCommandIds.ClearCodingPlanWebviewStorage);
         }
-        await updateSharedSettings({
-          providerFamilyDomain: (nextProviderFamilyDomain ?? "") as never,
-          providerFamilyDomainUpdatedAt: Date.now(),
-          providerFamilyDomainMigrated: true,
-        });
         await refreshCodingPlanPurchaseTokenState({ clearUserWhenLoggedOut: true });
         await refresh();
         // 解绑后 batch-preview 的订阅/鉴权态已经失效，套餐卡片内部缓存必须刷新，
@@ -860,8 +753,6 @@ export function ModelProviderSection({
     [
       oauthService,
       platform,
-      updateSharedSettings,
-      sharedSettings?.providerFamilyDomain,
       modelSelectionService,
       refresh,
       refreshCodingPlanEntitlements,
@@ -870,115 +761,12 @@ export function ModelProviderSection({
     ],
   );
 
-  const persistProviderFamilyModeForNavItem = useCallback(
-    async (item: (typeof navigationItems)[number]) => {
-      if (item.type !== "preset" && item.type !== "codingPlan" && item.type !== "teamPlan") {
-        return;
-      }
-      const familySpec = resolveModelProviderFamilySpecByProviderId(item.presetId);
-      if (!familySpec) {
-        return;
-      }
-      const selection = resolveConnectionSelectionForNavItem(item);
-      if (!selection) return;
-      const selectionUnchanged =
-        JSON.stringify(connectionSelections[familySpec.id]) === JSON.stringify(selection);
-      // 同套餐仍可能缺少持久账号域；用户重选必须补齐，不能用页面展示兜底值去重。
-      const modeUnchanged = sharedSettings?.providerFamilyDomain === familySpec.id;
-      const selectedKeyUnchanged = selectionUnchanged;
-      const planSyncAttemptKey =
-        item.type === "codingPlan" || item.type === "teamPlan"
-          ? resolveCodingPlanProviderSyncAttemptKey({
-              activeOAuthProvider,
-              oauthProviderId: item.oauthProviderId,
-              providerId: item.presetId,
-            })
-          : null;
-      if (modeUnchanged && selectedKeyUnchanged) {
-        const isPlanItem = item.type === "codingPlan" || item.type === "teamPlan";
-        const planSyncAttemptStatus = planSyncAttemptKey
-          ? codingPlanStatusSyncAttemptsRef.current.get(planSyncAttemptKey)
-          : undefined;
-        if (
-          isPlanItem &&
-          shouldRetryUnchangedCodingPlanProviderSync({
-            attemptKey: planSyncAttemptKey,
-            attemptStatus: planSyncAttemptStatus,
-            modeUnchanged,
-            selectedKeyUnchanged,
-          })
-        ) {
-          try {
-            await syncCodingPlanProviderOnce(item, {
-              userTransition: true,
-              refreshPlanSnapshots: false,
-            });
-          } catch (error) {
-            logger.warn("[ModelProviderSection] 重试同步 Coding Plan provider 失败", {
-              providerId: item.presetId,
-              error,
-            });
-          }
-        }
-        return;
-      }
-      setPendingConnectionSelections((current) => ({
-        ...current,
-        [familySpec.id]: selection,
-      }));
-      if (planSyncAttemptKey) {
-        // pending state 会先触发渲染；先占位，避免水合 effect 在设置落盘前重复发起同步。
-        codingPlanStatusSyncAttemptsRef.current.set(planSyncAttemptKey, "inFlight");
-      }
-      try {
-        await updateSharedSettings({
-          providerFamilyDomain: familySpec.id,
-          providerFamilyDomainUpdatedAt: Date.now(),
-          providerFamilyDomainMigrated: true,
-          providerFamilyConnectionSelections: {
-            ...connectionSelections,
-            [familySpec.id]: selection,
-          },
-        });
-        if (item.type === "codingPlan" || item.type === "teamPlan") {
-          // 用户动作拥有连接方式 transition：设置落盘后只刷新一次目标 Plan provider。
-          await syncCodingPlanProviderOnce(item, {
-            userTransition: true,
-            refreshPlanSnapshots: false,
-          });
-        }
-      } catch (error) {
-        if (planSyncAttemptKey) {
-          // 设置落盘或后续 provider 同步失败时必须允许同项重试。
-          codingPlanStatusSyncAttemptsRef.current.set(planSyncAttemptKey, "failed");
-        }
-        logger.warn("[ModelProviderSection] 保存模型供应商连接方式失败", {
-          familyId: familySpec.id,
-          error,
-        });
-        setPendingConnectionSelections((current) =>
-          clearPendingProviderFamilyConnectionSelection(current, familySpec.id, selection),
-        );
-      }
-    },
-    [
-      activeOAuthProvider,
-      connectionSelections,
-      sharedSettings?.providerFamilyDomain,
-      syncCodingPlanProviderOnce,
-      updateSharedSettings,
-    ],
-  );
-
-  const handleSelectNavItem = useCallback(
-    (item: (typeof navigationItems)[number]) => {
-      setInvalidProviderTarget(false);
-      setSelectedNodeKey(resolveModelProviderSideSelectionKey(item));
-      setTemplatePickerOpen(false);
-      void persistProviderFamilyModeForNavItem(item);
-    },
-    [persistProviderFamilyModeForNavItem],
-  );
+  const handleSelectNavItem = useCallback((item: (typeof navigationItems)[number]) => {
+    setInvalidProviderTarget(false);
+    setSelectedNodeKey(resolveModelProviderSideSelectionKey(item));
+    setTemplatePickerOpen(false);
+    // P1：连接方式选择不再落盘（providerFamilyConnectionSelections 已删除，P3 重建）。
+  }, []);
 
   const handleCreateProvider = useCallback(
     async (input: { templateId?: string; providerName?: string }) => {
@@ -1069,12 +857,10 @@ export function ModelProviderSection({
       onReorderProviderIds={handleReorderProviderIds}
       reorderableProviderIds={reorderableProviderIds}
     >
-      {(invalidProviderTarget || navigationUnavailable) && !templatePickerOpen ? (
+      {invalidProviderTarget && !templatePickerOpen ? (
         <p role="alert" className="mb-3 text-ui-base text-destructive">
           {intl.formatMessage({
-            id: invalidProviderTarget
-              ? "settings.modelProvider.navigationUnavailable"
-              : "settings.modelProvider.connectionUnavailable",
+            id: "settings.modelProvider.navigationUnavailable",
           })}
         </p>
       ) : null}
@@ -1092,11 +878,9 @@ export function ModelProviderSection({
         />
       ) : (
         <ModelProviderSectionDetail
-          connectionSelections={effectiveConnectionSelections}
           providerSettingsView={providerSettingsView}
           selectedNavItem={selectedNavItem}
           navigationItems={navigationItems}
-          connectionSettingsFailed={familyConnectionSettingsFailed}
           startPlanSubscriptionCount={(() => {
             const providerId =
               selectedNavItem && "presetId" in selectedNavItem ? selectedNavItem.presetId : null;

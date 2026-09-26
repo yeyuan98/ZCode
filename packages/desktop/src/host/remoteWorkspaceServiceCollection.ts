@@ -131,13 +131,6 @@ export function createRemoteWorkspaceServiceCollection(params: {
     // desktop-attached remote 只复用本机已解析或旧存储中的 Key；远端刷新仍由本机正式账号链负责。
     resolveProviderApiKey: async () => null,
   });
-  const readLocalAccountProviderSettings = async () => {
-    const settings = await localSettingService.get();
-    return {
-      providerFamilyDomain: settings.providerFamilyDomain ?? null,
-      selections: settings.providerFamilyConnectionSelections ?? {},
-    };
-  };
   const loadLocalAccountIdentity = async (family: ProviderFamilyDomain) => {
     const providerId = family === "zai" ? ZAI_PROVIDER_ID : BIGMODEL_PROVIDER_ID;
     return (await localOAuthCredentialRepo.loadUserProfile(providerId))?.id ?? null;
@@ -147,7 +140,6 @@ export function createRemoteWorkspaceServiceCollection(params: {
       resolveCurrentAccountAccess: (access) =>
         resolveCurrentAccountAccess({
           access,
-          readSettings: readLocalAccountProviderSettings,
           loadAccountIdentity: loadLocalAccountIdentity,
         }),
       loadOAuthTokenSet: (providerId) => localOAuthCredentialRepo.loadTokenSet(providerId),

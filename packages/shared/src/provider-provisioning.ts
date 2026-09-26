@@ -1,6 +1,5 @@
 import { z } from "zod";
 import { modelSelectionSchema } from "./model-selection.js";
-import { providerFamilyConnectionSelectionSettingsSchema } from "./provider-family-connection-selection.js";
 
 const nonEmptyString = z.string().trim().min(1);
 
@@ -48,16 +47,8 @@ export type ProviderProvisioningPersonalConfig = z.infer<
   typeof providerProvisioningPersonalConfigSchema
 >;
 
-export const providerProvisioningAccountSettingsSchema = z
-  .object({
-    providerFamilyDomain: z.enum(["zai", "bigmodel"]).nullable(),
-    providerFamilyConnectionSelections: providerFamilyConnectionSelectionSettingsSchema,
-  })
-  .strict();
-
-export type ProviderProvisioningAccountSettings = z.infer<
-  typeof providerProvisioningAccountSettingsSchema
->;
+// P1：accountSettings（providerFamilyDomain / providerFamilyConnectionSelections）已随设置字段族删除，
+// Provisioning 信封不再携带账号连接选择（P3 重建）。
 
 export const providerProvisioningCredentialEntrySchema = z
   .object({
@@ -76,7 +67,6 @@ export const providerProvisioningEnvelopeSchema = z
     schemaVersion: z.literal(1),
     syncId: nonEmptyString,
     personalConfig: providerProvisioningPersonalConfigSchema,
-    accountSettings: providerProvisioningAccountSettingsSchema,
     credentials: z.array(providerProvisioningCredentialEntrySchema).max(256),
   })
   .strict();

@@ -4,9 +4,7 @@ import {
   resolveModelProviderFamilySpecByProviderId,
   isStartPlanModelProviderId,
   testId,
-  type ProviderFamilyConnectionSelectionSettings,
 } from "@zcode/shared";
-import { InfoIcon } from "lucide-react";
 import type { ReactNode } from "react";
 import {
   Select,
@@ -16,7 +14,6 @@ import {
   SelectValue,
 } from "@/components/ui/select.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
-import { connectionSelectionMatchesNavigationItem } from "@/settings/model-provider-section/useModelProviderNavigation.js";
 import { resolveModelProviderNavLogo } from "@/settings/model-provider-section/utils.js";
 import { ProviderLogo } from "./ProviderLogo.js";
 import type { ModelProviderNavItem } from "./constants.js";
@@ -94,15 +91,11 @@ export function ProviderFamilyHeader({
 export function ProviderFamilyPlanModeSwitch({
   selectedNavItem,
   navigationItems,
-  connectionSettingsFailed = false,
-  connectionSelections,
   onSelectNavItem,
 }: {
   selectedNavItem: ModelProviderNavItem | null;
   navigationItems: ModelProviderNavItem[];
   startPlanSubscriptionCount?: number;
-  connectionSettingsFailed?: boolean;
-  connectionSelections?: ProviderFamilyConnectionSelectionSettings;
   onSelectNavItem?: (item: ModelProviderNavItem) => void;
 }) {
   const { intl } = useZCodeIntl();
@@ -145,33 +138,18 @@ export function ProviderFamilyPlanModeSwitch({
     return null;
   }
 
-  // 团队导航条目可能复用个人 provider；选中身份只来自已保存／提交中的付费选择。
-  const selection = connectionSelections?.[familySpec.id];
-  const selectedOption = selection
-    ? options.find((option) =>
-        connectionSelectionMatchesNavigationItem(familySpec.id, selection, option.item),
-      )
-    : undefined;
-  if (options.length === 1 && selectedOption) return null;
+  // P1：已保存连接选择（providerFamilyConnectionSelections）已删除，切换器不再标出当前选项（P3 重建）。
   const connectionModeLabel = intl.formatMessage({
-    id: connectionSettingsFailed
-      ? "settings.modelProvider.connectionMode.loadFailed"
-      : "settings.modelProvider.connectionMode",
+    id: "settings.modelProvider.connectionMode",
   });
 
   return (
     <div className="flex min-w-0 flex-wrap items-center justify-end gap-2">
-      <span
-        className={[
-          "inline-flex min-w-0 shrink-0 items-center gap-1 text-ui-base",
-          connectionSettingsFailed ? "text-warning" : "text-foreground-subtle",
-        ].join(" ")}
-      >
-        {connectionSettingsFailed ? <InfoIcon className="size-3.5 shrink-0" /> : null}
+      <span className="inline-flex min-w-0 shrink-0 items-center gap-1 text-ui-base text-foreground-subtle">
         <span className="truncate">{connectionModeLabel}</span>
       </span>
       <Select
-        value={selectedOption?.key ?? ""}
+        value=""
         onValueChange={(optionKey) => {
           const option = options.find((item) => item.key === optionKey);
           if (!option) {
@@ -192,11 +170,7 @@ export function ProviderFamilyPlanModeSwitch({
             placeholder={intl.formatMessage({
               id: "settings.modelProvider.codingPlan.purchase.selectPlan",
             })}
-          >
-            {selectedOption ? (
-              <span className="min-w-0 truncate text-left">{selectedOption.label}</span>
-            ) : null}
-          </SelectValue>
+          />
         </SelectTrigger>
         <SelectContent position="popper" align="end" className="min-w-40 max-w-[calc(100vw-2rem)]">
           {options.map((option) => (

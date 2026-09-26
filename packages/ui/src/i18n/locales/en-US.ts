@@ -163,13 +163,6 @@ const enUS: Record<string, string> = {
   "settings.computerUse.disabledToast":
     "Computer Use is disabled. Existing conversations require a ZCode restart to take effect.",
   "settings.modelProvider.connectionUnavailableNotice": "The current plan is unavailable.",
-  "settings.modelProvider.switchConnection": "Switch to “{connection}”",
-  "settings.modelProvider.connectionSuggestionStale":
-    "Plan availability has changed. Please select a connection in model settings.",
-  "settings.modelProvider.connectionSwitchFailed":
-    "Could not switch plans. The original connection is unchanged. Please retry.",
-  "settings.modelProvider.connectionUnavailable":
-    "The selected connection is unavailable. Please choose another connection.",
   "settings.modelProvider.navigationUnavailable":
     "The requested provider is unavailable. Please choose another provider.",
   "workspace.context.lastActivity": "Last active {time}",
@@ -2808,7 +2801,6 @@ const enUS: Record<string, string> = {
   "settings.modelProvider.connectionMode.codingPlanBadge": "Individual",
   "settings.modelProvider.connectionMode.startPlanBadge": "Free",
   "settings.modelProvider.connectionMode.teamPlanBadge": "Team",
-  "settings.modelProvider.connectionMode.loadFailed": "Connection settings failed",
   "settings.modelProvider.connectionMode.noAvailablePlan": "No available plan",
   "settings.modelProvider.accountProviderConfigMissing":
     "The account provider configuration is unavailable. Refresh and try again.",
@@ -2905,7 +2897,6 @@ const enUS: Record<string, string> = {
   "settings.modelProvider.codingPlan.purchase.paymentTitle": "Payment",
   "settings.modelProvider.codingPlan.purchase.personal": "Individuals",
   "settings.modelProvider.codingPlan.purchase.team": "Teams",
-  "settings.modelProvider.codingPlan.purchase.individualsSectionTitle": "For Individuals",
   "settings.modelProvider.codingPlan.purchase.teamsSectionTitle": "For Teams",
   "settings.modelProvider.codingPlan.purchaseBanner.startPlanTitle": "Start Plan",
   "settings.modelProvider.codingPlan.purchaseBanner.startPlanDescription":

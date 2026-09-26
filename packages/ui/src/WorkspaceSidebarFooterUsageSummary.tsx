@@ -2,39 +2,27 @@ import { useCodingPlanEntryGate } from "@/settings/CodingPlanEntryButton.js";
 /* eslint-disable max-lines -- footer 套餐徽标、升级入口与 entitlement 探测共用同一份
    provider 选择与 family 过滤上下文，拆文件会让 zai/bigmodel 对称性难以追踪。 */
 import { useEffect, useMemo } from "react";
-import {
-  BUILTIN_MODEL_PROVIDER_IDS,
-  normalizeProviderFamilyDomain,
-  resolveModelProviderFamilyIdByProviderId,
-  TID_SIDEBAR_CODING_PLAN_USAGE_BUTTON,
-} from "@zcode/shared";
+import { BUILTIN_MODEL_PROVIDER_IDS, TID_SIDEBAR_CODING_PLAN_USAGE_BUTTON } from "@zcode/shared";
 import { BarChart3Icon, RocketIcon } from "lucide-react";
 import { DropdownMenuItem, DropdownMenuSeparator } from "@/components/ui/dropdown-menu.js";
 import {
   resolveCodingPlanUsageRemainingState,
   type CodingPlanUsageAvailableProvider,
+  type CodingPlanUsageRemainingEntitlement,
 } from "@/CodingPlanUsageRemainingPanel.js";
 import { useProviderSettingsView } from "@/hooks/useProviderSettingsView.js";
 import { useUsageEntitlement } from "@/hooks/useUsageEntitlement.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
-import { useSettings } from "@/hooks/useSettingService.js";
 import {
   resolveEntitledAccountProviderAccess,
   resolveEntitledAccountProviderAccessFingerprint,
 } from "@/lib/accountProviderAccess.js";
 import { buildUsageEntitlementCacheKey } from "@/lib/usageEntitlementCache.js";
+import { isMaxCodingPlanSnapshot } from "@/lib/sidebarCodingPlanUpgrade.js";
 import {
-  isMaxCodingPlanSnapshot,
-  resolveSidebarCodingPlanUpgradeFallbackProviderId,
-} from "@/lib/sidebarCodingPlanUpgrade.js";
-import { type SidebarUsageCodingPlanProviderId } from "@/lib/sidebarUsageCodingPlanProviderPreference.js";
-import { useEnterpriseCodingPlanProducts } from "@/settings/model-provider-section/useEnterpriseCodingPlanProducts.js";
-import {
-  buildCodingPlanUsageSources,
-  resolveSidebarCurrentCodingPlanUsageSource,
-} from "@/lib/codingPlanUsageSources.js";
-import { selectWorkspaceZCodeState, useZCodeSessionStore } from "@/store/zcodeSessionStore.js";
-import { parseCustomProviderIdFromSupplierKey } from "@/lib/modelConfigSync.js";
+  type SidebarUsageCodingPlanProviderId,
+  type SidebarUsageCodingPlanSourceId,
+} from "@/lib/sidebarUsageCodingPlanProviderPreference.js";
 import { setPendingSettingsUsageIntent } from "@/lib/settingsNavigation.js";
 import {
   resolveSidebarFooterPlanBadgeLabel,
@@ -52,20 +40,13 @@ export function WorkspaceSidebarFooterUsageSummary({
   enabled,
   onUsageClick,
   onUpgradeClick,
-  workspaceIdentity,
-  workspacePath,
 }: {
   enabled: boolean;
   onUsageClick?: () => void;
   onUpgradeClick?: (providerId: SidebarUsageCodingPlanProviderId) => void;
-  workspaceIdentity?: string;
-  workspacePath?: string;
 }) {
-  const state = useWorkspaceSidebarFooterUsageSummaryState({
-    enabled,
-    workspaceIdentity,
-    workspacePath,
-  });
+  // P1：连接选择字段已删除，footer 汇总不再需要 workspace 定位选中供应商。
+  const state = useWorkspaceSidebarFooterUsageSummaryState({ enabled });
   return (
     <WorkspaceSidebarFooterUsageSummaryContent
       state={state}
@@ -75,27 +56,12 @@ export function WorkspaceSidebarFooterUsageSummary({
   );
 }
 
-export function useWorkspaceSidebarFooterUsageSummaryState({
-  enabled,
-  workspaceIdentity,
-  workspacePath,
-}: {
-  enabled: boolean;
-  workspaceIdentity?: string;
-  workspacePath?: string;
-}) {
-  const { settings: sharedSettings } = useSettings();
-  const providerFamilyDomain = normalizeProviderFamilyDomain(sharedSettings?.providerFamilyDomain);
+export function useWorkspaceSidebarFooterUsageSummaryState({ enabled }: { enabled: boolean }) {
   const providerSettingsRead = useProviderSettingsView();
   const providerSettingsView =
     providerSettingsRead.state.status === "ready" ? providerSettingsRead.state.view : null;
   // 首次读取失败也不能被解释成“已经加载且没有套餐”；只有 Ready 才能消费 Provider 事实。
   const providerSourcesLoading = providerSettingsRead.state.status !== "ready";
-  const selectedSupplierKey = useZCodeSessionStore((state) =>
-    workspacePath
-      ? selectWorkspaceZCodeState(state, workspacePath, workspaceIdentity).selectedSupplierKey
-      : "",
-  );
   const availableCodingPlanProviders = useMemo(
     () =>
       [
@@ -140,113 +106,13 @@ export function useWorkspaceSidebarFooterUsageSummaryState({
     providerSettingsView,
     BUILTIN_MODEL_PROVIDER_IDS.bigmodelTeamCodingPlan,
   );
-  const selectedProviderIdFromSupplierKey =
-    parseCustomProviderIdFromSupplierKey(selectedSupplierKey);
-  const selectedProviderFamilyId = selectedProviderIdFromSupplierKey
-    ? resolveModelProviderFamilyIdByProviderId(selectedProviderIdFromSupplierKey)
-    : null;
-  // providerFamilyDomain 是当前登录/运行 family 边界；BigModel Team selectedKey
-  // 会在切换到 Z.ai 后保留，footer 若不按当前 domain 过滤会把头像旁徽标误显示成 Team。
-  const scopedSelectedProviderId =
-    selectedProviderFamilyId &&
-    providerFamilyDomain &&
-    selectedProviderFamilyId !== providerFamilyDomain
-      ? null
-      : selectedProviderIdFromSupplierKey;
-  const bigmodelFamilyAllowed = providerFamilyDomain !== "zai";
-  // 原只有 bigmodelFamilyAllowed 单变量，zai family 下 enterprise products 完全不拉。
-  // zai team plan 对称化需要 zai family 也独立拉一份 enterprise pricing。
-  const zaiFamilyAllowed = providerFamilyDomain !== "bigmodel";
-  const bigmodelEnterpriseProducts = useEnterpriseCodingPlanProducts({
-    // footer badge 和升级入口都需要识别 Team Plan。
-    // Team 项目上下文只在企业 pricing/customerInfo 返回，账号级头像徽标也不能被当前连接方式卡住。
-    enabled:
-      enabled && !providerSourcesLoading && bigmodelFamilyAllowed && Boolean(bigmodelTeamProvider),
-    authenticated: true,
-    family: "bigmodel",
-  });
-  const zaiEnterpriseProducts = useEnterpriseCodingPlanProducts({
-    enabled: enabled && !providerSourcesLoading && zaiFamilyAllowed && Boolean(zaiTeamProvider),
-    authenticated: true,
-    family: "zai",
-  });
-  const subscribedTeamProducts = useMemo(
-    () => [
-      ...(bigmodelEnterpriseProducts.snapshot?.productList.filter(
-        (product) => product.subscribed === true,
-      ) ?? []),
-      ...(zaiEnterpriseProducts.snapshot?.productList.filter(
-        (product) => product.subscribed === true,
-      ) ?? []),
-    ],
-    [bigmodelEnterpriseProducts.snapshot?.productList, zaiEnterpriseProducts.snapshot?.productList],
-  );
-  const teamSources = useMemo(
-    () =>
-      buildCodingPlanUsageSources({
-        accountAccesses: {
-          ...(zaiTeamProvider?.access
-            ? {
-                zai: zaiTeamProvider.access,
-              }
-            : {}),
-          ...(bigmodelTeamProvider?.access
-            ? {
-                bigmodel: bigmodelTeamProvider.access,
-              }
-            : {}),
-        },
-        subscribedTeamProducts,
-      }),
-    [bigmodelTeamProvider?.access, subscribedTeamProducts, zaiTeamProvider?.access],
-  );
-  const currentUsageSource = useMemo(
-    () =>
-      resolveSidebarCurrentCodingPlanUsageSource({
-        selections: sharedSettings?.providerFamilyConnectionSelections,
-        selectedProviderId: scopedSelectedProviderId,
-        accountAccesses: {
-          ...(resolveEntitledAccountProviderAccess(
-            providerSettingsView,
-            BUILTIN_MODEL_PROVIDER_IDS.zaiIndividualCodingPlan,
-          )?.access
-            ? {
-                zai: resolveEntitledAccountProviderAccess(
-                  providerSettingsView,
-                  BUILTIN_MODEL_PROVIDER_IDS.zaiIndividualCodingPlan,
-                )!.access,
-              }
-            : {}),
-          ...(resolveEntitledAccountProviderAccess(
-            providerSettingsView,
-            BUILTIN_MODEL_PROVIDER_IDS.bigmodelIndividualCodingPlan,
-          )?.access
-            ? {
-                bigmodel: resolveEntitledAccountProviderAccess(
-                  providerSettingsView,
-                  BUILTIN_MODEL_PROVIDER_IDS.bigmodelIndividualCodingPlan,
-                )!.access,
-              }
-            : {}),
-        },
-        teamSources,
-      }),
-    [
-      scopedSelectedProviderId,
-      bigmodelProvider?.accountAccess,
-      sharedSettings?.providerFamilyConnectionSelections,
-      teamSources,
-      zaiProvider?.accountAccess,
-    ],
-  );
-  const selectedProviderId = currentUsageSource?.sourceId;
+  // P1：providerFamilyDomain / providerFamilyConnectionSelections 已删除，
+  // footer 不再按运行域过滤 family，也没有选中连接的团队用量来源（P3 重建）。
+  // P1：当前用量来源原由 providerFamilyConnectionSelections 解析，字段删除后不再有“当前连接”概念（P3 重建）。
+  const selectedProviderId: SidebarUsageCodingPlanSourceId | undefined = undefined;
 
   const zaiEntitlement = useUsageEntitlement({
-    enabled:
-      enabled &&
-      !providerSourcesLoading &&
-      providerFamilyDomain !== "bigmodel" &&
-      Boolean(zaiProvider),
+    enabled: enabled && !providerSourcesLoading && Boolean(zaiProvider),
     includeSubscription: true,
     preferredProviderId: BUILTIN_MODEL_PROVIDER_IDS.zaiIndividualCodingPlan,
     accountAccess: resolveEntitledAccountProviderAccess(
@@ -263,8 +129,7 @@ export function useWorkspaceSidebarFooterUsageSummaryState({
     refreshOnMount: false,
   });
   const bigmodelEntitlement = useUsageEntitlement({
-    enabled:
-      enabled && !providerSourcesLoading && bigmodelFamilyAllowed && Boolean(bigmodelProvider),
+    enabled: enabled && !providerSourcesLoading && Boolean(bigmodelProvider),
     includeSubscription: true,
     preferredProviderId: BUILTIN_MODEL_PROVIDER_IDS.bigmodelIndividualCodingPlan,
     accountAccess: resolveEntitledAccountProviderAccess(
@@ -281,18 +146,14 @@ export function useWorkspaceSidebarFooterUsageSummaryState({
     refreshOnMount: false,
   });
   const teamEntitlement = useUsageEntitlement({
-    // 原硬绑 bigmodelCodingPlan providerId 判断，zai team source 的 providerId
-    // 是 zaiCodingPlan，永远进不到 team 分支，导致 zai team 额度不查询、badge 不显示。
-    // 改为按 currentUsageSource.audience === "team" 路由，providerId 动态取。
-    enabled: enabled && !providerSourcesLoading && currentUsageSource?.audience === "team",
+    // P1：当前连接来源（providerFamilyConnectionSelections）已删除，无法定位选中 Team 连接，
+    // footer 暂不查询团队额度（P3 重建）。
+    enabled: false,
     includeSubscription: true,
-    preferredProviderId:
-      currentUsageSource?.providerId ?? BUILTIN_MODEL_PROVIDER_IDS.bigmodelIndividualCodingPlan,
-    accountAccess: currentUsageSource?.teamSource?.accountAccess,
+    preferredProviderId: BUILTIN_MODEL_PROVIDER_IDS.bigmodelIndividualCodingPlan,
     allowDisabledPreferredProvider: true,
     requirePreferredProvider: true,
     allowEnvApiKey: false,
-    cacheKey: currentUsageSource?.teamSource?.id,
     refreshOnMount: false,
   });
   // footer 是常驻入口，refreshOnMount: false 后冷启动没有其它
@@ -309,71 +170,22 @@ export function useWorkspaceSidebarFooterUsageSummaryState({
   }, [zaiEntitlement.refresh, bigmodelEntitlement.refresh, teamEntitlement.refresh]);
   const profilePlanBadge = resolveSidebarFooterProfilePlanBadge({
     individualEntitlements: [
-      ...(providerFamilyDomain !== "bigmodel"
-        ? [
-            {
-              providerId: BUILTIN_MODEL_PROVIDER_IDS.zaiIndividualCodingPlan,
-              snapshot: zaiEntitlement.snapshot,
-              loading: zaiEntitlement.loading,
-            },
-          ]
-        : []),
-      ...(bigmodelFamilyAllowed
-        ? [
-            {
-              providerId: BUILTIN_MODEL_PROVIDER_IDS.bigmodelIndividualCodingPlan,
-              snapshot: bigmodelEntitlement.snapshot,
-              loading: bigmodelEntitlement.loading,
-            },
-          ]
-        : []),
+      {
+        providerId: BUILTIN_MODEL_PROVIDER_IDS.zaiIndividualCodingPlan,
+        snapshot: zaiEntitlement.snapshot,
+        loading: zaiEntitlement.loading,
+      },
+      {
+        providerId: BUILTIN_MODEL_PROVIDER_IDS.bigmodelIndividualCodingPlan,
+        snapshot: bigmodelEntitlement.snapshot,
+        loading: bigmodelEntitlement.loading,
+      },
     ],
     // 头像徽标使用账号的 Team entitlement；pricing 结果只负责额度来源和套餐详情。
-    hasTeamPlanEntitlement:
-      providerFamilyDomain === "zai"
-        ? Boolean(zaiTeamProvider)
-        : providerFamilyDomain === "bigmodel"
-          ? Boolean(bigmodelTeamProvider)
-          : Boolean(zaiTeamProvider || bigmodelTeamProvider),
+    hasTeamPlanEntitlement: Boolean(zaiTeamProvider || bigmodelTeamProvider),
   });
-  const providerEntitlements = [
-    ...(currentUsageSource?.providerId === BUILTIN_MODEL_PROVIDER_IDS.zaiIndividualCodingPlan &&
-    currentUsageSource.audience === "individual"
-      ? [
-          {
-            sourceId: BUILTIN_MODEL_PROVIDER_IDS.zaiIndividualCodingPlan,
-            providerId: BUILTIN_MODEL_PROVIDER_IDS.zaiIndividualCodingPlan,
-            accountAccess: currentUsageSource.accountAccess,
-            ...zaiEntitlement,
-          },
-        ]
-      : []),
-    ...(currentUsageSource?.providerId ===
-      BUILTIN_MODEL_PROVIDER_IDS.bigmodelIndividualCodingPlan &&
-    currentUsageSource.audience === "individual"
-      ? [
-          {
-            sourceId: BUILTIN_MODEL_PROVIDER_IDS.bigmodelIndividualCodingPlan,
-            providerId: BUILTIN_MODEL_PROVIDER_IDS.bigmodelIndividualCodingPlan,
-            accountAccess: currentUsageSource.accountAccess,
-            ...bigmodelEntitlement,
-          },
-        ]
-      : []),
-    // 原 team 分支硬判 bigmodelCodingPlan providerId，zai team source 走不进来。
-    // 改为统一按 audience === "team" 路由，覆盖 zai/bigmodel 两种 family 的 team source。
-    ...(currentUsageSource?.audience === "team" && currentUsageSource.teamSource
-      ? [
-          {
-            sourceId: currentUsageSource.teamSource.id,
-            providerId: currentUsageSource.teamSource.providerId,
-            accountAccess: currentUsageSource.teamSource.accountAccess,
-            label: currentUsageSource.teamSource.label,
-            ...teamEntitlement,
-          },
-        ]
-      : []),
-  ];
+  // P1：当前连接来源（providerFamilyConnectionSelections）已删除，footer 汇总不再按选中套餐投影（P3 重建）。
+  const providerEntitlements: CodingPlanUsageRemainingEntitlement[] = [];
   const usageState = resolveCodingPlanUsageRemainingState({
     availableProviders: availableCodingPlanProviders,
     entitlements: providerEntitlements,
@@ -388,11 +200,11 @@ export function useWorkspaceSidebarFooterUsageSummaryState({
       : undefined;
   const upgradeTargetProviderId =
     selectedUpgradeProviderId ??
-    currentUsageSource?.providerId ??
     availableCodingPlanProviders[0]?.providerId ??
-    resolveSidebarCodingPlanUpgradeFallbackProviderId(providerFamilyDomain);
+    // P1：providerFamilyDomain 已删除，升级入口无运行域可回退时默认 Z.ai 品牌。
+    BUILTIN_MODEL_PROVIDER_IDS.zaiIndividualCodingPlan;
   return {
-    audience: currentUsageSource?.audience,
+    audience: undefined,
     availableCodingPlanProviders,
     providerSourcesLoading,
     providerEntitlements,
