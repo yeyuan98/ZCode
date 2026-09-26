@@ -6,8 +6,22 @@ export interface DiscoverTemplateModelsInput {
   readonly apiKey?: string;
 }
 
+/** 端点自愿提供的每模型能力提示；仅在端点返回对应字段时存在（hints 不覆盖目录规则）。 */
+export interface DiscoveryModelHints {
+  /** anthropic `max_input_tokens` / openai-compat `context_length`，仅 >0 时有效。 */
+  readonly contextWindow?: number;
+  readonly supportsImage?: boolean;
+  readonly supportsVideo?: boolean;
+  readonly supportsPdf?: boolean;
+}
+
 export type DiscoverTemplateModelsResult =
-  | { readonly ok: true; readonly modelIds: readonly string[] }
+  | {
+      readonly ok: true;
+      readonly modelIds: readonly string[];
+      /** 按 id 附带的可选能力提示；端点不提供元数据时该字段整体缺省。 */
+      readonly modelHints?: Readonly<Record<string, DiscoveryModelHints>>;
+    }
   | { readonly ok: false; readonly error: string };
 
 export type DiscoverTemplateModelsFetch = typeof fetch;
@@ -61,9 +75,109 @@ interface ParsedModelList {
   readonly ids: readonly string[];
   readonly hasMore: boolean;
   readonly lastId: string | undefined;
+  readonly firstId: string | undefined;
+  readonly hints: ReadonlyMap<string, DiscoveryModelHints>;
 }
 
-function parseModelListPayload(payload: unknown): ParsedModelList | null {
+/**
+ * anthropic 形态元数据提取（仅规范 snake_case 字段）。probe 证据
+ * （/tmp/opencode/bigmodel-probe.md）：bigmodel/zai 的 anthropic 镜像是 legacy 形状，
+ * 完全没有 capabilities/max_input_tokens —— 该函数在这些镜像上是无操作（no-op），
+ * 不解析任何 camelCase 能力拼写。
+ */
+function extractAnthropicModelHints(entry: object): DiscoveryModelHints | undefined {
+  const raw = entry as {
+    max_input_tokens?: unknown;
+    capabilities?: {
+      image_input?: { supported?: unknown } | null;
+      pdf_input?: { supported?: unknown } | null;
+    } | null;
+  };
+  let hints: DiscoveryModelHints | undefined;
+  const maxInputTokens = raw.max_input_tokens;
+  if (typeof maxInputTokens === "number" && maxInputTokens > 0) {
+    hints = { contextWindow: maxInputTokens };
+  }
+  const capabilities = raw.capabilities;
+  if (capabilities != null && typeof capabilities === "object") {
+    if (capabilities.image_input?.supported === true) {
+      hints = { ...hints, supportsImage: true };
+    }
+    if (capabilities.pdf_input?.supported === true) {
+      hints = { ...hints, supportsPdf: true };
+    }
+  }
+  return hints;
+}
+
+/**
+ * openai-compat 形态元数据提取（OpenRouter 形状）。`input_modalities` 只认
+ * image/video，audio/file 等未知模态忽略；openai-compat 端点没有 pdf 来源，
+ * supportsPdf 保持缺省。
+ */
+function extractOpenaiModelHints(entry: object): DiscoveryModelHints | undefined {
+  const raw = entry as {
+    context_length?: unknown;
+    architecture?: { input_modalities?: unknown } | null;
+  };
+  let hints: DiscoveryModelHints | undefined;
+  const contextLength = raw.context_length;
+  if (typeof contextLength === "number" && contextLength > 0) {
+    hints = { contextWindow: contextLength };
+  }
+  const modalities = raw.architecture?.input_modalities;
+  if (Array.isArray(modalities)) {
+    if (modalities.includes("image")) {
+      hints = { ...hints, supportsImage: true };
+    }
+    if (modalities.includes("video")) {
+      hints = { ...hints, supportsVideo: true };
+    }
+  }
+  return hints;
+}
+
+/**
+ * 跨页/页内合并同 id 的 hints：后页字段只填补前页缺失的字段，绝不覆盖已有值
+ * （0/null/缺省一律不产生字段），保证同一模型跨页出现时合并结果确定。
+ */
+function mergeDiscoveryModelHints(
+  existing: DiscoveryModelHints | undefined,
+  incoming: DiscoveryModelHints,
+): DiscoveryModelHints {
+  if (!existing) {
+    return incoming;
+  }
+  const contextWindow = existing.contextWindow ?? incoming.contextWindow;
+  const supportsImage = existing.supportsImage ?? incoming.supportsImage;
+  const supportsVideo = existing.supportsVideo ?? incoming.supportsVideo;
+  const supportsPdf = existing.supportsPdf ?? incoming.supportsPdf;
+  // 只写入有值的字段，避免把显式 undefined 键泄漏进合并结果。
+  const merged: {
+    contextWindow?: number;
+    supportsImage?: boolean;
+    supportsVideo?: boolean;
+    supportsPdf?: boolean;
+  } = {};
+  if (contextWindow !== undefined) {
+    merged.contextWindow = contextWindow;
+  }
+  if (supportsImage !== undefined) {
+    merged.supportsImage = supportsImage;
+  }
+  if (supportsVideo !== undefined) {
+    merged.supportsVideo = supportsVideo;
+  }
+  if (supportsPdf !== undefined) {
+    merged.supportsPdf = supportsPdf;
+  }
+  return merged;
+}
+
+function parseModelListPayload(
+  payload: unknown,
+  protocol: DiscoveryTarget["protocol"],
+): ParsedModelList | null {
   if (payload == null || typeof payload !== "object") {
     return null;
   }
@@ -72,17 +186,42 @@ function parseModelListPayload(payload: unknown): ParsedModelList | null {
     return null;
   }
   const ids: string[] = [];
+  const hints = new Map<string, DiscoveryModelHints>();
   for (const entry of data) {
     const id = (entry as { id?: unknown } | null)?.id;
-    if (typeof id === "string") {
-      ids.push(id);
+    if (typeof id !== "string" || !id) {
+      continue;
+    }
+    ids.push(id);
+    const hint =
+      protocol === "anthropic"
+        ? extractAnthropicModelHints(entry as object)
+        : extractOpenaiModelHints(entry as object);
+    if (hint) {
+      hints.set(id, mergeDiscoveryModelHints(hints.get(id), hint));
     }
   }
-  const cursor = payload as { has_more?: unknown; last_id?: unknown };
+  // probe 证据（/tmp/opencode/bigmodel-probe.md §Endpoint 3/§Paging check）：
+  // bigmodel/zai 的 anthropic 镜像返回 camelCase 的 hasMore/firstId/lastId 分页字段
+  // （非 Anthropic 规范的 snake_case 拼写）。两种拼写都接受；两者同时出现时
+  // snake_case（规范拼写）优先。
+  const cursor = payload as {
+    has_more?: unknown;
+    hasMore?: unknown;
+    first_id?: unknown;
+    firstId?: unknown;
+    last_id?: unknown;
+    lastId?: unknown;
+  };
+  const hasMoreRaw = cursor.has_more !== undefined ? cursor.has_more : cursor.hasMore;
+  const firstIdRaw = cursor.first_id !== undefined ? cursor.first_id : cursor.firstId;
+  const lastIdRaw = cursor.last_id !== undefined ? cursor.last_id : cursor.lastId;
   return {
     ids,
-    hasMore: cursor.has_more === true,
-    lastId: typeof cursor.last_id === "string" ? cursor.last_id : undefined,
+    hasMore: hasMoreRaw === true,
+    firstId: typeof firstIdRaw === "string" && firstIdRaw ? firstIdRaw : undefined,
+    lastId: typeof lastIdRaw === "string" && lastIdRaw ? lastIdRaw : undefined,
+    hints,
   };
 }
 
@@ -117,6 +256,8 @@ export async function discoverTemplateModels(
 
   const requestUrl = new URL(target.modelsUrl);
   const uniqueIds = new Set<string>();
+  const modelHints = new Map<string, DiscoveryModelHints>();
+  let firstSeenId: string | undefined;
   for (let page = 0; ; page += 1) {
     const abortController = new AbortController();
     const timeout = setTimeout(() => abortController.abort(), DISCOVERY_TIMEOUT_MS);
@@ -141,14 +282,25 @@ export async function discoverTemplateModels(
     } finally {
       clearTimeout(timeout);
     }
-    const parsed = parseModelListPayload(payload);
+    const parsed = parseModelListPayload(payload, target.protocol);
     if (!parsed) {
       return { ok: false, error: "invalid model list response" };
     }
     for (const id of parsed.ids) {
-      if (id) {
-        uniqueIds.add(id);
-      }
+      uniqueIds.add(id);
+    }
+    for (const [id, hint] of parsed.hints) {
+      modelHints.set(id, mergeDiscoveryModelHints(modelHints.get(id), hint));
+    }
+    const pageFirstId = parsed.firstId ?? parsed.ids[0];
+    if (page === 0) {
+      firstSeenId = pageFirstId;
+    } else if (pageFirstId !== undefined && pageFirstId === firstSeenId) {
+      // probe 证据（/tmp/opencode/bigmodel-probe.md §Paging check）：bigmodel/zai 的
+      // anthropic 镜像声称支持游标分页却忽略 after_id，续拉时每次都从列表头重新返回。
+      // 续拉页首条 id 与第 1 页首条 id 相同 ⇒ 判定镜像重启了列表，立即停止翻页并
+      // 视作已拉全（去重保证无重复 id；10 页上限仍作异常兜底）。
+      break;
     }
     // anthropic 游标翻页：has_more + last_id 驱动 after_id 续拉；openai 忽略游标字段。
     if (
@@ -167,5 +319,8 @@ export async function discoverTemplateModels(
   if (modelIds.length === 0) {
     return { ok: false, error: "no models returned" };
   }
-  return { ok: true, modelIds };
+  if (modelHints.size === 0) {
+    return { ok: true, modelIds };
+  }
+  return { ok: true, modelIds, modelHints: Object.fromEntries(modelHints) };
 }
