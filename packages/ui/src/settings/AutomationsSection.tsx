@@ -4,7 +4,6 @@ import {
   useCallback,
   useEffect,
   useMemo,
-  useRef,
   useState,
   type ComponentType,
   type SVGProps,
@@ -1147,7 +1146,7 @@ export function AutomationsSection({
   );
 
   const handleDelete = useCallback(
-    async (automation: ZCodeAutomation, source: "list" | "editor" = "list") => {
+    async (automation: ZCodeAutomation) => {
       const confirmed = await confirmDialog({
         presentation: "automation-confirmation",
         title: intl.formatMessage({ id: "automations.delete.title" }),
@@ -1354,7 +1353,7 @@ export function AutomationsSection({
           onSubmit={handleEditSubmit}
           onRunNow={(automation) => handleRunNow(automation, "editor")}
           onToggle={handleToggle}
-          onDelete={(automation) => handleDelete(automation, "editor")}
+          onDelete={(automation) => handleDelete(automation)}
           runsEntry={view.mode === "edit" ? runsCache[view.automation.automationId] : undefined}
           onLoadRuns={() => {
             if (view.mode === "edit")

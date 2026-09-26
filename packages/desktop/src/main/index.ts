@@ -42,13 +42,12 @@ import {
 import type { UtilityProcess as ElectronUtilityProcess } from "electron";
 import { spawn } from "node:child_process";
 import { join } from "node:path";
-import { homedir, hostname } from "node:os";
+import { homedir } from "node:os";
 import {
   createSettingService,
   buildRuntimeProcessEnvPatch,
   captureLoginShellEnvSnapshot,
   getConversationWorkspaceDir,
-  getDataBaseDir,
   getZCodeDataRootDir,
   normalizeRuntimeProcessEnv,
   setDataBaseDir,

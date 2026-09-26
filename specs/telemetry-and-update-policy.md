@@ -16,8 +16,8 @@ Status: implemented-by P0. Owner: desktop main process (`packages/desktop/src/ma
    - startup + hourly poll (`initAutoUpdater({enabled})` call site);
    - manual "check for updates" (fail-closed through the same flag, dev-skipped-style result);
    - startup force-update gate (`maybeBlockStartupForForceUpdate` skip).
-   Rationale: semver `3.14.3 > 3.14.3-alpha.N`, so the vendor feed would treat every alpha as
-   outdated and auto-migrate/hard-block testers onto vendor builds.
+     Rationale: semver `3.14.3 > 3.14.3-alpha.N`, so the vendor feed would treat every alpha as
+     outdated and auto-migrate/hard-block testers onto vendor builds.
 
 ## Ownership & invariants
 
