@@ -21,8 +21,9 @@
 | 提交前检查       | `pnpm verify:pre-push`（Lint 与架构检查） |
 | 架构检查         | `pnpm architecture:check --changed`       |
 | 模块阅读包       | `pnpm architecture:context <module-id>`   |
-| 未使用依赖与导出 | `pnpm knip`                               |
-| 导出引用查询     | `pnpm dep:refs --list-exports <file>`     |
+| 未使用依赖与导出 | `pnpm knip`                                  |
+| 导出引用查询     | `pnpm dep:refs --list-exports <file>`       |
+| Windows 打包冒烟 | `pnpm smoke:windows-bundle`                 |
 
 测试入口以目标包当前的 `package.json` 和实际测试文件为准，不假定存在统一的单测或 E2E 命令。
 
@@ -64,6 +65,15 @@
 - 外部 relay 与 Main 只做鉴权、配对、心跳、转发及 attachment 调度，不保存任务队列、快照等业务状态。
 - 已接受的 busy/running 输入由 CLI/runtime `CommandInbox` 串行 admission；Renderer 只保留未提交草稿与 pending optimistic overlay，Host owner/lease 负责路由。
 - 保留 owner/lease、跨 Host 路由和 stale run 防护，不能仅根据单一路径删除边界判断。
+
+## 发布流程
+
+- 发版唯一入口是 `pnpm release`（release-it）：自动升版本、按 conventional commit 生成/更新 `CHANGELOG.md`、提交 `chore: release vX`、打 `vX` 注解标签并推送。标签推送会触发 `.github/workflows/release-desktop.yml` 构建 Windows 安装包并挂到 GitHub Release。
+- 禁止手工 `git tag` 发版：会绕过 `CHANGELOG.md` 生成（v3.14.3 曾因此缺失 changelog 条目）。
+- 变更详情写在 commit 消息体的 bullet 列表中，changelog writer 会把它们渲染为该条目的子条目。
+- 发布前先 `pnpm release --dry-run` 预览；非交互（agent）场景使用 `pnpm release --ci`。
+- 发布后核对 Actions 运行结果与 Release 资产（`ZCode-<version>-win-x64.exe`）。
+- 推送工作流/打包脚本改动前，先用 `pnpm smoke:windows-bundle` 在本地 Docker 复刻 Windows 打包链路（产物写入 `~/temp/zcode-smoke/`，默认自动清理；镜像与缓存默认保留）。
 
 ## Workspace Identity
 

@@ -35,3 +35,7 @@ run = "mise exec -- node scripts/mise-run.mjs pnpm typecheck"
 [tasks.lint]
 description = "Run the root linter."
 run = "mise exec -- node scripts/mise-run.mjs pnpm lint"
+
+[tasks.smoke-windows-bundle]
+description = "Cross-build the Windows installer in Docker to validate the release pipeline locally."
+run = "mise exec -- node scripts/mise-run.mjs pnpm smoke:windows-bundle"
