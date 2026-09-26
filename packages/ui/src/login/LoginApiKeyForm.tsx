@@ -139,85 +139,82 @@ export function LoginApiKeyForm({
 
   return (
     <div className="space-y-4">
+      {/* 步骤标题（供应商名 + 输入 Key 提示）由向导头部统一承载，表单内不再重复小标题。 */}
       <div className="space-y-2">
-        <h2 className="text-ui-base font-medium text-foreground">
-          {intl.formatMessage({ id: "login.apiKey.title" })}
-        </h2>
-        <div className="space-y-2">
-          <div className="relative">
-            <Input
-              id="login-api-key"
-              type="password"
-              size="lg"
-              className={`h-10 w-full text-ui-base ${showApiKeyLink ? "pr-28" : ""}`}
-              data-testid={TID_LOGIN_API_KEY_INPUT}
-              aria-label={intl.formatMessage({
-                id: "login.apiKey.placeholder",
-              })}
-              value={apiKeyValue}
-              placeholder={intl.formatMessage({
-                id: "login.apiKey.placeholder",
-              })}
-              autoComplete="off"
+        <div className="relative">
+          <Input
+            id="login-api-key"
+            type="password"
+            size="lg"
+            autoFocus
+            className={`h-10 w-full text-ui-base ${showApiKeyLink ? "pr-28" : ""}`}
+            data-testid={TID_LOGIN_API_KEY_INPUT}
+            aria-label={intl.formatMessage({
+              id: "login.apiKey.placeholder",
+            })}
+            value={apiKeyValue}
+            placeholder={intl.formatMessage({
+              id: "login.apiKey.placeholder",
+            })}
+            autoComplete="off"
+            disabled={busy}
+            onChange={(event) => {
+              setApiKeyValue(event.target.value);
+              setError(null);
+              if (probeState.status !== "idle") {
+                resetProbe();
+              }
+            }}
+            onKeyDown={(event) => {
+              if (event.key === "Enter" && apiKeyValue.trim() && !busy) {
+                void saveApiKeyProvider();
+              }
+            }}
+          />
+          {showApiKeyLink ? (
+            <button
+              type="button"
+              className="absolute right-3.5 top-1/2 -translate-y-1/2 text-ui-base font-medium text-brand underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50"
               disabled={busy}
-              onChange={(event) => {
-                setApiKeyValue(event.target.value);
-                setError(null);
-                if (probeState.status !== "idle") {
-                  resetProbe();
+              onClick={() => {
+                if (apiKeyUrl) {
+                  platform.openExternal(apiKeyUrl);
                 }
               }}
-              onKeyDown={(event) => {
-                if (event.key === "Enter" && apiKeyValue.trim() && !busy) {
-                  void saveApiKeyProvider();
-                }
-              }}
-            />
-            {showApiKeyLink ? (
-              <button
-                type="button"
-                className="absolute right-3.5 top-1/2 -translate-y-1/2 text-ui-base font-medium text-brand underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50"
-                disabled={busy}
-                onClick={() => {
-                  if (apiKeyUrl) {
-                    platform.openExternal(apiKeyUrl);
-                  }
-                }}
-              >
-                {intl.formatMessage({ id: "login.apiKey.getApiKey" })}
-              </button>
-            ) : null}
-          </div>
-          {probeState.status !== "idle" ? (
-            <div
-              role="status"
-              className="flex items-center gap-2 text-ui-base text-foreground-subtle"
             >
-              {probeState.status === "testing" ? (
-                <>
-                  <Loader2Icon className="size-4 animate-spin" aria-hidden="true" />
-                  {intl.formatMessage({ id: "login.wizard.testKeyTesting" })}
-                </>
-              ) : probeState.status === "success" ? (
-                <>
-                  <CheckCircle2Icon className="size-4 text-success" aria-hidden="true" />
-                  {intl.formatMessage(
-                    { id: "login.wizard.testKeySuccess" },
-                    { count: probeState.modelCount },
-                  )}
-                </>
-              ) : (
-                <>
-                  <TriangleAlertIcon className="size-4" aria-hidden="true" />
-                  {intl.formatMessage(
-                    { id: "login.wizard.testKeyFail" },
-                    { error: probeState.error },
-                  )}
-                </>
-              )}
-            </div>
+              {intl.formatMessage({ id: "login.apiKey.getApiKey" })}
+            </button>
           ) : null}
         </div>
+        {probeState.status !== "idle" ? (
+          <div
+            role="status"
+            className="flex items-center gap-2 text-ui-base text-foreground-subtle"
+          >
+            {probeState.status === "testing" ? (
+              <>
+                <Loader2Icon className="size-4 animate-spin" aria-hidden="true" />
+                {intl.formatMessage({ id: "login.wizard.testKeyTesting" })}
+              </>
+            ) : probeState.status === "success" ? (
+              <>
+                <CheckCircle2Icon className="size-4 text-success" aria-hidden="true" />
+                {intl.formatMessage(
+                  { id: "login.wizard.testKeySuccess" },
+                  { count: probeState.modelCount },
+                )}
+              </>
+            ) : (
+              <>
+                <TriangleAlertIcon className="size-4" aria-hidden="true" />
+                {intl.formatMessage(
+                  { id: "login.wizard.testKeyFail" },
+                  { error: probeState.error },
+                )}
+              </>
+            )}
+          </div>
+        ) : null}
       </div>
 
       {error ? (

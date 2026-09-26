@@ -874,8 +874,7 @@ const enUS: Record<string, string> = {
   "login.expired.action": "Sign in again",
   "login.expired.restart": "Confirm and restart",
   "login.useApiKey": "Use API key",
-  "login.wizard.templateSubtitle":
-    "All vendors are equal: pick a template and paste its API key, or create a custom / local provider.",
+  "login.wizard.keyStepDescription": "Enter your {provider} API key to finish setup.",
   "login.wizard.loadingTemplates": "Loading provider templates...",
   "login.wizard.noTemplates":
     "No provider templates are available right now. Please try again later.",
@@ -892,7 +891,6 @@ const enUS: Record<string, string> = {
   "login.wizard.custom.baseUrlInvalidError": "Base URL must be a valid http(s) URL.",
   "login.wizard.custom.hint":
     "For local models use an OpenAI-compatible endpoint such as Ollama (http://localhost:11434/v1) or vLLM.",
-  "login.apiKey.title": "API Key",
   "login.apiKey.placeholder": "Enter API key",
   "login.apiKey.getApiKey": "Get API Key",
   "login.apiKey.cancel": "Cancel",

@@ -25,6 +25,7 @@ export function ProviderTemplatePicker({
   onCreateFromTemplate,
   onCreateCustom,
   creating,
+  showHeader = true,
 }: {
   templates: ProviderSettingsView["providerTemplates"];
   /** 设置页传入返回详情栏；向导首步没有更早的页面，不传则隐藏返回按钮。 */
@@ -32,6 +33,8 @@ export function ProviderTemplatePicker({
   onCreateFromTemplate: ProviderTemplateCreate;
   onCreateCustom: CustomProviderCreate;
   creating: boolean;
+  /** 向导场景由向导头部统一承载步骤标题，隐藏设置页标题行（含返回按钮行）。 */
+  showHeader?: boolean;
 }) {
   const { intl, locale } = useZCodeIntl();
   const { dismissFeedback, showFeedback } = useProviderDetailFeedback();
@@ -60,23 +63,25 @@ export function ProviderTemplatePicker({
   };
   return (
     <section className="space-y-5" data-testid={TID_MODEL_PROVIDER_TEMPLATE_PICKER}>
-      <div className="flex items-center gap-3">
-        {onBack ? (
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon-sm"
-            data-testid={TID_MODEL_PROVIDER_TEMPLATE_BACK_BUTTON}
-            aria-label={intl.formatMessage({ id: "settings.modelProvider.templatePickerBack" })}
-            onClick={onBack}
-          >
-            <ArrowLeftIcon className="size-4" aria-hidden="true" />
-          </Button>
-        ) : null}
-        <h2 className="text-ui-lg font-semibold text-foreground">
-          {intl.formatMessage({ id: "settings.modelProvider.templatePickerTitle" })}
-        </h2>
-      </div>
+      {showHeader ? (
+        <div className="flex items-center gap-3">
+          {onBack ? (
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-sm"
+              data-testid={TID_MODEL_PROVIDER_TEMPLATE_BACK_BUTTON}
+              aria-label={intl.formatMessage({ id: "settings.modelProvider.templatePickerBack" })}
+              onClick={onBack}
+            >
+              <ArrowLeftIcon className="size-4" aria-hidden="true" />
+            </Button>
+          ) : null}
+          <h2 className="text-ui-lg font-semibold text-foreground">
+            {intl.formatMessage({ id: "settings.modelProvider.templatePickerTitle" })}
+          </h2>
+        </div>
+      ) : null}
 
       <div className="space-y-6">
         {groups.map((group) => (

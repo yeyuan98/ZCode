@@ -60,6 +60,9 @@ test.describe("welcome wizard", () => {
     await page.goto(wizardApp.origin);
     await page.getByTestId(MOCK_TEMPLATE_ITEM).click();
 
+    // Key 步头部必须显示所选供应商名称（向导头部随步骤切换，不能停留在“选择供应商”文案）。
+    await expect(page.getByRole("heading", { name: "Mock E2E" })).toBeVisible();
+
     await page.getByTestId(API_KEY_INPUT).fill(E2E_API_KEY);
     await page.getByRole("button", { name: "Test API key" }).click();
     // 探测成功态：role=status 且包含成功文案与模型数量。
