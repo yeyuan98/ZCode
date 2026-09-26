@@ -3,16 +3,16 @@ import test from "node:test";
 import {
   appSettingsSchema,
   appSettingsPatchSchema,
-} from "../../shared/src/validationAppSettings.js";
-import { zcodeTaskMetaSchema } from "../../shared/src/validation.js";
-import { readAskUserQuestionAnswers } from "../src/lib/askUserQuestion.js";
+} from "../../shared/src/validationAppSettings.ts";
+import { zcodeTaskMetaSchema } from "../../shared/src/validation.ts";
+import { readAskUserQuestionAnswers } from "../src/lib/askUserQuestion.ts";
 import {
   getAgentPrimaryText,
   getAgentKindLabel,
-} from "../src/ToolCallBlocks/renderers/agentHelpers.js";
-import { getToolCallErrorText } from "../src/lib/toolError.js";
-import { resolveToolCallIdentity } from "../src/lib/toolIdentity.js";
-import { extractStructuredDiff } from "../src/lib/toolDiffPreview.js";
+} from "../src/ToolCallBlocks/renderers/agentHelpers.ts";
+import { getToolCallErrorText } from "../src/lib/toolError.ts";
+import { resolveToolCallIdentity } from "../src/lib/toolIdentity.ts";
+import { extractStructuredDiff } from "../src/lib/toolDiffPreview.ts";
 
 const meta = {
   taskId: "session-example",

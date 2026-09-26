@@ -150,9 +150,6 @@ export interface ZCodeState {
   oauthSuccessSeq: number;
   lastOAuthSuccessProvider: OAuthProviderId | null;
   markOAuthSuccess: (provider?: OAuthProviderId) => void;
-  apiKeyLoginSuccessSeq: number;
-  lastApiKeyLoginModel: string | null;
-  markApiKeyLoginSuccess: (preferredModel?: string | null) => void;
   /** 请求打开统一登录入口，可携带需要自动发起登录/连接的 provider */
   loginEntryRequest: {
     id: number;
@@ -333,13 +330,6 @@ export function createZCodeStore(
       set((state) => ({
         oauthSuccessSeq: state.oauthSuccessSeq + 1,
         lastOAuthSuccessProvider: provider ?? state.lastOAuthSuccessProvider,
-      })),
-    apiKeyLoginSuccessSeq: 0,
-    lastApiKeyLoginModel: null,
-    markApiKeyLoginSuccess: (preferredModel?: string | null) =>
-      set((state) => ({
-        apiKeyLoginSuccessSeq: state.apiKeyLoginSuccessSeq + 1,
-        lastApiKeyLoginModel: preferredModel?.trim() || null,
       })),
     loginEntryRequest: null,
     loginEntryAttempt: null,

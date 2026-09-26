@@ -13,10 +13,11 @@ import {
   resolveRuntimeZCodeEndpointOrigin,
   ZCODE_ENV,
   ZCODE_PRODUCT_FLAVOR,
+  buildGitHubIssueUrl,
   buildZCodeEndpointUrls,
-  getCommunityUrlFromConfigs,
-  getFeedbackUrlFromConfig,
+  getCommunityUrlFromConfig,
   resolveHelpAppConfig,
+  type OpenFeedbackContext,
   normalizeZCodeEndpointOrigin,
   resolveZCodeEndpointOrigin,
 } from "@zcode/shared";
@@ -148,10 +149,8 @@ export async function clearCodingPlanWebviewStorage(options: {
   }
 }
 
-async function fetchRemoteAppConfig(fetchRemoteConfig?: () => Promise<unknown>): Promise<unknown> {
-  if (!fetchRemoteConfig) throw new Error("Help config reader is unavailable");
-  return fetchRemoteConfig();
-}
+// P2：远端 /api/v1/client/configs 帮助配置拉取随供应商反馈通道移除（specs/onboarding-and-gate.md 第 5 条），
+// 反馈与社群入口统一只读打包内置的 config/default.json。
 
 function resolveLocalAppConfigPath(options?: {
   appPath?: string;
@@ -172,67 +171,13 @@ async function readLocalAppConfig(readLocalConfig?: () => unknown): Promise<unkn
   return readLocalConfig?.() ?? JSON.parse(await readFile(localConfigPath, "utf-8"));
 }
 
-async function resolveRemoteAppConfigValue(options: {
-  fetchRemoteConfig?: () => Promise<unknown>;
-  readLocalConfig?: () => unknown;
-  resolveFromConfig: (config: unknown) => string | undefined;
-  logPrefix: "feedback" | "community";
-  logger: {
-    warn: (...args: unknown[]) => void;
-  };
-}): Promise<string | undefined> {
-  try {
-    const remoteConfig = await fetchRemoteAppConfig(options.fetchRemoteConfig);
-    const remoteResolvedValue = options.resolveFromConfig(remoteConfig);
-    if (remoteResolvedValue) {
-      return remoteResolvedValue;
-    }
-  } catch (error) {
-    options.logger.warn(`[${options.logPrefix}] failed to fetch remote config:`, error);
-  }
-
-  try {
-    const localConfig = await readLocalAppConfig(options.readLocalConfig);
-    const localResolvedValue = options.resolveFromConfig(localConfig);
-    if (localResolvedValue) {
-      return localResolvedValue;
-    }
-  } catch (error) {
-    options.logger.warn(`[${options.logPrefix}] failed to read local config:`, error);
-  }
-
-  return undefined;
-}
-
-export async function resolveFeedbackUrl(options: {
-  fetchRemoteConfig?: () => Promise<unknown>;
-  readLocalConfig?: () => unknown;
-  logger: {
-    warn: (...args: unknown[]) => void;
-  };
-}): Promise<string | undefined> {
-  return resolveRemoteAppConfigValue({
-    ...options,
-    logPrefix: "feedback",
-    resolveFromConfig: getFeedbackUrlFromConfig,
-  });
-}
-
 export async function resolveCommunityUrl(options: {
   locale: Locale;
-  fetchRemoteConfig?: () => Promise<unknown>;
   readLocalConfig?: () => unknown;
   logger: {
     warn: (...args: unknown[]) => void;
   };
 }): Promise<string | undefined> {
-  let remoteConfig: unknown;
-  try {
-    remoteConfig = await fetchRemoteAppConfig(options.fetchRemoteConfig);
-  } catch (error) {
-    options.logger.warn("[community] failed to fetch remote config:", error);
-  }
-
   let localConfig: unknown;
   try {
     localConfig = await readLocalAppConfig(options.readLocalConfig);
@@ -240,32 +185,35 @@ export async function resolveCommunityUrl(options: {
     options.logger.warn("[community] failed to read local config:", error);
   }
 
-  return getCommunityUrlFromConfigs(remoteConfig, localConfig, options.locale);
+  return getCommunityUrlFromConfig(localConfig, options.locale);
 }
 
-async function openFeedback(
-  logger: { warn: (...args: unknown[]) => void; error: (...args: unknown[]) => void },
-  targetWindow?: BrowserWindow | null,
-  fetchRemoteConfig?: () => Promise<unknown>,
-) {
-  let remoteConfig: unknown;
+/**
+ * P2：反馈入口统一为外部 GitHub Issues 跳转。内置反馈中心（OpenFeedbackDialog IPC、
+ * feedbackService）已删除；context（错误摘要 / 任务 id）经 buildGitHubIssueUrl 以
+ * title/body 查询参数预填到 new-issue 页。
+ */
+export async function openFeedbackExternal(options: {
+  logger: {
+    warn: (...args: unknown[]) => void;
+  };
+  context?: OpenFeedbackContext;
+  readLocalConfig?: () => unknown;
+}) {
   let localConfig: unknown;
   try {
-    remoteConfig = await fetchRemoteAppConfig(fetchRemoteConfig);
+    localConfig = await readLocalAppConfig(options.readLocalConfig);
   } catch (error) {
-    logger.warn("[feedback] failed to fetch remote config:", error);
+    options.logger.warn("[feedback] failed to read local config:", error);
   }
-  try {
-    localConfig = await readLocalAppConfig();
-  } catch (error) {
-    logger.warn("[feedback] failed to read local config:", error);
-  }
-  const config = resolveHelpAppConfig(remoteConfig, localConfig);
-  if (!config.feedback_use_external_form) {
-    resolveTargetWindow(targetWindow)?.webContents.send(PlatformChannels.OpenFeedbackDialog);
-    return;
-  }
-  if (config.feedback_url) await shell.openExternal(config.feedback_url);
+  const config = resolveHelpAppConfig(localConfig);
+  await shell.openExternal(
+    buildGitHubIssueUrl({
+      baseUrl: config.feedback_url,
+      title: options.context?.title,
+      body: options.context?.body,
+    }),
+  );
 }
 
 async function openCommunity(
@@ -274,11 +222,10 @@ async function openCommunity(
     warn: (...args: unknown[]) => void;
     error: (...args: unknown[]) => void;
   },
-  fetchRemoteConfig?: () => Promise<unknown>,
 ) {
-  const communityUrl = await resolveCommunityUrl({ locale, logger, fetchRemoteConfig });
+  const communityUrl = await resolveCommunityUrl({ locale, logger });
   if (!communityUrl) {
-    logger.warn("[community] community_urls is missing from both remote and local config");
+    logger.warn("[community] community_urls is missing from local config");
     return;
   }
   await shell.openExternal(communityUrl);
@@ -476,7 +423,6 @@ async function resolveCurrentZCodeEndpointOrigin(settingService: {
 
 export async function executeDesktopCommand(options: {
   command: DesktopCommandId;
-  fetchHelpConfig?: () => Promise<unknown>;
   senderWindow?: BrowserWindow | null;
   logger: {
     info: (...args: unknown[]) => void;
@@ -600,14 +546,11 @@ export async function executeDesktopCommand(options: {
       await options.onRelaunchApp();
       return;
     case DesktopCommandIds.OpenFeedback:
-      await openFeedback(options.logger, targetWindow, options.fetchHelpConfig);
+      // P2：原生菜单入口没有 renderer 上下文，直接跳转 GitHub Issues 空白新建页。
+      await openFeedbackExternal({ logger: options.logger });
       return;
     case DesktopCommandIds.OpenCommunity:
-      await openCommunity(
-        options.currentApplicationLocale,
-        options.logger,
-        options.fetchHelpConfig,
-      );
+      await openCommunity(options.currentApplicationLocale, options.logger);
       return;
     case DesktopCommandIds.ExportLogs:
       await exportLogs();

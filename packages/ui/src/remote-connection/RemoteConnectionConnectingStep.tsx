@@ -1,26 +1,24 @@
 import { redactFeedbackText } from "@zcode/shared";
 import { useCallback, useEffect, useRef } from "react";
 import { AlertTriangleIcon, LoaderIcon } from "lucide-react";
-import { TID_SSH_ERROR, type RemoteTarget } from "@zcode/shared";
+import { TID_SSH_ERROR } from "@zcode/shared";
 import { cn } from "@/components/lib/utils.js";
 import { Button } from "@/components/ui/button.js";
 import type { RemoteConnectionLogEntry } from "@/hooks/useRemoteConnectionLogs.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
-import { useFeedbackStore } from "@/feedback/feedbackStore.js";
+import { usePlatform } from "@/hooks/usePlatform.js";
 import {
   isRemoteConnectionLogScrolledToLatest,
   scrollRemoteConnectionLogsToLatestIfFollowing,
 } from "@/remote-connection/remoteConnectionLogScroll.js";
 
 export function RemoteConnectionConnectingStep({
-  kind,
   logs,
   errorMessage,
   loading,
   onBack,
   onRetry,
 }: {
-  kind: RemoteTarget["kind"];
   logs: RemoteConnectionLogEntry[];
   errorMessage: string;
   loading: boolean;
@@ -28,7 +26,7 @@ export function RemoteConnectionConnectingStep({
   onRetry: () => void;
 }) {
   const { intl } = useZCodeIntl();
-  const openFeedbackSubmit = useFeedbackStore((state) => state.openSubmit);
+  const platform = usePlatform();
   const logContainerRef = useRef<HTMLDivElement | null>(null);
   const shouldFollowLatestLogRef = useRef(true);
   const latestLogId = logs.at(-1)?.id;
@@ -59,20 +57,25 @@ export function RemoteConnectionConnectingStep({
   }, [logs.length, latestLogId, latestLogTimestamp]);
 
   const handleOpenFeedback = async () => {
-    // 远程连接失败时用户看到的是连接日志现场。
-    // 反馈入口只预填脱敏后的错误摘要，附件由用户主动选择。
-    openFeedbackSubmit({
-      title:
-        errorMessage.slice(0, 80) ||
-        intl.formatMessage({ id: "feedback.submit.template.section.remoteConnectFailed" }),
-      type: "bug",
-      module: kind === "ssh" ? "SSH连接失败" : kind === "wsl" ? "WSL连接失败" : "Agent任务执行失败",
-      severity: "P2-中",
-      includeLogs: false,
-      description: buildRemoteConnectionFeedbackDescription(errorMessage, logs, (id, values) =>
-        intl.formatMessage({ id }, values),
+    // P2：远程连接失败的反馈改为外部 GitHub Issues；
+    // issue 正文预填脱敏后的错误摘要与最近 30 条连接日志。
+    const logText = logs
+      .slice(-30)
+      .map((entry) => `${entry.timestamp} [${entry.level.toUpperCase()}] ${entry.message}`)
+      .join("\n");
+    const fallbackTitle = intl.formatMessage({ id: "remoteConnection.reportIssue.title" });
+    await platform.openFeedback({
+      // 标题会进入 URL 查询参数（浏览器历史），与正文同口径脱敏。
+      title: redactFeedbackText(errorMessage).slice(0, 80) || fallbackTitle,
+      body: redactFeedbackText(
+        [
+          intl.formatMessage({ id: "remoteConnection.reportIssue.errorSummary" }),
+          errorMessage || intl.formatMessage({ id: "remoteConnection.reportIssue.notProvided" }),
+          "",
+          intl.formatMessage({ id: "remoteConnection.reportIssue.logSection" }),
+          logText || intl.formatMessage({ id: "remoteConnection.reportIssue.logEmpty" }),
+        ].join("\n"),
       ),
-      screenshots: [],
     });
   };
 
@@ -171,30 +174,5 @@ export function RemoteConnectionConnectingStep({
         </Button>
       </div>
     </div>
-  );
-}
-
-function buildRemoteConnectionFeedbackDescription(
-  errorMessage: string,
-  logs: RemoteConnectionLogEntry[],
-  formatMessage: (id: string, values?: Record<string, string>) => string,
-) {
-  const logText = logs
-    .slice(-30)
-    .map((entry) => `${entry.timestamp} [${entry.level.toUpperCase()}] ${entry.message}`)
-    .join("\n");
-  return redactFeedbackText(
-    [
-      formatMessage("feedback.submit.template.section.remoteHeading"),
-      "",
-      formatMessage("feedback.submit.template.section.errorSummary"),
-      errorMessage || formatMessage("feedback.submit.template.section.notProvided"),
-      "",
-      formatMessage("feedback.submit.template.section.remoteLog"),
-      logText || formatMessage("feedback.submit.template.section.remoteLogEmpty"),
-      "",
-      formatMessage("feedback.submit.template.section.remoteEnvironment"),
-      formatMessage("feedback.submit.template.section.supplement"),
-    ].join("\n"),
   );
 }

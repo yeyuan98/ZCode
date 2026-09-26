@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { UserInfo } from "@zcode/shared";
 import type { ModelSelectionView } from "@zcode/services";
 import { resolveProviderAvailabilityState } from "@/lib/modelProviderAvailability.js";
 import { logger } from "@/logger.js";
@@ -12,9 +11,8 @@ interface ProviderAvailabilityLoginEntryGuardResult {
 
 export function useProviderAvailabilityLoginEntryGuard({
   enabled = true,
-  user,
+  onboardingDismissed,
   isRestoringOAuthSession,
-  providerFamilyDomain,
   modelSelectionView,
   modelSelectionError,
   refreshProviderState,
@@ -22,9 +20,9 @@ export function useProviderAvailabilityLoginEntryGuard({
   setLoginEntryOpen,
 }: {
   enabled?: boolean;
-  user: UserInfo | null;
+  /** 用户已在向导点击“跳过”（providerOnboardingDismissedAt 已写入 settings）。 */
+  onboardingDismissed: boolean;
   isRestoringOAuthSession: boolean;
-  providerFamilyDomain: string | null | undefined;
   modelSelectionView: ModelSelectionView | null;
   modelSelectionError?: Error;
   refreshProviderState: () => Promise<void>;
@@ -54,17 +52,19 @@ export function useProviderAvailabilityLoginEntryGuard({
         : modelSelectionView;
       const availability = resolveProviderAvailabilityState({ modelSelectionView: refreshedView });
       const { hasUsableProvider, providerCount } = availability;
-      const shouldOpenLoginEntry = !providerFamilyDomain || (!user && !hasUsableProvider);
+      // P2 起供应商域名字段（providerFamilyDomain）不再参与启动门禁（字段本身在 P1 删除）；
+      // 按 alpha 策略也不再为旧 OAuth 用户保留 user 项，恢复中的 OAuth 用户可能短暂看到向导，
+      // 由向导在可用 provider 出现时自动关闭兜底。
+      const shouldOpenLoginEntry = !hasUsableProvider && !onboardingDismissed;
 
-      // 未登录且没有可用模型配置时必须引导用户连接账号或填写 API Key。
+      // 没有任何可用模型配置且用户未跳过向导时，必须引导用户完成首次配置。
       // 启动检查、API Key 设置回流等入口统一走这里，避免各处复制判断后语义分叉。
       logger.info("[Root] provider 可用性登录入口守卫完成检查", {
         reason: options.reason,
         source: availability.source,
         providerCount,
         hasUsableProvider,
-        hasUser: Boolean(user),
-        hasProviderFamilyDomain: Boolean(providerFamilyDomain),
+        onboardingDismissed,
         shouldOpenLoginEntry,
       });
       setLoginEntryOpen(shouldOpenLoginEntry);
@@ -77,11 +77,10 @@ export function useProviderAvailabilityLoginEntryGuard({
     [
       enabled,
       modelSelectionView,
-      providerFamilyDomain,
+      onboardingDismissed,
       refreshProviderState,
       readModelSelectionView,
       setLoginEntryOpen,
-      user,
     ],
   );
 
