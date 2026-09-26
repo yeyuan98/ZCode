@@ -35,10 +35,10 @@ facade (`packages/services/src/model-provider/`), wizard key step
    - openai-compatible: `GET {baseUrl}/models`, `Authorization: Bearer`.
    - anthropic-compatible: `GET {baseUrl}/v1/models`, `x-api-key` + `anthropic-version`,
      cursor paging via `after_id` while `has_more`.
-   Both normalize to a plain model-id list. Errors and empty lists degrade gracefully (the
-   wizard shows the failure and still allows saving with manually added models). The UI must
-   never promise that a listed model is callable by the key — endpoint listings are
-   uncontracted external behavior; manual model add remains the fallback.
+     Both normalize to a plain model-id list. Errors and empty lists degrade gracefully (the
+     wizard shows the failure and still allows saving with manually added models). The UI must
+     never promise that a listed model is callable by the key — endpoint listings are
+     uncontracted external behavior; manual model add remains the fallback.
 3. **Wizard: test & discover, and persistence is mandatory.** The key step's "test key" action
    becomes "test & discover": success = key accepted + discovered model list (count shown).
    Discovered model ids are **persisted into the created provider in the same save** (initial
@@ -52,12 +52,12 @@ facade (`packages/services/src/model-provider/`), wizard key step
    `providerFamilyConnectionSelections` settings fields (validation, protocol, normalize,
    broadcast) and every consumer read; the `zhipu-account`/`zhipu-coding-plan-api-key` zod
    literals + `ZhipuAccountAccessConfig` + the account overlay layer in `packages/provider`
-   + their services wiring; GLM history (`OFFICIAL_GLM_MODEL_IDS` chain,
-   `official-glm-selection-v3` migration + its tasksDatabase registration, vendor parts of
-   the legacy `config.json` reader). Kept until P3 (see master-plan amendments A1/A2):
-   protocol account schemas, the five vendor entitlement schema files in `packages/shared`,
-   `ProviderFamilyDomain` type + family specs + builtin provider ids, OAuth services,
-   `legacyAccountConnectionSettings`.
+   - their services wiring; GLM history (`OFFICIAL_GLM_MODEL_IDS` chain,
+     `official-glm-selection-v3` migration + its tasksDatabase registration, vendor parts of
+     the legacy `config.json` reader). Kept until P3 (see master-plan amendments A1/A2):
+     protocol account schemas, the five vendor entitlement schema files in `packages/shared`,
+     `ProviderFamilyDomain` type + family specs + builtin provider ids, OAuth services,
+     `legacyAccountConnectionSettings`.
 
 ## Expected-death list (by design — do not "fix")
 

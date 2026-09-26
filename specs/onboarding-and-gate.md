@@ -28,7 +28,7 @@ Status: implemented-by P2 (`v3.14.3-alpha.2`), wizard layout/header contract ref
    `e2e/wizard.spec.ts`.
 3. **Test-key probe = direct HTTP from the services layer.** ~~A new provider-facade method calls
    the template protocol's model-list endpoint (`GET {baseUrl}/v1/models`; `Authorization:
-   Bearer` for openai-compatible, `x-api-key` + `anthropic-version` for anthropic-compatible)
+Bearer` for openai-compatible, `x-api-key` + `anthropic-version` for anthropic-compatible)
    through the host network transport (proxy settings honored).~~ **Superseded by P1's
    discovery client** (`specs/provider-catalog-and-discovery.md` §2): the probe was absorbed
    into `providerModelDiscovery.ts` (same no-agent-spawn/proxy-aware properties), and the
