@@ -135,3 +135,35 @@ test("invalid legacy config is preserved and does not commit an empty personal c
     await fixture.dispose();
   }
 });
+
+test("legacy reader routes former preset vendor ids through the generic path", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "zcode-provider-migration-"));
+  setDataBaseDir(dir);
+  const configDir = getAppConfigDir();
+  await mkdir(configDir, { recursive: true });
+  // GLM 预置 Provider 的 kind/endpoint 历史归一已删除；旧条目按通用规则保留声明 kind 与 baseURL。
+  const legacyVendorPreset = {
+    provider: {
+      "zai-api": {
+        kind: "anthropic",
+        options: {
+          baseURL: "https://open.bigmodel.cn/api/coding/paas/v4",
+          apiKey: "test-only-key",
+        },
+      },
+    },
+  };
+  try {
+    await writeFile(join(configDir, "config.json"), JSON.stringify(legacyVendorPreset));
+    const providers = await readLegacyZCodeConfigProviders();
+    assert.equal(providers.length, 1);
+    const provider = providers[0]!;
+    assert.equal(provider.id, "zai-api");
+    assert.equal(provider.defaultKind, "anthropic");
+    assert.equal(provider.endpoints.baseURL, "https://open.bigmodel.cn/api/coding/paas/v4");
+    assert.equal(provider.endpoints.paths?.anthropic, "/v1/messages");
+  } finally {
+    setDataBaseDir(null);
+    await rm(dir, { recursive: true, force: true });
+  }
+});

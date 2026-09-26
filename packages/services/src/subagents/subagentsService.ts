@@ -36,14 +36,7 @@ import {
 } from "./subagentStorage.js";
 import type { ISubagentsService } from "./subagents.js";
 import { atomicWriteText } from "#src/fs/atomicFileUtils.js";
-import {
-  migrateUserSubagentMarkdown,
-  migrateSubagentStateFile,
-  scanOfficialPluginCacheRoots,
-} from "@zcode/shared/node";
-import { createServiceLogger } from "#src/logger/serviceLogger.js";
-
-const subagentLogger = createServiceLogger("subagents");
+import { migrateSubagentStateFile, scanOfficialPluginCacheRoots } from "@zcode/shared/node";
 
 interface AgentsStateFile {
   builtInModelSelectionOverrides: BuiltInSubagentModelSelectionOverrides;
@@ -551,11 +544,7 @@ export function createSubagentsService(options?: SubagentsServiceOptions): ISuba
 
   return {
     async prepareRuntimeState() {
-      const markdownMigration = await migrateUserSubagentMarkdown(
-        await resolveUserSubagentRoot(storageOptions),
-      );
-      for (const failure of markdownMigration.failures)
-        subagentLogger.warn(undefined, "用户 Subagent Markdown 迁移失败，保留原文件", failure);
+      // Markdown 旧 Provider 改写迁移已随 GLM 历史 hard-cut 删除，只保留 state 文件导入。
       const runImport = async () =>
         migrateSubagentStateFile(await resolveSubagentStateFile(storageOptions));
       const queued = writeQueue.then(runImport, runImport);
@@ -572,17 +561,6 @@ export function createSubagentsService(options?: SubagentsServiceOptions): ISuba
       const capability = resolveCapabilities(options);
       const mode = params.mode ?? "allRuntimeScopes";
       const diagnostics: AgentDiagnostic[] = [];
-      if (capability.userScopeAvailable) {
-        const migration = await migrateUserSubagentMarkdown(
-          await resolveUserSubagentRoot(storageOptions),
-        );
-        for (const failure of migration.failures)
-          diagnostics.push({
-            code: "agent_read_failed",
-            message: "Subagent Markdown migration failed; original file preserved",
-            path: failure.path,
-          });
-      }
       const state = await readAgentStateFile(storageOptions);
       const builtInAgents = createBuiltInAgents(state.builtInModelSelectionOverrides);
       const fileAgents = await discoverFileAgents({
