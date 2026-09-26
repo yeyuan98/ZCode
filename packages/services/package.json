@@ -14,7 +14,8 @@
   },
   "scripts": {
     "lint": "oxlint",
-    "lint:fix": "oxlint --fix"
+    "lint:fix": "oxlint --fix",
+    "test": "node --test --experimental-transform-types --import ./test/registerTsLoader.mjs \"test/*.test.ts\""
   },
   "dependencies": {
     "@larksuiteoapi/node-sdk": "1.64.0",
