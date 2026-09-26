@@ -12,7 +12,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert.js";
 import { Button } from "@/components/ui/button.js";
 import { Input } from "@/components/ui/input.js";
 import { usePlatform } from "@/hooks/usePlatform.js";
-import { useProbeTemplateApiKey } from "@/hooks/useProbeTemplateApiKey.js";
+import { useDiscoverTemplateModels } from "@/hooks/useDiscoverTemplateModels.js";
 import { useProviderSettingsView } from "@/hooks/useProviderSettingsView.js";
 import { useServices } from "@/hooks/useServices.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
@@ -44,7 +44,7 @@ export function LoginApiKeyForm({
   const [skipping, setSkipping] = useState(false);
   const [skipArmed, setSkipArmed] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const { state: probeState, probe, reset: resetProbe } = useProbeTemplateApiKey();
+  const { state: discoveryState, discover, reset: resetDiscovery } = useDiscoverTemplateModels();
   const providerSettingsRead = useProviderSettingsView();
   const providerSettingsView =
     providerSettingsRead.state.status === "ready" ? providerSettingsRead.state.view : null;
@@ -53,13 +53,17 @@ export function LoginApiKeyForm({
     (candidate) => candidate.templateId === templateId,
   );
   const templateAccess = template?.config.access;
+  // 无 access 模板（如 ollama 本地端点）没有 Key 可填：跳过 Key 输入与获取入口，
+  // 走匿名发现 + 直接保存；模板快照未加载完成前维持带 Key 的默认形态。
+  const keylessTemplate = template != null && !isApiKeyAccess(templateAccess);
+  const requiresApiKey = !keylessTemplate;
   const apiKeyUrl = isApiKeyAccess(templateAccess) ? templateAccess.apiKeyManagementUrl : undefined;
   // 用户已经输入或回填 API Key 后，右侧获取入口会挤占密码输入区域。
   const showApiKeyLink = shouldShowLoginApiKeyLink(apiKeyValue, apiKeyUrl ?? undefined);
 
   const saveApiKeyProvider = async () => {
     const apiKey = apiKeyValue.trim();
-    if (!apiKey) {
+    if (requiresApiKey && !apiKey) {
       setError(intl.formatMessage({ id: "login.apiKey.emptyError" }));
       return;
     }
@@ -70,7 +74,10 @@ export function LoginApiKeyForm({
       const resolvedTemplate = (await providerSettingsService.getView()).providerTemplates.find(
         (item) => item.templateId === templateId,
       );
-      if (!resolvedTemplate || !isApiKeyAccess(resolvedTemplate.config.access)) {
+      if (
+        !resolvedTemplate ||
+        (resolvedTemplate.config.access != null && !isApiKeyAccess(resolvedTemplate.config.access))
+      ) {
         setError(intl.formatMessage({ id: "login.apiKey.providerMissingError" }, { templateId }));
         return;
       }
@@ -78,7 +85,17 @@ export function LoginApiKeyForm({
       await providerSettingsService.createPersonalProvider({
         templateId,
         locale,
-        initialConfig: { access: { type: resolvedTemplate.config.access.type, apiKey } },
+        // 发现失败或未运行时不阻塞保存：initialModelIds 传空，模型仍可稍后手动添加。
+        // 发现成功则把模型 id 随同一次保存持久化，保证 provider 创建即有可用模型。
+        initialModelIds: discoveryState.status === "success" ? [...discoveryState.modelIds] : [],
+        initialConfig: isApiKeyAccess(resolvedTemplate.config.access)
+          ? {
+              access: {
+                type: resolvedTemplate.config.access.type,
+                apiKey,
+              },
+            }
+          : {},
       });
       await onSaved();
     } catch (saveError) {
@@ -124,15 +141,15 @@ export function LoginApiKeyForm({
     }
   };
 
-  const testApiKey = async () => {
+  const discoverModels = async () => {
     const apiKey = apiKeyValue.trim();
-    if (!apiKey) {
+    if (requiresApiKey && !apiKey) {
       setError(intl.formatMessage({ id: "login.apiKey.emptyError" }));
       return;
     }
     setError(null);
-    // 探测失败只是提示（Key 可能仍然可用），不阻塞保存。
-    await probe(templateId, apiKey);
+    // 发现失败只是提示（Key/端点可能仍可用），不阻塞保存。
+    await discover(templateId, apiKey);
   };
 
   const busy = saving || skipping;
@@ -141,75 +158,77 @@ export function LoginApiKeyForm({
     <div className="space-y-4">
       {/* 步骤标题（供应商名 + 输入 Key 提示）由向导头部统一承载，表单内不再重复小标题。 */}
       <div className="space-y-2">
-        <div className="relative">
-          <Input
-            id="login-api-key"
-            type="password"
-            size="lg"
-            autoFocus
-            className={`h-10 w-full text-ui-base ${showApiKeyLink ? "pr-28" : ""}`}
-            data-testid={TID_LOGIN_API_KEY_INPUT}
-            aria-label={intl.formatMessage({
-              id: "login.apiKey.placeholder",
-            })}
-            value={apiKeyValue}
-            placeholder={intl.formatMessage({
-              id: "login.apiKey.placeholder",
-            })}
-            autoComplete="off"
-            disabled={busy}
-            onChange={(event) => {
-              setApiKeyValue(event.target.value);
-              setError(null);
-              if (probeState.status !== "idle") {
-                resetProbe();
-              }
-            }}
-            onKeyDown={(event) => {
-              if (event.key === "Enter" && apiKeyValue.trim() && !busy) {
-                void saveApiKeyProvider();
-              }
-            }}
-          />
-          {showApiKeyLink ? (
-            <button
-              type="button"
-              className="absolute right-3.5 top-1/2 -translate-y-1/2 text-ui-base font-medium text-brand underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50"
+        {requiresApiKey ? (
+          <div className="relative">
+            <Input
+              id="login-api-key"
+              type="password"
+              size="lg"
+              autoFocus
+              className={`h-10 w-full text-ui-base ${showApiKeyLink ? "pr-28" : ""}`}
+              data-testid={TID_LOGIN_API_KEY_INPUT}
+              aria-label={intl.formatMessage({
+                id: "login.apiKey.placeholder",
+              })}
+              value={apiKeyValue}
+              placeholder={intl.formatMessage({
+                id: "login.apiKey.placeholder",
+              })}
+              autoComplete="off"
               disabled={busy}
-              onClick={() => {
-                if (apiKeyUrl) {
-                  platform.openExternal(apiKeyUrl);
+              onChange={(event) => {
+                setApiKeyValue(event.target.value);
+                setError(null);
+                if (discoveryState.status !== "idle") {
+                  resetDiscovery();
                 }
               }}
-            >
-              {intl.formatMessage({ id: "login.apiKey.getApiKey" })}
-            </button>
-          ) : null}
-        </div>
-        {probeState.status !== "idle" ? (
+              onKeyDown={(event) => {
+                if (event.key === "Enter" && apiKeyValue.trim() && !busy) {
+                  void saveApiKeyProvider();
+                }
+              }}
+            />
+            {showApiKeyLink ? (
+              <button
+                type="button"
+                className="absolute right-3.5 top-1/2 -translate-y-1/2 text-ui-base font-medium text-brand underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50"
+                disabled={busy}
+                onClick={() => {
+                  if (apiKeyUrl) {
+                    platform.openExternal(apiKeyUrl);
+                  }
+                }}
+              >
+                {intl.formatMessage({ id: "login.apiKey.getApiKey" })}
+              </button>
+            ) : null}
+          </div>
+        ) : null}
+        {discoveryState.status !== "idle" ? (
           <div
             role="status"
             className="flex items-center gap-2 text-ui-base text-foreground-subtle"
           >
-            {probeState.status === "testing" ? (
+            {discoveryState.status === "testing" ? (
               <>
                 <Loader2Icon className="size-4 animate-spin" aria-hidden="true" />
-                {intl.formatMessage({ id: "login.wizard.testKeyTesting" })}
+                {intl.formatMessage({ id: "login.wizard.discoverKeyTesting" })}
               </>
-            ) : probeState.status === "success" ? (
+            ) : discoveryState.status === "success" ? (
               <>
                 <CheckCircle2Icon className="size-4 text-success" aria-hidden="true" />
                 {intl.formatMessage(
-                  { id: "login.wizard.testKeySuccess" },
-                  { count: probeState.modelCount },
+                  { id: "login.wizard.discoverKeySuccess" },
+                  { count: discoveryState.modelIds.length },
                 )}
               </>
             ) : (
               <>
                 <TriangleAlertIcon className="size-4" aria-hidden="true" />
                 {intl.formatMessage(
-                  { id: "login.wizard.testKeyFail" },
-                  { error: probeState.error },
+                  { id: "login.wizard.discoverKeyFail" },
+                  { error: discoveryState.error },
                 )}
               </>
             )}
@@ -230,7 +249,7 @@ export function LoginApiKeyForm({
           className="h-10 w-full text-ui-base"
           size="lg"
           data-testid={TID_LOGIN_API_KEY_CONTINUE_BUTTON}
-          disabled={!apiKeyValue.trim() || busy}
+          disabled={(requiresApiKey && !apiKeyValue.trim()) || busy}
           onClick={() => void saveApiKeyProvider()}
         >
           {saving ? <Loader2Icon className="size-4 animate-spin" /> : null}
@@ -241,11 +260,15 @@ export function LoginApiKeyForm({
           variant="outline"
           className="h-10 w-full text-ui-base"
           size="lg"
-          disabled={!apiKeyValue.trim() || busy || probeState.status === "testing"}
-          onClick={() => void testApiKey()}
+          disabled={
+            (requiresApiKey && !apiKeyValue.trim()) || busy || discoveryState.status === "testing"
+          }
+          onClick={() => void discoverModels()}
         >
-          {probeState.status === "testing" ? <Loader2Icon className="size-4 animate-spin" /> : null}
-          {intl.formatMessage({ id: "login.wizard.testKey" })}
+          {discoveryState.status === "testing" ? (
+            <Loader2Icon className="size-4 animate-spin" />
+          ) : null}
+          {intl.formatMessage({ id: "login.wizard.discoverKey" })}
         </Button>
         <Button
           type="button"

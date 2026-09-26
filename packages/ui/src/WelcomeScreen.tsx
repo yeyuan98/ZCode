@@ -123,8 +123,9 @@ function LoginPanel({
     // 也好过退回“选择供应商”的品牌文案（用户已经选完了）。
     const templateForName = keyStepTemplate ?? { templateNameMap: {} };
     headerTitle = resolveProviderTemplateName(step.templateId, templateForName, locale);
+    const keyless = keyStepTemplate?.config.access == null;
     headerDescription = intl.formatMessage(
-      { id: "login.wizard.keyStepDescription" },
+      { id: keyless ? "login.wizard.keylessStepDescription" : "login.wizard.keyStepDescription" },
       { provider: headerTitle },
     );
     headerIcon = keyStepTemplate ? (
@@ -171,12 +172,8 @@ function LoginPanel({
                 templates={templates}
                 creating={false}
                 showHeader={false}
-                onCreateFromTemplate={async (templateId) => {
-                  setStep({ kind: "key", templateId });
-                }}
-                onCreateCustom={async (label) => {
-                  setStep({ kind: "custom", label });
-                }}
+                onCreateFromTemplate={async (templateId) => setStep({ kind: "key", templateId })}
+                onCreateCustom={async (label) => setStep({ kind: "custom", label })}
               />
             </ProviderDetailFeedbackBoundary>
           )
