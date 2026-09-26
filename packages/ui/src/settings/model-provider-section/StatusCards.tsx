@@ -376,7 +376,6 @@ export function CodingPlanStatusPanel({
   const inlineDisconnectVisible = canDisconnectProvider && !isPurchased;
   const planTitle = resolveCodingPlanStatusCardTitle({
     isPurchased,
-    isUnavailable,
     isStartPlanProvider,
     inactivePlanTitle,
     rawPlanLevel,
@@ -620,7 +619,6 @@ function hasStartPlanEntitlementQuota(
 
 function resolveCodingPlanStatusCardTitle({
   isPurchased,
-  isUnavailable = false,
   isStartPlanProvider,
   inactivePlanTitle,
   rawPlanLevel,
@@ -629,7 +627,6 @@ function resolveCodingPlanStatusCardTitle({
   codingPlanTitle,
 }: {
   isPurchased: boolean;
-  isUnavailable?: boolean;
   isStartPlanProvider: boolean;
   inactivePlanTitle?: string | null;
   rawPlanLevel: string;

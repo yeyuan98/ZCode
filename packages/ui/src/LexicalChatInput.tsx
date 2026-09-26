@@ -854,9 +854,6 @@ function TextContentPlugin({
           return;
         }
 
-        // 输入卡顿计时:包住「全量序列化 + onChange 同步重渲染」这段处理热点。
-        const startedAt = performance.now();
-
         const nextText = getEditorMarkdown(editorState);
         const previousText = getEditorMarkdown(prevEditorState);
         if (nextText === previousText) {
