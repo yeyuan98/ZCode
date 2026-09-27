@@ -5,16 +5,14 @@ import type {
   ModelTextRequest,
   TraceContext,
 } from "@zcode/contracts";
-import type { ZCodeProviderAccountAccess } from "@zcode/shared";
 import type { AiSdkResolvedModel } from "./model-execution.js";
 
 export type AiSdkGenerateTextOptions = Parameters<typeof aiGenerateText>[0];
 export type AiSdkGenerateTextResult = Awaited<ReturnType<typeof aiGenerateText>>;
 export type AiSdkStreamTextOptions = Parameters<typeof aiStreamText>[0];
-export type AiSdkStreamTextResult = ReturnType<typeof aiStreamText>;
+export type AiSdkStreamTextResult = Awaited<ReturnType<typeof aiStreamText>>;
 export type ResolvedAiSdkModel = AiSdkResolvedModel & {
   properties: ModelProperties;
-  accountAccess?: ZCodeProviderAccountAccess;
 };
 
 export interface AiSdkModelRuntime {
@@ -27,8 +25,9 @@ export interface AiSdkModelTextRequest extends ModelTextRequest {
   traceContext?: TraceContext;
   // Start Plan 的账号鉴权材料按 attempt 刷新；adapter 内部 retry 也是真实模型请求，
   // 必须在每个 attempt 发送前给 core/host 一个刷新机会。
+  // P3 C4 供应商账号删除：accountAccess（zhipu-account 请求期鉴权身份）已移除，
+  // 刷新回调只保留中性的请求定位字段。
   refreshRuntimeHeadersBeforeAttempt?: (input: {
-    accountAccess?: ZCodeProviderAccountAccess;
     attempt: number;
     reason?: "model-request";
     abortSignal?: AbortSignal;

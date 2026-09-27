@@ -13,9 +13,6 @@ export function WorkspaceSettingsLayer({
   captionWorkspacePath,
   onBack,
   onCreateTask,
-  onLogin,
-  onLogout,
-  user,
 }: WorkspaceSettingsLayerProps) {
   useEffect(() => {
     logger.info("[Root] settings layer mounted");
@@ -36,9 +33,6 @@ export function WorkspaceSettingsLayer({
             captionWorkspacePath={captionWorkspacePath}
             onBack={onBack}
             onCreateTask={onCreateTask}
-            onLogin={onLogin}
-            onLogout={onLogout}
-            user={user}
           />
         </ServiceProvider>
       ) : (
@@ -50,9 +44,6 @@ export function WorkspaceSettingsLayer({
           captionWorkspacePath={captionWorkspacePath}
           onBack={onBack}
           onCreateTask={onCreateTask}
-          onLogin={onLogin}
-          onLogout={onLogout}
-          user={user}
         />
       )}
     </div>

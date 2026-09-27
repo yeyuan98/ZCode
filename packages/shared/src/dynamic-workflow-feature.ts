@@ -1,7 +1,10 @@
 // ============================================================
-// Dynamic Workflow 灰度：服务端 feature key 的取值域与客户端快照
+// Dynamic Workflow 灰度：feature key 的取值域与客户端快照
 // ============================================================
-// 服务端 `/api/v1/client/configs` 下发 `data.configs.dynamicWorkflow.mode`。
+// P3 C2/C5：供应商 /api/v1/client/configs 下发
+// （data.configs.dynamicWorkflow.mode）已删除；快照来源只剩本地覆盖 env 与
+// 缺省常量（A9 裁决 local constant OFF），纯函数保留 remote 入参形状仅作
+// 通用词汇，三端不再传入远端事实。
 
 // 这里只放三端（Host services、Desktop main、UI）共用的取值域、归一化与快照形状；
 // 读取远端、覆盖与下发都在各自的 owner 里，不在 shared 层发请求。

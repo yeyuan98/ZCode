@@ -43,7 +43,7 @@ export function useRootPlatformEffects({
   totalUnreadTaskCount,
   hasCompletedFullTabRestore = true,
   intl,
-  isRestoringOAuthSession,
+  startupStatePending,
 }: {
   initialWorkspaceAbsPath?: string;
   initialWorkspaceIdentity?: string;
@@ -74,7 +74,8 @@ export function useRootPlatformEffects({
   totalUnreadTaskCount: number;
   hasCompletedFullTabRestore?: boolean;
   intl: ReturnType<typeof import("@/i18n/IntlProvider.js").useZCodeIntl>["intl"];
-  isRestoringOAuthSession: boolean;
+  /** 启动门禁等待位：provider 同步未落定前不投递 share import（OAuth 恢复等待已在 P3 C1 删除）。 */
+  startupStatePending: boolean;
 }) {
   const didBootstrapInitialWorkspaceRef = useRef(false);
   const baseServices = useOptionalBaseWorkspaceServices();
@@ -86,8 +87,8 @@ export function useRootPlatformEffects({
   const importToastIdRef = useRef<number | null>(null);
 
   useEffect(() => {
-    // 启动时必须先判断 OAuth 本地会话，再恢复历史/初始 workspace。
-    // 如果这里抢先 addTab，未登录用户会先看到主界面，之后才被登录页覆盖。
+    // P3 C1 供应商 OAuth 删除：启动期不再等待登录态；初始 workspace 注入只受
+    // provider 启动同步门禁（canBootstrapInitialWorkspace）约束。
     if (!canBootstrapInitialWorkspace || didBootstrapInitialWorkspaceRef.current) {
       return;
     }
@@ -284,7 +285,7 @@ export function useRootPlatformEffects({
     if (!pending || !baseServices || activeShareImportRef.current || importOperationRef.current) {
       return;
     }
-    if (isRestoringOAuthSession) {
+    if (startupStatePending) {
       return;
     }
 
@@ -481,10 +482,17 @@ export function useRootPlatformEffects({
     addTab,
     baseServices,
     intl,
-    isRestoringOAuthSession,
+    startupStatePending,
     locale,
     shareImportRevision,
   ]);
+
+  // P3 C1 供应商 OAuth 删除：renderer-ready 上报原先挂在 OAuth 回调订阅 effect 中，
+  // 现移到平台 deep link 订阅层；一次性上报即可，main 侧只投递冷启动缓存的
+  // workspace/share/payment 请求（OAuth 回调等待已删除）。
+  useEffect(() => {
+    platform.notifyRendererReady();
+  }, [platform]);
 
   useEffect(() => {
     if (!isDesktop || !shouldPublishCompleteWorkspaceSnapshot(hasCompletedFullTabRestore)) {

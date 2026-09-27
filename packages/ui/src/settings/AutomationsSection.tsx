@@ -1,17 +1,8 @@
-import { useCodingPlanEntryGate } from "@/settings/CodingPlanEntryButton.js";
 /* eslint-disable max-lines -- 定时任务主视图集中维护列表、创建/编辑整页路由与启停/删除操作，集中更利于交互一致。 */
-import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useState,
-  type ComponentType,
-  type SVGProps,
-} from "react";
+import { useCallback, useEffect, useState, type ComponentType, type SVGProps } from "react";
 import { CircleCheck, RotateCcw, TriangleAlert } from "lucide-react";
 import {
   AUTOMATION_CREATE_LIMIT,
-  BUILTIN_MODEL_PROVIDER_IDS,
   TID_AUTOMATION_ACTION_DELETE,
   TID_AUTOMATION_ACTION_TOGGLE,
   TID_AUTOMATION_CARD,
@@ -42,13 +33,8 @@ import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import { useServices } from "@/hooks/useServices.js";
 import { useConfirmDialog } from "@/hooks/useConfirmDialog.js";
 import { usePlatform } from "@/hooks/usePlatform.js";
-import {
-  OFF_PEAK_CREATE_TOOLTIP_CLASSNAME,
-  formatOffPeakRemainingWait,
-  resolveOffPeakCreateBlockReason,
-  type OffPeakCreateBlockReason,
-} from "@/settings/offPeakUiPresentation.js";
 import { useProviderSettingsView } from "@/hooks/useProviderSettingsView.js";
+import { useModelSelectionView } from "@/hooks/useModelSelectionView.js";
 import { useOffPeakEligibility } from "@/hooks/useOffPeakEligibility.js";
 import { useSettings } from "@/hooks/useSettingService.js";
 import { logger } from "@/logger.js";
@@ -57,7 +43,6 @@ import {
   type AutomationRunNowResult,
 } from "@/store/automationManagementStore.js";
 import {
-  isCurrentOffPeakCodingPlanSupported,
   resolveOffPeakCreateErrorMessageId,
   useOffPeakTaskStore,
   type OffPeakCreateDraft,
@@ -80,6 +65,7 @@ import {
   AutomationCreateDropdown,
   AutomationEditActionIcon,
   AutomationKeepAwakeNotice,
+  OffPeakWindowNotice,
   AutomationMoreHorizontalIcon,
   AutomationPauseActionIcon,
   AutomationPausedIcon,
@@ -87,7 +73,6 @@ import {
   AutomationRunNowIcon,
   AutomationTrashIcon,
 } from "@/settings/AutomationDesignPrimitives.js";
-import { useCodingPlanUpgradeDialog } from "@/settings/CodingPlanUpgradeDialogProvider.js";
 import { SETTINGS_FRAME_CONTENT_CLASSNAME } from "@/settings/SettingsPageParts.js";
 import { useTabStore } from "@/store/TabStoreProvider.js";
 import { isWorkspaceTab } from "@/store/tabStore.js";
@@ -166,13 +151,17 @@ function toast(message: string, options?: ToastOptions): number {
   });
 }
 
+/** 创建禁用原因属于长提示，不能沿用通用短 Tooltip 的单行布局。 */
+const OFF_PEAK_CREATE_TOOLTIP_CLASSNAME =
+  "max-w-[220px] [&>span]:break-words [&>span]:whitespace-normal [&>span]:text-wrap-pretty";
+
 function OffPeakCreateButton({
-  greyReason,
-  greyTooltip,
+  disabled,
+  tooltip,
   onCreate,
 }: {
-  greyReason: OffPeakCreateBlockReason | null;
-  greyTooltip?: string;
+  disabled: boolean;
+  tooltip?: string;
   onCreate: () => void;
 }) {
   const { intl } = useZCodeIntl();
@@ -183,17 +172,17 @@ function OffPeakCreateButton({
       variant="default"
       size="default"
       data-testid={TID_OFFPEAK_CREATE_BUTTON}
-      disabled={greyReason !== null}
+      disabled={disabled}
       onClick={onCreate}
     >
       {intl.formatMessage({ id: "offPeak.createButton" })}
     </Button>
   );
 
-  if (!greyTooltip) return button;
+  if (!tooltip) return button;
   return (
     <ControlHintTooltip
-      title={greyTooltip}
+      title={tooltip}
       side="top"
       align="center"
       className={OFF_PEAK_CREATE_TOOLTIP_CLASSNAME}
@@ -514,13 +503,11 @@ export function AutomationsSection({
   const platform = usePlatform();
   const { clientScenesService, offPeakTaskService, zcodeAgentService } = useServices();
   const confirmDialog = useConfirmDialog();
-  const { openCodingPlanUpgrade } = useCodingPlanUpgradeDialog();
   const providerSettingsRead = useProviderSettingsView();
   const providerSettingsView =
     providerSettingsRead.state.status === "ready" ? providerSettingsRead.state.view : null;
-  const { status: entryStatus, label: entryLabel, retry: retryEntry } = useCodingPlanEntryGate();
   const { settings: sharedSettings, update: updateSharedSettings } = useSettings();
-  useOffPeakEligibility(sharedSettings, providerSettingsView?.revision);
+  useOffPeakEligibility();
 
   const automations = useAutomationManagementStore((state) => state.automations);
   const automationCreateLimitReached = automations.length >= AUTOMATION_CREATE_LIMIT;
@@ -541,26 +528,13 @@ export function AutomationsSection({
   const automationTemplates = useAutomationTemplates(clientScenesService);
   const offPeakTasks = useOffPeakTaskStore((state) => state.tasks);
   const offPeakStoreLoading = useOffPeakTaskStore((state) => state.loading);
-  const offPeakGrayConfig = useOffPeakTaskStore((state) => state.grayConfig);
-  const offPeakCodingPlanSupport = useOffPeakTaskStore((state) => state.codingPlanSupport);
-  const offPeakTakeNumberAvailability = useOffPeakTaskStore(
-    (state) => state.takeNumberAvailability,
-  );
-  const offPeakTakeNumberAvailabilityStatus = useOffPeakTaskStore(
-    (state) => state.takeNumberAvailabilityStatus,
-  );
   const offPeakOperationId = useOffPeakTaskStore((state) => state.operationId);
   const offPeakRefresh = useOffPeakTaskStore((state) => state.refresh);
-  const offPeakRefreshCodingPlanSupport = useOffPeakTaskStore(
-    (state) => state.refreshCodingPlanSupport,
-  );
-  const offPeakRefreshTakeNumberAvailability = useOffPeakTaskStore(
-    (state) => state.refreshTakeNumberAvailability,
-  );
   const offPeakCreate = useOffPeakTaskStore((state) => state.createTask);
   const offPeakUpdate = useOffPeakTaskStore((state) => state.updateTask);
   const offPeakPause = useOffPeakTaskStore((state) => state.pauseTask);
   const offPeakContinue = useOffPeakTaskStore((state) => state.continueTask);
+  const offPeakRunNow = useOffPeakTaskStore((state) => state.runNow);
   const offPeakCancel = useOffPeakTaskStore((state) => state.cancelTask);
   const offPeakDelete = useOffPeakTaskStore((state) => state.deleteTask);
   const offPeakDeleteHistory = useOffPeakTaskStore((state) => state.deleteHistory);
@@ -606,20 +580,24 @@ export function AutomationsSection({
     const activeTab = state.tabs.find((candidate) => candidate.id === state.activeTabId);
     return activeTab && isWorkspaceTab(activeTab) ? activeTab : undefined;
   });
+  // 闲时模型候选 = 用户自己的 Provider（本地/目标 Host 的 Model Selection View）。
+  const offPeakModelSelectionRead = useModelSelectionView(
+    workspacePath ?? null,
+    activeWorkspaceTab?.remoteSessionId ?? null,
+    workspaceIdentity ?? null,
+    activeWorkspaceTab?.remoteTarget,
+  );
+  const offPeakModelSelectionView =
+    offPeakModelSelectionRead.state.status === "ready"
+      ? offPeakModelSelectionRead.state.view
+      : null;
   const currentWorkspaceIsRemote = isRemoteAutomationWorkspace(activeWorkspaceTab);
-  // 灰度中途翻转：只藏创建入口；有非终态存量仍展示并跑到终态。
-  const offPeakGrayEnabled = offPeakGrayConfig?.enabled === true;
-  const offPeakCreationEnabled = offPeakGrayEnabled && !currentWorkspaceIsRemote;
-  // 扫描全部 provider 会把未选中的 Coding Plan 当成当前执行凭证。
-  // mock 演示字段仍可覆盖；真实路径只接受与当前 family/selectedKey 一致的脱敏 resolver 快照。
-  const offPeakNoPlan =
-    offPeakGrayConfig?.codingPlanActive === false ||
-    (offPeakGrayConfig?.codingPlanActive === undefined &&
-      !offPeakStoreLoading &&
-      // P1：providerFamilyDomain / providerFamilyConnectionSelections 已删除，无当前连接可校验。
-      !isCurrentOffPeakCodingPlanSupported(offPeakCodingPlanSupport));
-  const offPeakVisible =
-    !currentWorkspaceIsRemote && (offPeakGrayEnabled || offPeakTasks.length > 0);
+  // P3 本地准入：无灰度/套餐门。创建资格 = Registry 中存在可选模型（用户自己的 Provider）；
+  // 视图尚未就绪时先禁入（fail-closed，就绪后自动放开）。
+  const offPeakHasSelectableModel =
+    offPeakModelSelectionView !== null && offPeakModelSelectionView.providers.length > 0;
+  const offPeakCreationEnabled = offPeakHasSelectableModel && !currentWorkspaceIsRemote;
+  const offPeakVisible = !currentWorkspaceIsRemote;
   const hasAnyTasks = automations.length > 0 || offPeakTasks.length > 0;
   const visibleTabs = resolveVisibleAutomationTabs({
     hasAnyTasks,
@@ -640,41 +618,13 @@ export function AutomationsSection({
   // 相对时间基准;刷新列表时更新,避免频繁 setInterval。
   const [now, setNow] = useState(() => Date.now());
 
-  // 创建准入 fail-closed。只有服务端成功返回 canTakeNumber=true 才放行；资格不符、
-  // loading/idle/error 与额度 false 都禁入，避免依赖异常被吞掉后直到真实创建才报错。
-  const offPeakCreateGrey = useMemo(() => {
-    const reason = resolveOffPeakCreateBlockReason({
-      availabilityStatus: offPeakTakeNumberAvailabilityStatus,
-      canTakeNumber: offPeakTakeNumberAvailability?.canTakeNumber,
-      grayEnabled: offPeakGrayEnabled,
-      noPlan: offPeakNoPlan,
-    });
-    const tooltip =
-      reason === "plan"
-        ? intl.formatMessage({ id: "offPeak.create.codingPlanOnly" })
-        : reason === "unavailable"
-          ? intl.formatMessage({ id: "offPeak.create.availabilityUnavailable" })
-          : reason === "quota" && offPeakTakeNumberAvailability?.nextTakeAt !== undefined
-            ? intl.formatMessage(
-                { id: "offPeak.create.limitReachedAt" },
-                {
-                  time: formatOffPeakRemainingWait(
-                    offPeakTakeNumberAvailability.nextTakeAt,
-                    now,
-                    intl,
-                  ),
-                },
-              )
-            : undefined;
-    return { reason, tooltip };
-  }, [
-    intl,
-    now,
-    offPeakGrayEnabled,
-    offPeakNoPlan,
-    offPeakTakeNumberAvailability,
-    offPeakTakeNumberAvailabilityStatus,
-  ]);
+  // P3 创建准入：无模型可选即禁入（视图未就绪/为空都 fail-closed），不再有额度/套餐维度。
+  const offPeakCreateBlocked = !offPeakCreationEnabled;
+  const offPeakCreateBlockedTooltip = offPeakCreateBlocked
+    ? currentWorkspaceIsRemote
+      ? intl.formatMessage({ id: "offPeak.create.remoteUnavailable" })
+      : intl.formatMessage({ id: "offPeak.create.noModel" })
+    : undefined;
 
   // 列表按当前项目加载(主视图由 WorkspaceShellLayout 传入当前 workspace)。
   useEffect(() => {
@@ -752,32 +702,7 @@ export function AutomationsSection({
     workspacePath,
   ]);
 
-  // 服务端给出准确恢复时间；到点后重查。刷新期间及失败后继续禁入，直到成功返回 true。
-  useEffect(() => {
-    const nextTakeAt = offPeakTakeNumberAvailability?.nextTakeAt;
-    if (offPeakTakeNumberAvailability?.canTakeNumber !== false || nextTakeAt === undefined) return;
-    const delay = Math.max(0, nextTakeAt - Date.now()) + 100;
-    const timer = setTimeout(() => {
-      setNow(Date.now());
-      void offPeakRefreshTakeNumberAvailability(offPeakTaskService);
-    }, delay);
-    return () => clearTimeout(timer);
-  }, [offPeakRefreshTakeNumberAvailability, offPeakTaskService, offPeakTakeNumberAvailability]);
-
-  // 额度 Tooltip 曾改成不会递减的绝对日期；按远端实现推进分钟边界，保持剩余时长准确。
-  useEffect(() => {
-    const nextTakeAt = offPeakTakeNumberAvailability?.nextTakeAt;
-    if (offPeakTakeNumberAvailability?.canTakeNumber !== false || nextTakeAt === undefined) return;
-    const remainingMs = nextTakeAt - Date.now();
-    if (remainingMs <= 0) return;
-    const minuteMs = 60_000;
-    const remainderMs = remainingMs % minuteMs;
-    const delay = (remainderMs === 0 ? minuteMs : remainderMs) + 50;
-    const timer = setTimeout(() => setNow(Date.now()), delay);
-    return () => clearTimeout(timer);
-  }, [now, offPeakTakeNumberAvailability]);
-
-  // 位次/状态轮询刷新（host offPeakTaskSync 写库，renderer 每 10s 读快照；无任务不轮）。
+  // 状态轮询刷新（renderer 每 10s 读本地 sqlite 快照；无任务不轮）。
   useEffect(() => {
     if (view.mode !== "list" || offPeakTasks.length === 0) return;
     const timer = setInterval(() => {
@@ -789,23 +714,12 @@ export function AutomationsSection({
   const handleRefresh = useCallback(async () => {
     setRefreshing(true);
     try {
-      await Promise.all([
-        refresh(zcodeAgentService),
-        offPeakRefresh(offPeakTaskService),
-        ...(offPeakGrayEnabled ? [offPeakRefreshCodingPlanSupport(offPeakTaskService)] : []),
-      ]);
+      await Promise.all([refresh(zcodeAgentService), offPeakRefresh(offPeakTaskService)]);
       setNow(Date.now());
     } finally {
       setRefreshing(false);
     }
-  }, [
-    offPeakGrayEnabled,
-    offPeakRefresh,
-    offPeakRefreshCodingPlanSupport,
-    offPeakTaskService,
-    refresh,
-    zcodeAgentService,
-  ]);
+  }, [offPeakRefresh, offPeakTaskService, refresh, zcodeAgentService]);
 
   // New task 页模板卡跳转过来：消费预填草稿 → 切 idle tab + 打开创建表单预填。
   useEffect(() => {
@@ -825,32 +739,6 @@ export function AutomationsSection({
         : current,
     );
   }, [currentWorkspaceIsRemote]);
-
-  const handleOpenCodingPlanUpgrade = useCallback(() => {
-    // P1：providerFamilyDomain 已删除，无运行域可判断品牌时默认 Z.ai 入口。
-    openCodingPlanUpgrade({
-      providerId: BUILTIN_MODEL_PROVIDER_IDS.zaiIndividualCodingPlan,
-      initialAudience: "personal",
-    });
-  }, [openCodingPlanUpgrade]);
-
-  const showCodingPlanRequiredToast = useCallback(() => {
-    toast(entryLabel ?? intl.formatMessage({ id: "offPeak.create.codingPlanToast" }), {
-      durationMs: 8000,
-      position: "top-center",
-      variant: "info",
-      actionLabel:
-        entryStatus === "loading"
-          ? undefined
-          : (entryLabel ??
-            intl.formatMessage({
-              id: "settings.modelProvider.codingPlan.upgrade",
-            })),
-      onAction: entryStatus === "error" ? retryEntry : handleOpenCodingPlanUpgrade,
-      dismissible: true,
-      dismissLabel: intl.formatMessage({ id: "common.close" }),
-    });
-  }, [handleOpenCodingPlanUpgrade, intl, entryStatus, entryLabel, retryEntry]);
 
   const showAutomationCreateLimitToast = useCallback(() => {
     toast(
@@ -1240,14 +1128,8 @@ export function AutomationsSection({
   const handleOffPeakSubmit = useCallback(
     async (input: OffPeakEditSubmit) => {
       const current = view;
-      if (current.mode !== "offpeak-edit" && offPeakCreateGrey.reason !== null) {
-        if (offPeakCreateGrey.reason === "plan") {
-          showCodingPlanRequiredToast();
-        } else if (offPeakCreateGrey.reason === "unavailable") {
-          toast(intl.formatMessage({ id: "offPeak.error.unavailable" }));
-        } else {
-          toast(offPeakCreateGrey.tooltip ?? intl.formatMessage({ id: "offPeak.error.quota" }));
-        }
+      if (current.mode !== "offpeak-edit" && offPeakCreateBlocked) {
+        toast(offPeakCreateBlockedTooltip ?? intl.formatMessage({ id: "offPeak.error.generic" }));
         return false;
       }
       if (current.mode === "offpeak-edit") {
@@ -1280,11 +1162,10 @@ export function AutomationsSection({
     [
       intl,
       offPeakCreate,
-      offPeakCreateGrey,
+      offPeakCreateBlocked,
+      offPeakCreateBlockedTooltip,
       offPeakTaskService,
       offPeakUpdate,
-      platform,
-      showCodingPlanRequiredToast,
       view,
     ],
   );
@@ -1308,9 +1189,7 @@ export function AutomationsSection({
         <OffPeakEditView
           editing={editingTask}
           initialDraft={view.mode === "offpeak-create" ? (view.draft ?? null) : null}
-          modelSelectionView={
-            offPeakGrayConfig?.modelSelectionView ?? { revision: 0, providers: [] }
-          }
+          modelSelectionView={offPeakModelSelectionView ?? { revision: 0, providers: [] }}
           defaultWorkspacePath={workspacePath ?? ""}
           defaultWorkspaceIdentity={workspaceIdentity}
           saving={
@@ -1318,8 +1197,8 @@ export function AutomationsSection({
             offPeakOperationId?.startsWith("offpeak:update") ||
             false
           }
-          createBlocked={view.mode === "offpeak-create" && offPeakCreateGrey.reason !== null}
-          createBlockedTooltip={offPeakCreateGrey.tooltip}
+          createBlocked={view.mode === "offpeak-create" && offPeakCreateBlocked}
+          createBlockedTooltip={offPeakCreateBlockedTooltip}
           onBack={() => setView({ mode: "list" })}
           onSubmit={handleOffPeakSubmit}
           onOpenSession={onOpenSession}
@@ -1473,8 +1352,8 @@ export function AutomationsSection({
             ) : null}
             {showOffPeakTemplates ? (
               <OffPeakCreateButton
-                greyReason={offPeakCreateGrey.reason}
-                greyTooltip={offPeakCreateGrey.tooltip}
+                disabled={offPeakCreateBlocked}
+                tooltip={offPeakCreateBlockedTooltip}
                 onCreate={() => setView({ mode: "offpeak-create" })}
               />
             ) : null}
@@ -1523,6 +1402,21 @@ export function AutomationsSection({
           <div className="flex w-full flex-col gap-4">
             {/* keep-awake 是全局开关（与设置页「常规」镜像），定时任务运行会话同样受益，
                在定时/闲时两个 tab 都展示。列表态放在任务卡之前，空态保持大空卡在前。 */}
+            {/* 闲时时间窗（P3 本地准入）：设置属主在 main，此处镜像读写共享 settings。
+                仅 idle tab 展示；queued 任务据此等待窗口或 Run-now。 */}
+            {tab === "idle" ? (
+              <OffPeakWindowNotice
+                enabled={sharedSettings?.offPeakWindow?.enabled ?? true}
+                start={sharedSettings?.offPeakWindow?.start ?? "00:00"}
+                end={sharedSettings?.offPeakWindow?.end ?? "07:00"}
+                onChange={(next) =>
+                  void updateSharedSettings({
+                    offPeakWindow: next,
+                  })
+                }
+              />
+            ) : null}
+
             {hasAnyTasks ? (
               <AutomationKeepAwakeNotice
                 checked={sharedSettings?.keepAwakeWhileRunning ?? false}
@@ -1548,6 +1442,9 @@ export function AutomationsSection({
                       onPause={(task) => void offPeakPause(task.offPeakTaskId, offPeakTaskService)}
                       onContinue={(task) =>
                         void offPeakContinue(task.offPeakTaskId, offPeakTaskService)
+                      }
+                      onRunNow={(task) =>
+                        void offPeakRunNow(task.offPeakTaskId, offPeakTaskService)
                       }
                       onCancel={(task) => void handleOffPeakCancel(task)}
                       onDelete={(task) => void handleOffPeakDelete(task)}
@@ -1769,8 +1666,8 @@ export function AutomationsSection({
                       {/* 有闲时任务时右上已有创建入口，空卡不再重复（4866-1735 vs 4889-2013）。 */}
                       {offPeakCreationEnabled && offPeakTasks.length === 0 ? (
                         <OffPeakCreateButton
-                          greyReason={offPeakCreateGrey.reason}
-                          greyTooltip={offPeakCreateGrey.tooltip}
+                          disabled={offPeakCreateBlocked}
+                          tooltip={offPeakCreateBlockedTooltip}
                           onCreate={() => setView({ mode: "offpeak-create" })}
                         />
                       ) : null}
@@ -1830,13 +1727,16 @@ export function AutomationsSection({
               ) : (
                 <div className="grid grid-cols-1 gap-x-4 gap-y-4 sm:grid-cols-2">
                   {automationTemplates.offPeak.map((template) => {
-                    const planLocked = offPeakCreateGrey.reason === "plan";
+                    const createBlocked = offPeakCreateBlocked;
                     const card = (
                       <button
                         type="button"
                         onClick={() => {
-                          if (planLocked) {
-                            showCodingPlanRequiredToast();
+                          if (createBlocked) {
+                            toast(
+                              offPeakCreateBlockedTooltip ??
+                                intl.formatMessage({ id: "offPeak.error.generic" }),
+                            );
                             return;
                           }
                           const materializedDraft = materializeOffPeakTemplateDraft(

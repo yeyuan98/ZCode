@@ -1,5 +1,4 @@
 interface RootStartupGateState {
-  isResolvingStartupAuthState: boolean;
   isResolvingProviderStartupState: boolean;
   isRestoring: boolean;
   isBootstrappingInitialWorkspace: boolean;
@@ -26,8 +25,9 @@ interface ProviderStartupResolutionState {
 }
 
 export function shouldBlockRootRender(state: RootStartupGateState): boolean {
+  // P3 C1 供应商 OAuth 删除：启动阶段不再等待登录态恢复（原 isResolvingStartupAuthState），
+  // 门禁只等待 provider 启动同步 / tab 恢复 / 初始 workspace 注入。
   return (
-    state.isResolvingStartupAuthState ||
     state.isResolvingProviderStartupState ||
     state.isRestoring ||
     state.isBootstrappingInitialWorkspace

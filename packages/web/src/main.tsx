@@ -11,12 +11,8 @@ import {
 } from "@zcode/ui";
 import "@zcode/ui/styles.css";
 import { connectViaWebSocket } from "@zcode/client";
-import { WebCallbackPage } from "./auth/WebCallbackPage.js";
-import { createWebAuthService } from "./auth/webAuthService.js";
 import { ServerTokenLoginPage } from "./login/ServerTokenLoginPage.js";
 import { probeWebServerTokenGate } from "./login/serverTokenLogin.js";
-import { WEB_ZAI_OAUTH_CONFIG, resolveWebAuthDevReturnTo } from "./auth/webZaiOAuthConfig.js";
-import { parseOAuthState, resolveSafeAppReturnTo } from "./auth/oauthStateCodec.js";
 import { resolveWebCommunityUrl, resolveWebHelpConfig } from "./communityUrl.js";
 import {
   ConversationShareLandingLoader,
@@ -78,7 +74,6 @@ async function resolveFeedbackUrl(): Promise<string | undefined> {
   return (await resolveWebHelpConfig()).feedback_url;
 }
 const root = createRoot(document.getElementById("root")!);
-const webAuthService = createWebAuthService();
 
 // 初始化 Web 端流式 clientId，确保所有 hook 在首次渲染前就使用稳定 ID
 {
@@ -92,33 +87,6 @@ interface WebBootstrapResult {
   initialTaskId?: string;
   restoreSession?: boolean;
   allowOpenWorkspace?: boolean;
-}
-
-function isWebOAuthCallback(params: URLSearchParams): boolean {
-  return (
-    ["/cn/share/callback", "/share/callback"].includes(window.location.pathname) &&
-    params.has("state") &&
-    (params.has("code") || params.has("error"))
-  );
-}
-
-function renderWebAuthCallbackPage(): void {
-  document.title = "ZCode - Sign In";
-  const callbackState = parseOAuthState(
-    new URLSearchParams(window.location.search).get("state") ?? "",
-  );
-  const safeRetryTarget = resolveSafeAppReturnTo(callbackState?.app_return_to);
-  root.render(
-    <WebCallbackPage
-      authService={webAuthService}
-      onSuccess={({ appReturnTo }) => {
-        window.location.replace(appReturnTo ?? "/");
-      }}
-      onRetry={() => {
-        window.location.replace(safeRetryTarget ?? "/");
-      }}
-    />,
-  );
 }
 
 async function renderConversationSharePage(): Promise<void> {
@@ -161,32 +129,19 @@ async function renderConversationSharePage(): Promise<void> {
     mockMode && window.sessionStorage.getItem("zcode:share:mock-auth") === "owner"
       ? "mock-owner-token"
       : null;
+  // P3 供应商 OAuth 删除：分享页 owner 登录（startLogin/getZCodeJwtToken/logout）已移除，
+  // 真实链路只剩匿名公开分享访问；mock 模式保留本地 owner 态用于开发调试。
   const onLogout = () => {
     if (mockMode) {
       window.sessionStorage.removeItem("zcode:share:mock-auth");
       window.location.reload();
-      return;
     }
-    void webAuthService.logout();
   };
   root.render(
     <ConversationShareLandingLoader
       shareCode={shareCode}
       client={client}
-      getAccessToken={() => getMockToken() ?? webAuthService.getZCodeJwtToken()}
-      onLogin={(provider) => {
-        if (mockMode) {
-          window.sessionStorage.setItem("zcode:share:mock-auth", "owner");
-          window.location.reload();
-          return;
-        }
-        webAuthService.startLogin({
-          provider,
-          appReturnTo: window.location.href,
-          redirectUri: WEB_ZAI_OAUTH_CONFIG.shareRedirectUri,
-          devReturnTo: resolveWebAuthDevReturnTo(WEB_ZAI_OAUTH_CONFIG),
-        });
-      }}
+      getAccessToken={() => getMockToken()}
       onLogout={onLogout}
       locale={routeLocale}
       theme={resolveWebThemePreference("zai-light")}
@@ -270,9 +225,8 @@ function createWebPlatform(): IPlatformService {
     openInFileManager: () =>
       Promise.resolve({ success: false, error: "Not supported in web mode" }),
     openExternalFile: () => Promise.resolve({ success: false, error: "Not supported in web mode" }),
-    registerOAuthState: (_payload) => {},
-    onOAuthCallback: () => () => {},
-    onPaymentCallback: () => () => {},
+    // P3 C2 供应商套餐/计费面删除：onPaymentCallback（zcode://payment 购买回调）
+    // 已随官网购买 webview 链路移除。
     onShareImport: () => () => {},
     notifyRendererReady: () => {},
     showTaskNotification: (payload) => {
@@ -447,11 +401,9 @@ function renderServerTokenLoginPage(): void {
 }
 
 async function bootstrapWebApp() {
+  // P3 供应商 OAuth 删除：`/share/callback` OAuth 回调页与 auth/ 目录一并移除，
+  // 旧回调路径按普通路由处理（分享页路由仅匹配 /cn/share 与 /share 本身）。
   const params = new URLSearchParams(window.location.search);
-  if (isWebOAuthCallback(params)) {
-    renderWebAuthCallbackPage();
-    return;
-  }
 
   if (isConversationSharePath(window.location.pathname)) {
     await renderConversationSharePage();

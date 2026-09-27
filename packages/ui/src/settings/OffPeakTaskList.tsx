@@ -1,7 +1,6 @@
 /* 闲时任务列表：
    2 列卡片网格，卡片结构与定时任务卡同源：标题 + 指令描述 +
-   底部（moon + #N in queue 位次徽章）。按创建时间倒序；hover 菜单按状态收敛。
-   位次无 Est.。 */
+   底部状态脚注（P3：无服务端位次徽章，queued 表达等待时间窗）。按创建时间倒序。 */
 import {
   useCallback,
   useEffect,
@@ -16,6 +15,7 @@ import {
   TID_OFFPEAK_ACTION_CONTINUE,
   TID_OFFPEAK_ACTION_DELETE,
   TID_OFFPEAK_ACTION_PAUSE,
+  TID_OFFPEAK_ACTION_RUN_NOW,
   TID_OFFPEAK_CARD,
   TID_OFFPEAK_CARD_SESSION,
   TID_OFFPEAK_CARD_MENU,
@@ -43,7 +43,6 @@ import {
   AutomationTrashIcon,
 } from "@/settings/AutomationDesignPrimitives.js";
 import {
-  resolveFailedOffPeakQueueFooter,
   resolveOffPeakStatusFooter,
   shouldShowOffPeakModelSelectionIssue,
   type OffPeakStatusIconKind,
@@ -55,6 +54,8 @@ interface OffPeakTaskListProps {
   onOpen: (task: ZCodeOffPeakTask) => void;
   onPause: (task: ZCodeOffPeakTask) => void;
   onContinue: (task: ZCodeOffPeakTask) => void;
+  /** Run-now（P3）：queued/paused 任务绕过时间窗立即派发；已在派发在途时幂等 no-op。 */
+  onRunNow: (task: ZCodeOffPeakTask) => void;
   onCancel: (task: ZCodeOffPeakTask) => void;
   onDelete: (task: ZCodeOffPeakTask) => void;
   onOpenSession: (task: ZCodeOffPeakTask) => void;
@@ -149,6 +150,7 @@ export function OffPeakTaskList({
   onOpen,
   onPause,
   onContinue,
+  onRunNow,
   onCancel,
   onDelete,
   onOpenSession,
@@ -183,8 +185,6 @@ export function OffPeakTaskList({
               }
             : resolveOffPeakStatusFooter(task);
         const FooterIcon = STATUS_ICON[footer.icon];
-        const failedQueueFooter = resolveFailedOffPeakQueueFooter(task);
-        const FailedQueueIcon = failedQueueFooter ? STATUS_ICON[failedQueueFooter.icon] : null;
         const busy = busyOperationId?.endsWith(task.offPeakTaskId) ?? false;
         const hasPrimaryMenuAction =
           task.status === "queued" || task.status === "paused" || task.status === "running";
@@ -239,23 +239,6 @@ export function OffPeakTaskList({
                     {intl.formatMessage({ id: footer.labelId }, footer.labelValues)}
                   </span>
                 </div>
-                {failedQueueFooter && FailedQueueIcon ? (
-                  <div className="flex w-fit shrink-0 items-center gap-0.5 rounded-[6px] bg-idle-task-surface py-0.5 pl-1 pr-2 text-idle-task opacity-40">
-                    <span className="flex size-5 shrink-0 items-center justify-center">
-                      <FailedQueueIcon
-                        className="size-4 shrink-0"
-                        strokeWidth={1.33}
-                        aria-hidden="true"
-                      />
-                    </span>
-                    <span className="truncate">
-                      {intl.formatMessage(
-                        { id: failedQueueFooter.labelId },
-                        failedQueueFooter.labelValues,
-                      )}
-                    </span>
-                  </div>
-                ) : null}
                 {task.sessionTitle ? (
                   // 会话内创建的任务绑定并运行在创建它的会话里，脚注露出会话标题。
                   <span
@@ -315,6 +298,32 @@ export function OffPeakTaskList({
                   className="w-[190px]"
                   onClick={(event) => event.stopPropagation()}
                 >
+                  {task.status === "queued" || task.status === "paused" ? (
+                    <DropdownMenuItem
+                      className="gap-1"
+                      data-testid={TID_OFFPEAK_ACTION_RUN_NOW}
+                      onSelect={() => onRunNow(task)}
+                    >
+                      <span className="flex size-5 items-center justify-center">
+                        <AutomationIdleTimeIcon className="size-4" aria-hidden="true" />
+                      </span>
+                      <span className="flex-1">
+                        {intl.formatMessage({ id: "offPeak.action.runNow" })}
+                      </span>
+                      <OffPeakMenuHint
+                        title={intl.formatMessage({
+                          id: "offPeak.action.runNowHint",
+                        })}
+                      >
+                        <span className="inline-flex" onClick={(event) => event.stopPropagation()}>
+                          <AutomationInfoIcon
+                            className="size-3.5 shrink-0 text-foreground-subtle"
+                            aria-hidden="true"
+                          />
+                        </span>
+                      </OffPeakMenuHint>
+                    </DropdownMenuItem>
+                  ) : null}
                   {task.status === "queued" ? (
                     <DropdownMenuItem
                       className="gap-1"

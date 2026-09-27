@@ -176,8 +176,7 @@ function createMcpToolEntry(
         serverName: descriptor.serverName,
         toolName: descriptor.toolName,
         ...(descriptor.description ? { description: descriptor.description } : {}),
-        // 只有官方 MCP 的结果才允许携带被客户端信任的结构化标识（额度耗尽 / 无套餐）。
-        ...(descriptor.official ? { official: true } : {}),
+        // P3 C3：官方 MCP（Z.ai 托管）服务删除，official 信任标记不再下发。
       },
       needsApproval,
       readOnly,

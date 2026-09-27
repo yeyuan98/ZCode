@@ -1,5 +1,4 @@
 import { AsyncLocalStorage } from "node:async_hooks";
-import type { ZCodeProviderAccountAccess } from "@zcode/shared";
 import type { ModelApiCallObservation } from "../telemetry/index.js";
 import type { TraceContext } from "../tracing/tracer.js";
 import type {
@@ -30,7 +29,8 @@ export interface ModelInvocationContext {
   streamRecovery?: ModelStreamRecoveryStatus;
   preserveProviderStreamBoundaries?: boolean;
   refreshRuntimeHeadersBeforeAttempt?: (input: {
-    accountAccess?: ZCodeProviderAccountAccess;
+    // P3 C4 供应商账号删除：accountAccess（zhipu-account 请求期鉴权身份）已移除，
+    // 刷新入参只保留中性的请求定位字段。
     attempt: number;
     reason?: "model-request";
     abortSignal?: AbortSignal;
@@ -43,30 +43,14 @@ export interface ModelInvocationContext {
   }>;
 }
 
-/** Adapter 为单个物理请求 attempt 使用的动态鉴权材料。 */
+/**
+ * Adapter 为单个物理请求 attempt 使用的动态鉴权材料。
+ * P3：闲时票据的 requestAuth 注入链（ModelRequestDependencies/Source）已删除；
+ * 该形状仍服务于账号 Provider 的 runtime headers 刷新路径。
+ */
 export interface ModelRequestAuth {
   apiKey?: string;
   headers?: Record<string, string>;
-}
-
-export interface ModelRequestAuthSourceInput {
-  attempt: number;
-  abortSignal?: AbortSignal;
-  providerId: string;
-  modelId: string;
-  traceContext?: TraceContext;
-}
-
-/** Model 创建时绑定、在每个物理请求 attempt 前解析的执行作用域鉴权来源。 */
-export interface ModelRequestAuthSource {
-  resolve(input: ModelRequestAuthSourceInput): Promise<ModelRequestAuth | undefined>;
-}
-
-export interface ModelRequestDependencies {
-  /** 属性存在表示当前 Model 必须取得请求级鉴权；Source 缺失同样 fail-closed。 */
-  requestAuth?: {
-    source?: ModelRequestAuthSource;
-  };
 }
 
 const modelInvocationStorage = new AsyncLocalStorage<ModelInvocationContext>();

@@ -16,14 +16,10 @@ export function createTurnModel(
   runtime: AgentRuntimeInternal,
   options: {
     selection?: ModelSelection;
-    requestDependencies?: import("@zcode/contracts").ModelRequestDependencies;
   } = {},
 ): Model {
   const selection = options.selection ?? runtime.getSessionModelSelection();
-  const model = createRuntimeModel(runtime, {
-    selection,
-    requestDependencies: options.requestDependencies,
-  });
+  const model = createRuntimeModel(runtime, { selection });
   return withModelInvocationContext(model, (request) => ({
     refreshRuntimeHeadersBeforeAttempt: createRefreshRuntimeHeadersBeforeModelAttempt(runtime, {
       abortSignal: request.abortSignal,
@@ -49,10 +45,7 @@ export async function applySubmissionExecutionState(
   let model = preparedModel;
 
   if (selection) {
-    model ??= createTurnModel(runtime, {
-      selection,
-      requestDependencies: modelExecution?.requestDependencies,
-    });
+    model ??= createTurnModel(runtime, { selection });
     if (modelExecution?.selectionScope !== "execution") {
       const appliedSelection = cloneModelSelection(selection);
       runtime.setSessionModelSelection(appliedSelection);

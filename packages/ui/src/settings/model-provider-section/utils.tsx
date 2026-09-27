@@ -1,24 +1,20 @@
 import type { ReactNode } from "react";
-import { type BuiltinModelProviderId } from "@zcode/shared";
 import { PackageIcon } from "lucide-react";
 import { ProviderLogo } from "./ProviderLogo.js";
 import { type ModelProviderNavItem } from "./constants.js";
 
-export function createPresetProviderNodeKey(id: BuiltinModelProviderId): string {
-  return `preset:${id}`;
-}
+// P3 C4 供应商 family/specs 删除：createCodingPlanProviderNodeKey（套餐连接节点 key）
+// 已随设置页 de-plan 移除；preset/custom 节点 key 保持不变，兼容既有选中态。
 
-export function createCodingPlanProviderNodeKey(id: BuiltinModelProviderId): string {
-  return `coding-plan:${id}`;
+export function createPresetProviderNodeKey(id: string): string {
+  return `preset:${id}`;
 }
 
 export function createCustomProviderNodeKey(id: string): string {
   return `custom:${id}`;
 }
 
-export function resolveModelProviderNavLogo(item: ModelProviderNavItem) {
-  // 品牌主入口沿用 Start 导航 ID，但不能因此显示体验套餐图标。
-  if (item.type === "preset") return item.logo;
+function resolveModelProviderNavLogo(item: ModelProviderNavItem) {
   return "provider" in item ? item.provider?.config.logo : undefined;
 }
 

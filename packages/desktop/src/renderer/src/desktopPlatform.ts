@@ -55,9 +55,9 @@ export function createDesktopPlatform(options: {
     startCuaHelperPermissionDrag: window.zcode.startCuaHelperPermissionDrag
       ? () => window.zcode.startCuaHelperPermissionDrag?.()
       : undefined,
-    registerOAuthState: (payload) => window.zcode.registerOAuthState(payload),
-    onOAuthCallback: (callback) => window.zcode.onOAuthCallback(callback),
-    onPaymentCallback: (callback) => window.zcode.onPaymentCallback(callback),
+    // P3 C1 供应商 OAuth 删除：registerOAuthState / onOAuthCallback 已随登录 deep link 链路移除。
+    // P3 C2 供应商套餐/计费面删除：onPaymentCallback（zcode://payment 购买回调）
+    // 已随官网购买 webview 链路移除。
     onShareImport: (callback) => window.zcode.onShareImport?.(callback) ?? (() => {}),
     notifyRendererReady: () => window.zcode.notifyRendererReady(),
     getRendererActionTraceConfig: window.zcode.getRendererActionTraceConfig

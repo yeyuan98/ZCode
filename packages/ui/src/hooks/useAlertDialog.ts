@@ -1,5 +1,5 @@
-import { useAlertDialogStore } from "@/store/alertDialogStore.js";
+import { useAlertDialogStore, type AlertDialogRequest } from "@/store/alertDialogStore.js";
 
-export function useAlertDialog() {
+export function useAlertDialog(): (payload: AlertDialogRequest) => Promise<boolean> {
   return useAlertDialogStore((state) => state.requestAlert);
 }

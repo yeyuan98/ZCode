@@ -2,6 +2,7 @@ import type { RemoteAssetInstallMode } from "./remoteAssetInstallMode.js";
 import type { RemoteResourcePackageSelection } from "./remoteResourcePackages.js";
 import type { WorkspacePurpose } from "./workspacePurpose.js";
 import type { EmbeddedBrowserViewportPreference } from "./browser-use/command-metadata.js";
+import type { OffPeakWindowSettings } from "./off-peak-window.js";
 
 // ── Domain types ──
 
@@ -232,8 +233,8 @@ export interface ResourceUsageSnapshot {
 }
 
 export interface AppSettings {
-  /** 当前 App/Host 不再显示提交前体验套餐推荐；不改变任何入口的模型选择。 */
-  startPlanRecommendationDismissed?: boolean;
+  // P3 C4 供应商账号删除：startPlanRecommendationDismissed（提交前体验套餐推荐
+  // 关闭标记）已随 Start Plan 推荐面移除；zod 默认 strip 旧 setting.json 残留键。
   recentProjects: string[]; // 最近项目列表，最多保留 10 个
   locale: Locale; // 界面语言
   /**
@@ -277,6 +278,12 @@ export interface AppSettings {
   closeToTrayOnWindows?: boolean;
   /** 存在执行中的闲时任务时阻止系统闲置休眠（手动开关，防不了合盖）。 */
   keepAwakeWhileRunning?: boolean;
+  /**
+   * 闲时任务本地准入窗口（P3）：`enabled:false` 表示任意时间可调度；
+   * start/end 为 "HH:mm" 本地时钟，start > end 表示跨午夜回绕。
+   * 属主是 desktop main（唯一求值方），renderer 只读写设置与展示。
+   */
+  offPeakWindow?: OffPeakWindowSettings;
   /** Windows 关闭到托盘默认值是否已执行过一次性迁移；只用于设置迁移，不参与业务判断。 */
   closeToTrayOnWindowsMigrationInitialized?: boolean;
   /** 桌面端全局页面缩放档位；用于重启后恢复界面缩放，Web/手机端忽略。 */

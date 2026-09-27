@@ -11,7 +11,6 @@ import type {
   ForkCommitBundle,
   ForkChildSessionMetadata,
   ModelRequestAuth,
-  ModelRequestDependencies,
   ModelSelection,
   PluginReferenceCatalog,
   ResolvedUserInstructions,
@@ -20,7 +19,6 @@ import type {
   WorkspaceHookBundleSnapshot,
   WorkspaceId,
 } from "@zcode/contracts";
-import type { ZCodeProviderAccountAccess } from "@zcode/shared";
 import type { EffectiveModelSelectionResult } from "@zcode/shared/model-selection";
 import type { RuntimeMessageEntry } from "../agent/message-history.js";
 import type {
@@ -379,8 +377,6 @@ export interface AgentRuntimeDeps {
 
 export interface RuntimeModelFactoryInput {
   selection: ModelSelection;
-  /** 只绑定到本次创建的 Model，不进入公共 ModelRequest 或 Session 持久化。 */
-  requestDependencies?: ModelRequestDependencies;
 }
 
 export type RuntimeModelFactory = (input: RuntimeModelFactoryInput) => Model;
@@ -395,7 +391,7 @@ export type RuntimeModelFactory = (input: RuntimeModelFactoryInput) => Model;
 export interface ProviderRuntimeHeadersPort {
   shouldRefreshBeforeModelRequest?(input: { providerId: string; modelId: string }): boolean;
   refreshBeforeModelRequest(input: {
-    accountAccess?: ZCodeProviderAccountAccess;
+    // P3 C4 供应商账号删除：accountAccess（zhipu-account 请求期鉴权身份）已移除。
     abortSignal?: AbortSignal;
     modelId: string;
     providerId: string;
@@ -426,7 +422,6 @@ export interface ModelExecutionContext {
   /** 仅当前 Turn 跳过自动 Project Memory Extraction；不修改 Session Memory 配置。 */
   memoryExtraction?: "skip";
   selectionScope: "execution";
-  requestDependencies?: ModelRequestDependencies;
   subagents?: {
     foregroundModel: "submission";
     background: "deny";

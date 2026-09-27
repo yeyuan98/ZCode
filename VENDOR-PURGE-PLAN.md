@@ -3,7 +3,7 @@
 - **Repo:** `/home/administrator/git/ZCode` (fork of ZCode v3.14.3, branch base `main`)
 - **Goal:** Remove all Z.ai / Zhipu / BigModel vendor-specific code — platform backend, logins, accounts/plans/subscriptions, vendor-bound skills/tools, vendor CDN/telemetry/infra — while keeping the product fully usable via generic API-key providers and local models. zai/bigmodel remain available as **ordinary, equal vendors**.
 - **Version policy:** stay upstream-consistent at **3.14.3**; per-phase test releases as `3.14.3-alpha.N`; final release is exactly `3.14.3`.
-- **Status:** EXECUTING. P0 done (`v3.14.3-alpha.1`); P2 done (`v3.14.3-alpha.2`, 2026-09-26) + wizard UX hotfix (`v3.14.3-alpha.3`); P1 done (`v3.14.3-alpha.4`, 2026-09-27, with amendments A1-A4 recorded in its §4 section); P1.1 done (`v3.14.3-alpha.5`, 2026-09-27, merge `e1a14fc`, release `c17469e`); P1.2 done (`v3.14.3-alpha.6`, 2026-09-27, merge `9821744`, release `c49c962`); next: P3 (ships as alpha.7). Investigation: 4 parallel deep-dive subagents + 3 independent review rounds, all findings source-verified on `main`.
+- **Status:** EXECUTING. P0 done (`v3.14.3-alpha.1`); P2 done (`v3.14.3-alpha.2`, 2026-09-26) + wizard UX hotfix (`v3.14.3-alpha.3`); P1 done (`v3.14.3-alpha.4`, 2026-09-27, with amendments A1-A4 recorded in its §4 section); P1.1 done (`v3.14.3-alpha.5`, 2026-09-27, merge `e1a14fc`, release `c17469e`); P1.2 done (`v3.14.3-alpha.6`, 2026-09-27, merge `9821744`, release `c49c962`); P3 done (2026-09-27, amendments A6–A14, branch merged; release hashes recorded in §4 P3); next: P4 (ships as alpha.8). Investigation: 4 parallel deep-dive subagents + 3 independent review rounds per phase, all findings source-verified on `main`.
 - **Fresh-start policy:** no migration/compat shims for old setups; there are no existing libre-zcode users.
 
 ---
@@ -211,7 +211,22 @@ guard (no vendor anthropic site rule carries inputFormat). Catalog revision stay
 (appVersion-scoped active cache; same-revision conflict → bundled wins). Legacy V-suffixed
 vision rules (glm-5v-turbo, glm-4.xv) predate the current 11-model lineup and are name-correct.
 
-### P3 — Services purge + off-peak local backend → **alpha.7**
+### P3 — Services purge + off-peak local backend → **alpha.7** (done)
+
+Delivered on `agent/coder/vendor-purge-p3` (S0 specs+free-deletes → S2 usage split → S1 off-peak rebuild → C1 OAuth+dormant user → C2 billing/webview → C3 official-MCP+image-search unpin → C4 family/specs+settings de-plan → C5 config-fetches/remote-catalog → S4 sweep → [ulw] review round (RA GO-WITH-FIXES / RB GO / RC GO-WITH-FIXES; fixes applied once + full gates re-run)): OAuth/account/entitlement middle-tier fully deleted (services oauth 16 files, web auth 7, coding-plan-subscription, bigmodel quota chain, accountProvider* family, official-MCP host+CLI chain, clientConfigService + remote builtin-catalog download, PayPal/webview chain, desktopOAuthDeepLink split); `usage-stats.ts` split (AppUsage rehomed; `IUsageStatsService` = app-snapshot only); off-peak rebuilt local (window-only admission in main via correlated scheduler request + window-open wake, Run-now, hands-off auto-decline for permission/AskUserQuestion/plan-approval, persisted model_selection dispatch, 6 ticket columns hard-cut, scheduler port-injection harness, tool default build); dormant user framework (`UserInfo`→`user.ts`, `DEFAULT_LOCAL_USER {id:"user"}` auto-registered, all user UI unrendered, questionnaire re-triggers once); settings provider page de-planned (plain preset+custom; ~556/514 i18n lines dropped/locale); dead CLI auth trio + slash-login help pulled forward from P4. Key files: `specs/off-peak-local-admission.md`, `specs/account-services-purge.md`, `packages/shared/src/off-peak-window.ts`, `packages/services/src/session/offPeak*`, `packages/desktop/src/scheduler/schedulerRuntime.ts`, `packages/ui/src/store/index.ts`(DEFAULT_LOCAL_USER). Reviewer-flagged P4 carryovers: streaming-recovery 3008-3010 cluster (delete, don't rename — numeric-only match can misclassify personal bigmodel keys),`app-submit.ts`login regex, CLI`shared-credentials.ts`vendor key constants,`ModelRequestAuth` inert chain. Effort: delivered ≈ 6 focused sessions (vs 13–19 d estimate — worker delegation + dead-at-the-gate off-peak de-risked S1).
+
+**Amendments (P3, in-phase; investigation- and review-driven; user rulings 2026-09-27):**
+
+- **A6 (P3)** Web conversation-share landing is compile-coupled to vendor web OAuth (`web/main.tsx` imports `web/src/auth/**`): P3 deletes the web login + landing owner-login; public viewing stays; desktop share publishing stays compiled but runtime-broken until P5 item 4 (documented known issue).
+- **A7 (P3)** `shared/src/usage-stats.ts` is split, not deleted: generic `AppUsage*` + `ESTIMATED_TOKEN_CHAR_DIVISOR` rehome (protocol/v4-transport/CLI/UI import them); `IUsageStatsService` keeps `getAppUsageSnapshot` only.
+- **A8 (P3)** CLI is compile-coupled to the A1-protected account schemas today (`ZCodeProviderAccountAccess` ×3 files, `BUILTIN_MODEL_PROVIDER_IDS` in reasoning-history-normalization, offpeak retry/requestAuth paths, official-mcp port): those CLI edits land in P3's same commits; the already-dead vendor auth trio (`cli-oauth.ts`, `bigmodel-oauth.ts`, `coding-plan-api-key.ts`) is pulled forward from P4 so the bigmodel endpoint builders can be trimmed.
+- **A9 (P3)** All vendor `/api/v1/client/configs` consumers die in P3 (off-peak gray, dynamicWorkflow gray → local constant OFF, context-prompt rollout → local default, plugin-store order → bundled) plus the remote builtin-catalog download (`zcode-builtin-download.ts` chain → bundled fallback); `clientConfigService` dies with them.
+- **A10 (P3)** `desktopOAuthDeepLink.ts` splits: OAuth state/callback machinery dies; generic workspace deep-link machinery (incl. P5 share-import delivery) moves to a neutral module. Preload/channels OAuth IPC + `IPlatformService` OAuth methods die with it.
+- **A11 (P3)** image-search removed from the pinned default-enabled plugin list (host auth resolver death makes it permanently failing); plugin definition cleanup stays in P5 item 3.
+- **A12 (P3)** Off-peak local admission = **time-window only** (default 00:00–07:00, disable-able) + "Run now" override; idle and AC-power detection considered and REJECTED (user ruling 1). Admission evaluated at claim time by the scheduler (main-process evaluator via correlated scheduler-protocol request; window-open wake timer). Ticket columns hard-cut (`schedulable` concept becomes claim-time). See `specs/off-peak-local-admission.md`.
+- **A13 (P3)** Off-peak runs are always hands-off: permission / AskUserQuestion / plan-approval interactions auto-declined while the off-peak turn is the session's active turn; no presence detection; `OffPeakCreate` tool default `yolo` → `build`. Rationale recorded in the spec (user ruling 2: policy approved, rationale must be documented).
+- **A14 (P3)** User framework kept **dormant** (user ruling 6): `UserInfo` relocated to `shared/src/user.ts`; store keeps `user/setUser/authSessionSeq`; one hidden local user `user` auto-registered at startup; all user UI unrendered (incl. `handleLogout` chain); occupation questionnaire re-triggers once for existing alpha users (accepted, documented). Revival = replace the initializer.
+- Free deletes verified + delivered in S0: `plan-identity.ts`, `provider-family-connection-selection.ts`, `account-provider-state.ts`, dead `provider/updateAccountConfig` wire (schemas + method id), `resolveRuntimeProductEndpointConfig`; `ForceUpdateConfig` inlined into `forceUpdate.ts`. `.env.example` ZAI/BIGMODEL platform vars are trimmed in the domain commits where their last readers die (C1/C4), not at S0.
 
 **Changes (deletions):**
 
@@ -353,17 +368,17 @@ Manual: fresh Windows install of the alpha + upgrade from the previous alpha; ph
 
 ## 7. Effort estimate
 
-| Item                                                              | Estimate                  |
-| ----------------------------------------------------------------- | ------------------------- |
-| P0 (incl. 3 updater guards)                                       | 3–5 d                     |
-| P2 onboarding wizard + gate                                       | 5–8 d                     |
-| P1 excision + auto-discovery + Ollama template                    | 7–11 d                    |
-| P3 deletions + off-peak local backend                             | 13–19 d                   |
-| P4 rename + WebSearch removal                                     | 4–6 d                     |
-| P5 update/assets/marketplace/share-export/identity                | 9–12 d                    |
-| P6 sweep gate + CI workflow + docs + notices                      | 3–4 d                     |
-| Versioning/QA overlay (test scripts, harnesses, release dry-runs) | 3–4 d                     |
-| **Total**                                                         | **≈ 7–10 engineer-weeks** |
+| Item                                                                    | Estimate                  |
+| ----------------------------------------------------------------------- | ------------------------- |
+| P0 (incl. 3 updater guards)                                             | 3–5 d                     |
+| P2 onboarding wizard + gate                                             | 5–8 d                     |
+| P1 excision + auto-discovery + Ollama template                          | 7–11 d                    |
+| P3 deletions + off-peak local backend (delivered in ~6 worker sessions) | 13–19 d (est.)            |
+| P4 rename + WebSearch removal                                           | 4–6 d                     |
+| P5 update/assets/marketplace/share-export/identity                      | 9–12 d                    |
+| P6 sweep gate + CI workflow + docs + notices                            | 3–4 d                     |
+| Versioning/QA overlay (test scripts, harnesses, release dry-runs)       | 3–4 d                     |
+| **Total**                                                               | **≈ 7–10 engineer-weeks** |
 
 ---
 

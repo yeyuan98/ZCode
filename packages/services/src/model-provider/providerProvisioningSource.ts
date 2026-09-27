@@ -17,16 +17,10 @@ import {
 } from "../credential/providers/credentialCipherProvider.js";
 
 const CREDENTIAL_FILE_NAME = "credentials.json";
-export const PROVIDER_PROVISIONING_OAUTH_CREDENTIAL_KEYS = [
-  "oauth:active_provider",
-  "oauth:zai:access_token",
-  "oauth:zai:refresh_token",
-  "oauth:zai:user_info",
-  "oauth:bigmodel:access_token",
-  "oauth:bigmodel:refresh_token",
-  "oauth:bigmodel:user_info",
-  "zcodejwttoken",
-] as const;
+// P3 C1 供应商 OAuth 删除：原 OAuth 会话凭据键 allowlist（oauth:* / zcodejwttoken /
+// oauth:active_provider）已清空。Provisioning 的读取/枚举机制保留，供后续非 OAuth
+// 凭据键重新启用；当前同步信封的 credentials 恒为空数组。
+export const PROVIDER_PROVISIONING_CREDENTIAL_KEYS: readonly string[] = [];
 
 export interface ProviderProvisioningSource {
   read(syncId: string): Promise<ProviderProvisioningEnvelope>;
@@ -116,7 +110,7 @@ async function readProvisioningCredentials(
     throw new Error("Credential Store 必须是 JSON 对象");
   }
   const cipher = cipherProvider ?? createCredentialCipherProvider();
-  const allowedKeys = new Set<string>(PROVIDER_PROVISIONING_OAUTH_CREDENTIAL_KEYS);
+  const allowedKeys = new Set<string>(PROVIDER_PROVISIONING_CREDENTIAL_KEYS);
   const entries: ProviderProvisioningCredentialEntry[] = [];
   // Credential Store 还可能包含不属于 Provisioning allowlist 的历史记录；
   // 这些记录不是本次同步事实，不能因为其值损坏而阻断合法账号凭据的同步。
@@ -164,7 +158,7 @@ export async function listProviderProvisioningCredentialKeys(
   }
   const parsed = JSON.parse(raw) as unknown;
   if (!isRecord(parsed)) throw new Error("Credential Store 必须是 JSON 对象");
-  const oauthKeys = new Set<string>(PROVIDER_PROVISIONING_OAUTH_CREDENTIAL_KEYS);
-  // P2：account-provider 凭据键已删除；枚举只返回 OAuth allowlist。
-  return Object.keys(parsed).filter((key) => oauthKeys.has(key));
+  const allowedKeys = new Set<string>(PROVIDER_PROVISIONING_CREDENTIAL_KEYS);
+  // P2：account-provider 凭据键已删除；P3 C1 起 OAuth allowlist 也已清空，枚举恒为空。
+  return Object.keys(parsed).filter((key) => allowedKeys.has(key));
 }

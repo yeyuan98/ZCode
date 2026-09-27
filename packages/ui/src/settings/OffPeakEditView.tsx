@@ -51,7 +51,6 @@ import { ConfigSelect } from "@/chat-input-toolbar/display.js";
 import { ChatEmptyWorkspacePreviewMenu, type ChatEmptyWorkspaceMenuTab } from "@/ChatEmptyState.js";
 import { useAutomationProjectOptions } from "@/hooks/useAutomationProjectOptions.js";
 import {
-  OFF_PEAK_CREATE_TOOLTIP_CLASSNAME,
   resolveLocalizedOffPeakCreateTitle,
   shouldShowOffPeakModelSelectionIssue,
 } from "@/settings/offPeakUiPresentation.js";
@@ -111,6 +110,10 @@ interface OffPeakEditViewProps {
 function workspaceBasename(path: string): string {
   return path.replace(/\\/g, "/").split("/").filter(Boolean).pop() ?? path;
 }
+
+/** 创建禁用原因属于长提示，不能沿用通用短 Tooltip 的单行布局。 */
+const OFF_PEAK_CREATE_TOOLTIP_CLASSNAME =
+  "max-w-[220px] [&>span]:break-words [&>span]:whitespace-normal [&>span]:text-wrap-pretty";
 
 export function OffPeakEditView({
   editing,

@@ -20,12 +20,7 @@ import { CSS } from "@dnd-kit/utilities";
 import { Loader2Icon } from "lucide-react";
 import { ProviderStatusIndicator } from "./ProviderStatusIndicator.js";
 
-import {
-  resolveModelProviderFamilySpecByProviderId,
-  isStartPlanModelProviderId,
-  TID_MODEL_PROVIDER_NAV_ITEM,
-  testId,
-} from "@zcode/shared";
+import { TID_MODEL_PROVIDER_NAV_ITEM, testId } from "@zcode/shared";
 import { useCallback, useMemo, type KeyboardEvent } from "react";
 import { ControlHintTooltip } from "@/ControlHintTooltip.js";
 import type { ModelProviderNavGroup, ModelProviderNavItem } from "./constants.js";
@@ -71,16 +66,8 @@ function shouldShowModelProviderGroupLoadingIndicator(params: {
   return params.customLoading;
 }
 
-function resolveModelProviderSideNavLabel(item: ModelProviderNavItem): string {
-  if (item.type === "preset") {
-    return resolveModelProviderFamilySpecByProviderId(item.presetId)?.label ?? item.label;
-  }
-  if (item.type === "codingPlan" && isStartPlanModelProviderId(item.presetId)) {
-    return "Start Plan";
-  }
-  return item.label;
-}
-
+// P3 C4 供应商 family/specs 删除：codingPlanLoading 占位项与 family 名兜底已移除，
+// 侧栏标签直接使用导航项自身的中性 label。
 function ModelProviderNavigationButton({
   item,
   label,
@@ -95,43 +82,32 @@ function ModelProviderNavigationButton({
   showIcon?: boolean;
 }) {
   const isSelected = item.key === selectedNodeKey;
-  const isLoadingItem = item.type === "codingPlanLoading";
   const inactiveItemClassName = "border-transparent text-foreground hover:border-border-hover/60";
 
   return (
     <ControlHintTooltip title={label} side="right">
       <button
         type="button"
-        disabled={isLoadingItem}
         aria-label={label}
         aria-selected={isSelected}
         data-state={isSelected ? "selected" : "idle"}
         data-testid={testId(TID_MODEL_PROVIDER_NAV_ITEM, item.key)}
         onClick={() => {
-          if (isLoadingItem) {
-            return;
-          }
           onSelectNavItem(item);
         }}
         className={`relative box-border flex h-8 w-full items-center gap-2 rounded-lg border px-2 py-1 text-left text-ui-base font-medium transition-colors max-md:size-8 max-md:justify-center max-md:gap-0 max-md:px-0 ${
           isSelected
             ? "border-border-hover bg-card-selected text-foreground"
             : inactiveItemClassName
-        } disabled:cursor-not-allowed disabled:opacity-60`}
+        }`}
       >
-        {isLoadingItem ? (
-          <Loader2Icon className="size-4 shrink-0 animate-spin text-foreground-subtlest" />
-        ) : showIcon ? (
+        {showIcon ? (
           <span className="shrink-0 text-current">{renderModelProviderNavIcon(item)}</span>
         ) : null}
         <span className="flex min-w-0 flex-1 items-center gap-1.5 max-md:sr-only">
           <span className="min-w-0 truncate">{label}</span>
         </span>
-        {"provider" in item ? (
-          <ProviderStatusIndicator
-            provider={item.type === "preset" ? item.statusProvider : item.provider}
-          />
-        ) : null}
+        <ProviderStatusIndicator provider={"provider" in item ? item.provider : null} />
       </button>
     </ControlHintTooltip>
   );
@@ -207,11 +183,7 @@ function SortableModelProviderNavigationButton({
         <span className="flex min-w-0 flex-1 items-center gap-1.5 max-md:sr-only">
           <span className="min-w-0 truncate">{label}</span>
         </span>
-        {"provider" in item ? (
-          <ProviderStatusIndicator
-            provider={item.type === "preset" ? item.statusProvider : item.provider}
-          />
-        ) : null}
+        <ProviderStatusIndicator provider={"provider" in item ? item.provider : null} />
       </div>
     </ControlHintTooltip>
   );
@@ -232,7 +204,7 @@ function PresetProviderCardNavigation({
         <ModelProviderNavigationButton
           key={item.key}
           item={item}
-          label={resolveModelProviderSideNavLabel(item)}
+          label={item.label}
           selectedNodeKey={selectedNodeKey}
           onSelectNavItem={onSelectNavItem}
         />
