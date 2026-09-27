@@ -100,6 +100,28 @@ test.describe("welcome wizard", () => {
     await expectAppShell(page);
   });
 
+  // P1.1 spec §3：保存必须自动发现。全程不按“测试并发现”，直接 Continue —— 保存处理器
+  // 对 idle 状态静默调用发现服务，mock 的模型随同一次保存持久化，启动门禁在重载后保持关闭。
+  test("saving without ever pressing test & discover persists models via auto-discover", async ({
+    page,
+    wizardApp,
+  }) => {
+    await page.goto(wizardApp.origin);
+    await page.getByTestId(MOCK_TEMPLATE_ITEM).click();
+
+    await page.getByTestId(API_KEY_INPUT).fill(E2E_API_KEY);
+    // 不出现任何发现状态横幅（auto-run 是静默的，不改动向导 UI）。
+    await page.getByTestId(API_KEY_CONTINUE_BUTTON).click();
+
+    await expect(page.getByTestId(TEMPLATE_PICKER)).toBeHidden();
+    await expectAppShell(page);
+
+    // 自动发现已把 mock 模型持久化：重载后启动门禁（models.length>0）保持关闭，向导不再弹出。
+    await page.reload();
+    await expect(page.locator(APP_SHELL)).toBeVisible();
+    await expect(page.getByTestId(TEMPLATE_PICKER)).toHaveCount(0);
+  });
+
   test("skip persists dismissal across reload", async ({ page, wizardApp }) => {
     await page.goto(wizardApp.origin);
     await page.getByTestId(MOCK_TEMPLATE_ITEM).click();

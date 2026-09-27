@@ -1,6 +1,6 @@
 /* oxlint-disable eslint(max-lines) -- Settings/Selection Facade 共享同一套 Registry 投影与写入边界。 */
 import type { ConfigValidationIssue } from "./config-overlay.js";
-import type { ProviderModelMembership } from "./config-service.js";
+import type { InitialModelEntry, ProviderModelMembership } from "./config-service.js";
 import type {
   ModelConfig,
   ModelConfigObject,
@@ -51,7 +51,7 @@ export interface ProviderSettingsMutationTarget {
     readonly providerName?: string;
     readonly locale?: ProviderTemplateLocale;
     readonly initialConfig?: ProviderConfig;
-    readonly initialModelIds?: readonly ModelId[];
+    readonly initialModels?: ReadonlyArray<InitialModelEntry>;
   }): Promise<{ readonly providerId: ProviderId }>;
   savePersonalProviderOverlay(
     providerId: ProviderId,
@@ -305,7 +305,7 @@ export class ProviderSettingsFacade {
     readonly providerName?: string;
     readonly locale?: ProviderTemplateLocale;
     readonly initialConfig?: ProviderConfigObject;
-    readonly initialModelIds?: readonly ModelId[];
+    readonly initialModels?: ReadonlyArray<InitialModelEntry>;
   }): Promise<ProviderSettingsCreationResult> {
     return this.#mutateWithResult("create-provider", (target) =>
       target.createPersonalProvider({
@@ -315,7 +315,7 @@ export class ProviderSettingsFacade {
         ...(input?.initialConfig
           ? { initialConfig: parseProviderConfig(input.initialConfig) }
           : {}),
-        ...(input?.initialModelIds ? { initialModelIds: input.initialModelIds } : {}),
+        ...(input?.initialModels ? { initialModels: input.initialModels } : {}),
       }),
     ).then(({ result, view }) => ({ providerId: result.providerId, view }));
   }

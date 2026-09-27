@@ -20,7 +20,9 @@ import { createServiceDescriptor } from "../descriptors.js";
 import type { ModelConnectivityResult } from "@zcode/shared";
 import { createServiceLogger } from "../logger/serviceLogger.js";
 import {
+  discoverModelsForEndpoint,
   discoverTemplateModels,
+  type DiscoverModelsForEndpointInput,
   type DiscoverTemplateModelsFetch,
   type DiscoverTemplateModelsInput,
   type DiscoverTemplateModelsResult,
@@ -33,6 +35,8 @@ export type {
   ProviderSettingsView,
 } from "@zcode/provider";
 export type {
+  DiscoveryModelHints,
+  DiscoverModelsForEndpointInput,
   DiscoverTemplateModelsInput,
   DiscoverTemplateModelsResult,
 } from "./providerModelDiscovery.js";
@@ -83,6 +87,13 @@ export interface IProviderSettingsService {
    * P1 吸收 A2 的“测试 Key”探测：不创建 provider、不启动 agent，失败仅作提示不阻塞保存。
    */
   discoverTemplateModels(input: DiscoverTemplateModelsInput): Promise<DiscoverTemplateModelsResult>;
+  /**
+   * 直接端点发现（P1.1 spec §3）：自定义 provider 保存路径按用户输入的 apiType +
+   * baseUrl 直连模型列表端点；同样不创建 provider、不启动 agent，失败静默降级不阻塞保存。
+   */
+  discoverCustomProviderModels(
+    input: DiscoverModelsForEndpointInput,
+  ): Promise<DiscoverTemplateModelsResult>;
 }
 
 export const IProviderSettingsService = createServiceDescriptor<IProviderSettingsService>(
@@ -234,6 +245,13 @@ export function createProviderSettingsService(
         (candidate) => candidate.templateId === input.templateId,
       );
       return discoverTemplateModels(input, { fetch: discoveryFetch, template });
+    },
+    discoverCustomProviderModels: async (input) => {
+      await ensureReady();
+      if (!discoveryFetch) {
+        return { ok: false, error: "template model discovery is not available" };
+      }
+      return discoverModelsForEndpoint(input, { fetch: discoveryFetch });
     },
   };
 }

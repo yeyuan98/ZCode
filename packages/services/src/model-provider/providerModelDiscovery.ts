@@ -26,6 +26,13 @@ export type DiscoverTemplateModelsResult =
 
 export type DiscoverTemplateModelsFetch = typeof fetch;
 
+/** 自定义 provider 保存路径的直接端点发现输入（P1.1：不走模板目录）。 */
+export interface DiscoverModelsForEndpointInput {
+  readonly apiType: string;
+  readonly baseUrl: string;
+  readonly apiKey?: string;
+}
+
 const DISCOVERY_TIMEOUT_MS = 15_000;
 /** anthropic 游标翻页上限：远端 has_more 异常时不能无限拉取。 */
 const ANTHROPIC_MAX_PAGES = 10;
@@ -36,7 +43,7 @@ interface DiscoveryTarget {
 }
 
 /**
- * 解析模板的发现目标；支持无 access（本地 ollama）与 plain api-key 且带 api.baseUrl 的模板。
+ * 解析模型列表发现目标；支持无 access（本地 ollama）与 plain api-key 且带 api.baseUrl 的模板。
  * 内置模板的 baseUrl 有的已含版本段（如 https://api.openai.com/v1、.../api/paas/v4），
  * 拼接 models 前先去掉重复版本段，保证发现 URL 与真实模型列表端点一致。
  */
@@ -50,7 +57,19 @@ function resolveTemplateModelDiscoveryTarget(
   if (access != null && !isApiKeyAccess(access)) {
     return null;
   }
-  const api = template.config.api;
+  return resolveModelsEndpointTarget(template.config.api);
+}
+
+/** 按 api 配置（type + baseUrl）解析发现目标；模板与自定义直连端点共用同一套 URL 归一。 */
+function resolveModelsEndpointTarget(
+  api:
+    | {
+        readonly type?: string | null;
+        readonly baseUrl?: string | null;
+      }
+    | null
+    | undefined,
+): DiscoveryTarget | null {
   if (!api?.baseUrl) {
     return null;
   }
@@ -241,8 +260,30 @@ export async function discoverTemplateModels(
   if (!target) {
     return { ok: false, error: "unsupported template" };
   }
+  return runModelListDiscovery(target, input.apiKey?.trim() ?? "", dependencies.fetch);
+}
 
-  const apiKey = input.apiKey?.trim() ?? "";
+/**
+ * 直接端点发现（P1.1 spec §3 自定义 provider 保存路径）：按调用方给的 apiType + baseUrl
+ * 直连模型列表端点，不经模板目录。语义与模板发现一致（静默、可失败、不启动 agent），
+ * 供向导“保存时自动发现”复用。
+ */
+export async function discoverModelsForEndpoint(
+  input: DiscoverModelsForEndpointInput,
+  dependencies: { readonly fetch: DiscoverTemplateModelsFetch },
+): Promise<DiscoverTemplateModelsResult> {
+  const target = resolveModelsEndpointTarget({ type: input.apiType, baseUrl: input.baseUrl });
+  if (!target) {
+    return { ok: false, error: "invalid base url" };
+  }
+  return runModelListDiscovery(target, input.apiKey?.trim() ?? "", dependencies.fetch);
+}
+
+async function runModelListDiscovery(
+  target: DiscoveryTarget,
+  apiKey: string,
+  fetch: DiscoverTemplateModelsFetch,
+): Promise<DiscoverTemplateModelsResult> {
   const headers: Record<string, string> =
     target.protocol === "anthropic"
       ? {
@@ -263,7 +304,7 @@ export async function discoverTemplateModels(
     const timeout = setTimeout(() => abortController.abort(), DISCOVERY_TIMEOUT_MS);
     let payload: unknown;
     try {
-      const response = await dependencies.fetch(requestUrl, {
+      const response = await fetch(requestUrl, {
         headers,
         signal: abortController.signal,
       });
