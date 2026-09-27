@@ -31,7 +31,7 @@
     "fmt": "oxfmt",
     "fmt:check": "oxfmt --check",
     "knip": "knip",
-    "test:e2e": "playwright test",
+    "test:e2e": "pnpm --dir packages/web build && playwright test",
     "count-lines": "bash scripts/count-lines.sh",
     "prepare:remote-assets": "pnpm --filter @zcode/desktop prepare:remote-assets",
     "doctor:macos-release": "bash scripts/doctor-macos-release-app.sh",
