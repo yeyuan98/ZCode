@@ -12,7 +12,9 @@ export const ZCODE_OFFICIAL_PLUGIN_MARKETPLACE_ID = "zcode-plugins-official";
 /** Settings 三类资源发现共用；Bootstrap 单测与官方 definition 的 defaultEnabled 机械对照。 */
 export const DEFAULT_ENABLED_OFFICIAL_PLUGIN_IDS: ReadonlySet<string> = new Set([
   "browser-use@zcode-plugins-official",
-  "image-search@zcode-plugins-official",
+  // P3 C3（ruling 5）：image-search 的 MCP 后端是官方 Server MCP，随官方 MCP 服务删除后
+  // 已不可用，故从默认启用名单摘除（插件 definition 与市场条目保留，P5 统一清理市场时删除，
+  // 届时 bootstrap 侧 defaultEnabled 同步收口）。
   "documents@zcode-plugins-official",
   "pdf@zcode-plugins-official",
   "presentations@zcode-plugins-official",
