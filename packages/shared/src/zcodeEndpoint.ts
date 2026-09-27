@@ -66,16 +66,6 @@ export interface RuntimeZaiEndpointEnv {
 export interface RuntimeProductEndpointEnv
   extends RuntimeZCodeEndpointEnv, RuntimeBigModelApiEnv, RuntimeZaiEndpointEnv {}
 
-export interface RuntimeProductEndpointConfig {
-  zcodeEnv: ZCodeEnv;
-  zcodeEndpointOrigin: string;
-  zcodeEndpointUrls: ZCodeEndpointUrls;
-  zaiOAuthOrigin: string;
-  zaiBusinessBaseUrl: string;
-  zaiOAuthClientId: string;
-  bigModelApiOrigin: string;
-}
-
 function readRuntimeEnvValue(
   env: Record<string, string | undefined>,
   key: string,
@@ -238,23 +228,6 @@ export function buildRuntimeZaiBusinessUrl(
 ): string {
   const normalizedPath = path.startsWith("/") ? path : `/${path}`;
   return `${resolveZaiBusinessBaseUrl(env)}${normalizedPath}`;
-}
-
-export function resolveRuntimeProductEndpointConfig(
-  env: RuntimeProductEndpointEnv = readProductEndpointEnv(),
-): RuntimeProductEndpointConfig {
-  const zcodeEnv = resolveRuntimeZCodeEnv(env);
-  const zcodeEndpointOrigin = resolveRuntimeZCodeEndpointOrigin(env);
-
-  return {
-    zcodeEnv,
-    zcodeEndpointOrigin,
-    zcodeEndpointUrls: buildZCodeEndpointUrls(zcodeEndpointOrigin),
-    zaiOAuthOrigin: resolveZaiOAuthOrigin(env),
-    zaiBusinessBaseUrl: resolveZaiBusinessBaseUrl(env),
-    zaiOAuthClientId: resolveZaiOAuthClientId(env),
-    bigModelApiOrigin: resolveBigModelApiOrigin(env),
-  };
 }
 
 export function buildZCodeEndpointUrls(origin: string): ZCodeEndpointUrls {
