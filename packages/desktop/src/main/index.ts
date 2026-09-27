@@ -9,10 +9,8 @@ import {
   configureDatabaseStartupQuit,
 } from "./databaseStartupRelay.js";
 import { ensureDesktopDeviceMidSync } from "./desktopDeviceMid.js";
-import {
-  createDesktopContextPromptRollout,
-  createElectronDesktopContextPromptConfigFetcher,
-} from "./desktopContextPromptRollout.js";
+// P3 C5 供应商 client/configs 拉取删除：desktopContextPromptRollout（灰度 fetcher）
+// 已整体移除，context-prompt 固定本地默认 OFF。
 import { buildBrowserViewCloseTabNotification } from "./browserView/browserCloseTabNotification.js";
 import { BrowserGuestManager } from "./browserView/browserGuestManager.js";
 import { createElectronBrowserWebmRecorder } from "./browserView/electronBrowserWebmRecorder.js";
@@ -659,52 +657,15 @@ async function resolveCurrentZCodeEndpointOrigin() {
     overrideOrigin: (await mainSettingService.get()).zcodeEndpointOrigin,
   });
 }
-let desktopContextPromptRollout: ReturnType<typeof createDesktopContextPromptRollout> | undefined;
+// P3 C5 供应商 client/configs 灰度拉取删除：desktopContextPrompt 不再有服务端 rollout，
+// 固定本地默认 OFF（与被删 rollout 的 defaultValue {enabled:false} 一致，A9 裁决
+// "context-prompt rollout → local default"）。仍经 spawnHostProcess 注入
+// ZCODE_DESKTOP_CONTEXT_PROMPT_ENABLED=0，让 Host 侧 presentation surface 折叠保持
+// 与删除前完全一致；env 链路（runtimeEnv / server 远端透传）保留，供本地手工覆盖。
 function resolveDesktopContextPromptEnabledForHost(): boolean {
-  const rollout = desktopContextPromptRollout;
-  if (!rollout) {
-    return false;
-  }
-  // Host 创建时顺便触发过期刷新，但只读取当前快照；网络请求不能阻塞 Local/Remote Host。
-  void rollout.refresh();
-  return rollout.getSnapshot().enabled;
+  return false;
 }
 
-// 首个 Host 创建前的有界灰度裁决门。Host/Agent 的 presentation surface 在进程启动时
-// 冻结（services/node.ts 顶层 const + CLI --surface），而灰度请求是旁路、不阻塞 Host。若首个
-// Host fork 早于请求 resolve，成功结果（enabled:true）对已冻结的 Host/Agent 无可达生效路径。
-// 这里给"成功结果"一条有界的生效路径：首 Host fork 前 await 一次裁决（≤2s），失败/超时仍按当前
-// 快照继续（desktopContextPrompt fail-open）。first-only 永久
-// latch——后续 Host fork await 已 resolve 的 promise（近乎 0ms），且各 resolve*ForHost()
-// 同步读取已被刷新的 live 快照。
-const DESKTOP_FIRST_HOST_SPAWN_DECISION_TIMEOUT_MS = 2_000;
-let firstHostSpawnDecisionPromise: Promise<void> | null = null;
-function awaitFirstHostSpawnDecision(): Promise<void> {
-  if (firstHostSpawnDecisionPromise) {
-    return firstHostSpawnDecisionPromise;
-  }
-  firstHostSpawnDecisionPromise = (async () => {
-    const rollout = desktopContextPromptRollout;
-    if (!rollout) {
-      return;
-    }
-    try {
-      const decision = await rollout.awaitFirstDecision(
-        DESKTOP_FIRST_HOST_SPAWN_DECISION_TIMEOUT_MS,
-      );
-      logger.info("[desktop-context-prompt] first host spawn decision resolved", {
-        enabled: decision.enabled,
-        configVersion: decision.configVersion,
-      });
-    } catch (error) {
-      // awaitFirstDecision 永不 reject（refresh 内部已 catch + timeout 回退快照），此处仅兜底。
-      logger.warn("[desktop-context-prompt] first host spawn decision failed, fail-open", {
-        error,
-      });
-    }
-  })();
-  return firstHostSpawnDecisionPromise;
-}
 // 已移除厂商遥测（ARMS RUM / 数仓 event 上报）：主进程不再创建 TelemetryCore 与
 // AppTelemetryRuntime；本地内存诊断日志沿用资源采样时代的 60 秒节拍独立保留。
 const mainMemoryLogGate = createMemorySampleWriteGate();
@@ -750,22 +711,11 @@ const remoteSessionManager = createRemoteWorkspaceSessionManager({
 // P0 遥测清理：deviceMid 不再持久化（无 telemetry-state.json），仅为 renderer
 // getDeviceId（本地 onboarding 记录等）提供进程内临时 ID；厂商请求一律不携带。
 const deviceMid = ensureDesktopDeviceMidSync();
-// P2：远端 help config 读取器已随供应商反馈通道删除；反馈/社群入口只读本地 config/default.json，
-// 主进程 client/configs fetcher 仅供 context-prompt 等灰度滚动配置（P3 范围）。
-// 同一个 /api/v1/client/configs fetcher 供两个灰度 rollout 共用（请求参数与鉴权完全一致，
-// 各自独立缓存/去重，服务端按 data.configs.<key> 区分功能）。
-const electronClientConfigsFetcher = createElectronDesktopContextPromptConfigFetcher({
-  appVersion: ZCODE_VERSION || app.getVersion(),
-  resolveEndpointOrigin: resolveCurrentZCodeEndpointOrigin,
-});
-desktopContextPromptRollout = createDesktopContextPromptRollout({
-  fetchConfig: electronClientConfigsFetcher,
-  logger,
-});
-const rendererActionTraceRollout = createRendererActionTraceRollout({
-  fetchConfig: electronClientConfigsFetcher,
-  logger,
-});
+// P2：远端 help config 读取器已随供应商反馈通道删除；反馈/社群入口只读本地 config/default.json。
+// P3 C5：主进程 /api/v1/client/configs fetcher（context-prompt 与 rendererActionTrace
+// 两个灰度共用）已随供应商配置拉取删除；rendererActionTrace 灰度改为本地禁用默认
+// （本地 env 覆盖仍在 rendererActionTraceIpc 生效），context-prompt 固定 OFF。
+const rendererActionTraceRollout = createRendererActionTraceRollout();
 const localTtftExporter = createLocalTtftExporter({
   env: { ...hostProcessLocalEnv, ...process.env },
   version: ZCODE_VERSION || app.getVersion(),
@@ -1633,7 +1583,8 @@ function createWindowInstance(startupBootstrap: StartupWindowBootstrap = {}) {
       }),
     windowHostProcessMap,
     onHostProcessReady: (windowKey) => cuaPipFocusRouter.refreshWindow(windowKey),
-    awaitFirstHostSpawnDecision,
+    // P3 C5：首个 Host fork 前的灰度裁决 await（client/configs 旁路请求）已随供应商
+    // 配置拉取删除；context-prompt 现为本地常量，无需有界裁决门。
     spawnHostProcess: (win, label, initMessage) =>
       spawnHostProcess(
         win,
@@ -1856,8 +1807,8 @@ app.whenReady().then(async () => {
   installLocalMediaPreviewProtocol(session.defaultSession.protocol, {
     isPathAuthorized: localMediaPreviewPathRegistry.isAuthorized,
   });
-  // Electron 的 net.request 只能在 app ready 后使用；灰度请求仍是旁路预热，不阻塞首个 Host。
-  void desktopContextPromptRollout?.refresh();
+  // P3 C5：client/configs 灰度旁路预热（app ready 后触发一次 rollout 刷新）已随供应商
+  // 配置拉取删除，启动阶段不再有该网络请求。
   installBrowserRestoreBootstrapProtocol(
     session.fromPartition(EMBEDDED_BROWSER_PARTITION).protocol,
   );
