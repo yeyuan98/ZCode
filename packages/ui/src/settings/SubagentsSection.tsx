@@ -1297,18 +1297,9 @@ export function SubagentsSection({ onManageModels }: SubagentsSectionProps) {
   const pluginInventoryWorkspacePath = targetWorkspacePath || workspaceTabs[0]?.workspacePath;
   const chatModelSelectGroups = useMemo(() => {
     if (!modelSelectionView) return [];
-    return buildRegistryModelSelectGroups(ZCODE_AGENT_PROVIDER, modelSelectionView, {
-      startPlanBadgeLabel: intl.formatMessage({
-        id: "settings.modelProvider.connectionMode.startPlanBadge",
-      }),
-      apiKeyLabel: intl.formatMessage({
-        id: "settings.modelProvider.apiKey",
-      }),
-      codingPlanLabel: intl.formatMessage({
-        id: "settings.modelProvider.connectionMode.codingPlan",
-      }),
-    });
-  }, [intl, modelSelectionView]);
+    // P3 C4 供应商 family/specs 删除：分组改为中性按 provider 名称聚合，labels 参数已移除。
+    return buildRegistryModelSelectGroups(ZCODE_AGENT_PROVIDER, modelSelectionView);
+  }, [modelSelectionView]);
   const subagentModelSelectGroups = chatModelSelectGroups;
   const loadAgents = useCallback(
     async (showBlockingLoading: boolean) => {

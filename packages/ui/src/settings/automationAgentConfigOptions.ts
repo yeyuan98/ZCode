@@ -1,10 +1,7 @@
 import type { ZCodeConfigOption, ZCodeProvider } from "@zcode/shared";
 import type { ModelSelectionView } from "@zcode/services";
 import type { ModelSelectGroup, ModelSelectGroupItem } from "@/ModelConfigSelect.js";
-import {
-  buildRegistryModelSelectGroups,
-  type ModelProviderGroupLabelOptions,
-} from "@/lib/modelSelectionGroups.js";
+import { buildRegistryModelSelectGroups } from "@/lib/modelSelectionGroups.js";
 import { decodeCustomModelValue, encodeCustomModelValue } from "@/lib/zcodeCustomModelValue.js";
 import { resolveV4ModelTriggerLabel } from "@/v4/composer/modelTriggerDisplay.js";
 
@@ -26,14 +23,11 @@ const AUTOMATION_MODE_VALUES = ["build", "edit", "plan", "yolo"] as const;
 
 export function buildAutomationModelSelectGroups(params: {
   selectedProvider: ZCodeProvider;
-  labels: ModelProviderGroupLabelOptions;
   registrySelectionView: ModelSelectionView;
 }): ModelSelectGroup[] {
-  return buildRegistryModelSelectGroups(
-    params.selectedProvider,
-    params.registrySelectionView,
-    params.labels,
-  );
+  // P3 C4 供应商 family/specs 删除：分组改为中性按 provider 名称聚合，
+  // 套餐/API Key 徽标 labels 参数已移除。
+  return buildRegistryModelSelectGroups(params.selectedProvider, params.registrySelectionView);
 }
 
 export function buildAutomationModeOption(currentValue: string): ZCodeConfigOption {

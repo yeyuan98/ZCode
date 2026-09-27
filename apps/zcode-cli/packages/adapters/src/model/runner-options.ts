@@ -18,9 +18,10 @@ type ExperimentalIncludeWithResponseBody = {
 
 /** zcode-plan 业务码常只出现在 finish chunk 的 response.body，流式路径需显式开启。 */
 function shouldIncludeStreamResponseBody(resolved: ResolvedAiSdkModel): boolean {
-  return (
-    resolved.providerKind === "openai-compatible" && resolved.accountAccess?.mode === "start-plan"
-  );
+  // P3 C4 供应商账号删除：start-plan（zcode-plan 业务码）分支已移除；
+  // 当前所有 Provider 都是普通 API-key 静态鉴权，不再附加响应体。
+  void resolved;
+  return false;
 }
 
 function mergeRequestHeaders(

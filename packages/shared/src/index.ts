@@ -210,7 +210,8 @@ export * from "./zcode-agent-model-state.js";
 export * from "./task-realtime.js";
 export { formatTimestamp, formatLogPrefix } from "./log-format.js";
 export * from "./model-provider-types.js";
-export * from "./model-provider-family.js";
+// P3 C4 供应商 family/specs 删除：model-provider-family.ts（zai/bigmodel family 目录、
+// OAuth provider 身份与可见性 helper）已随账号套餐概念移除。
 export * from "./provider-provisioning.js";
 export * from "./custom-model-value.js";
 export * from "./model-selection-types.js";

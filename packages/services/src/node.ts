@@ -116,8 +116,9 @@ export { createFileWatcherService } from "./fileWatcher/fileWatcherService.js";
 export { ensureDeviceMid } from "./device/deviceMid.js";
 export type { EnsureDeviceMidOptions } from "./device/deviceMid.js";
 // P3 C2 供应商套餐/计费面删除：accountProvider 请求鉴权链（OAuth token/个人套餐 key/
-// 团队 API key 解析）与 accountProviderCredential* 兄弟文件已删除；中性的
-// IAccountRequestAuthService 及其类型改由 accountRequestAuthService.ts 就地导出。
+// 团队 API key 解析）与 accountProviderCredential* 兄弟文件已删除。
+// P3 C4 供应商账号删除：中性的 IAccountRequestAuthService 接口与就地实现
+// （accountRequestAuthService.ts）也随 runtime-headers accountAccess 分支移除。
 export { importLegacyPersonalProviderConfig } from "./model-provider/legacyPersonalProviderConfigImporter.js";
 export {
   createProviderConfigRuntime,
@@ -150,14 +151,6 @@ export {
   IModelSelectionService,
   IProviderSettingsService,
 } from "./model-provider/providerFacadeServices.js";
-export { createAccountRequestAuthService } from "./model-provider/accountRequestAuthService.js";
-export type {
-  AccountAccessIdentityInput,
-  AccountRequestAuthInput,
-  AccountRequestAuthMaterial,
-  AccountRequestAuthResolver,
-  IAccountRequestAuthService,
-} from "./model-provider/accountRequestAuthService.js";
 export { createUsageStatsService } from "./usage-stats/usageStatsService.js";
 // Storage：service 与 adapters 工厂；desktop host 负责组装（Worker runner 在 desktop 包内）
 export { createStorageService } from "./storage/app/storageService.js";
@@ -326,11 +319,6 @@ import {
 import { createProviderProvisioningTarget } from "./model-provider/providerProvisioningTarget.js";
 import { IProviderProvisioningTargetService } from "./model-provider/providerProvisioning.js";
 import { resolveClientConfigPlatform } from "./runtime-tools/clientPlatform.js";
-import {
-  AccountRequestCredentialUnavailableError,
-  createAccountRequestAuthService,
-  type IAccountRequestAuthService,
-} from "./model-provider/accountRequestAuthService.js";
 import { createUsageStatsService } from "./usage-stats/usageStatsService.js";
 import { createClientConfigService } from "./client-config/clientConfigService.js";
 import { IClientConfigService } from "./client-config/clientConfig.js";
@@ -560,14 +548,6 @@ const providerProvisioningTriggerDisposers = new WeakMap<
 // （stdioDesktopPresentationSurface 单测稳定复现），Linux 的 unlink-while-open 语义掩盖了泄漏。
 // 与其它侧表一样按 ServiceCollection 登记并在 dispose 时统一 close。
 const sharedSqliteRepos = new WeakMap<ServiceCollection, ReadonlyArray<{ close(): void }>>();
-const accountRequestAuthServices = new WeakMap<ServiceCollection, IAccountRequestAuthService>();
-
-/** Local Host 进程内能力；不会随 ServiceCollection 暴露到通用 RPC Channel。 */
-export function getAccountRequestAuthService(
-  services: ServiceCollection,
-): IAccountRequestAuthService | undefined {
-  return accountRequestAuthServices.get(services);
-}
 
 /** Local Host 进程内的 Provisioning Source；不会把凭据通过通用 RPC 暴露给 Renderer。 */
 export function getProviderProvisioningSource(
@@ -1330,19 +1310,8 @@ export function createLocalServices(options: {
   });
   // P3 C1 供应商 OAuth 删除：oauthCredentialRepo / handleOAuthProviderLogout /
   // accountProvider 派生 key 清理链路已移除。
-  // P3 C2 供应商套餐/计费面删除：accountProvider 请求鉴权实现（OAuth token / 个人套餐
-  // key / 团队 API key 解析）已删除。Registry 自 P2 起不再发布账号 Access，这里改为
-  // 内联空 resolver：resolveAccessCurrent 恒 null、resolve/assert 恒抛凭据不可用，
-  // 与删除前所有装载回调为 null 的运行时行为一致（消费方的最终删除属 C3/C4）。
-  const accountRequestAuthService = createAccountRequestAuthService({
-    resolveAccessCurrent: async () => null,
-    resolveCurrent: async (input) => {
-      throw new AccountRequestCredentialUnavailableError(input.providerId);
-    },
-    assertCurrent: async (input) => {
-      throw new AccountRequestCredentialUnavailableError(input.providerId);
-    },
-  });
+  // P3 C4 供应商账号删除：accountRequestAuthService（runtime-headers 请求期鉴权，
+  // 自 P2 起仅剩恒失败的空实现）已随 accountAccess 分支整体移除，不再装配。
   const providerConfigLog = createServiceLogger("provider-config");
   const clientConfigPlatform = resolveClientConfigPlatform();
   const providerConfigRuntime = createProviderConfigRuntime({
@@ -1846,7 +1815,6 @@ export function createLocalServices(options: {
           resolveOffPeakTaskService: () => offPeakTaskServiceForAgent,
         };
   const zcodeAgentService = createZCodeAgentService({
-    accountRequestAuthService,
     ...(modelSelectionReadinessSource ? { modelSelectionReadinessSource } : {}),
     authorizeLocalMediaPreviewPath: options?.authorizeLocalMediaPreviewPath,
     ...offPeakToolWiring,
@@ -2156,8 +2124,7 @@ export function createLocalServices(options: {
     .register(
       IUsageStatsService,
       // P3 供应商套餐/配额面删除：用量服务只剩 App Usage（agent 数据库统计），
-      // apiClient/accountRequestAuthService/credentialService/officialMcpCredentialSource
-      // 等 vendor 依赖不再注入。
+      // apiClient/credentialService/officialMcpCredentialSource 等 vendor 依赖不再注入。
       createUsageStatsService({
         zcodeAgentService,
       }),
@@ -2280,8 +2247,6 @@ export function createLocalServices(options: {
   // 调用栈结束后才创建的高权限 Helper；若返回后立即 dispose，terminal fence 会先于 acquire 生效。
   // Helper 懒启动：不预热——Helper 由 SDK 首次 CUA 调用拉起（spawn env 注入
   // 稳定 socket），或用户显式授权流（restartHelper）拉起。启动即零 Helper 常驻。
-
-  accountRequestAuthServices.set(services, accountRequestAuthService);
 
   providerRuntimes.set(services, providerRuntime);
   providerProvisioningSources.set(services, providerProvisioningSource);

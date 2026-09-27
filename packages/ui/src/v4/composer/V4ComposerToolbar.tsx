@@ -195,31 +195,9 @@ function V4ComposerModelControlsImpl({
 
   const modelSelectGroups = useMemo<ModelSelectGroup[]>(() => {
     if (!modelSelectionView) return [];
-    return buildRegistryModelSelectGroups(displayProvider, modelSelectionView, {
-      apiKeyLabel: intl.formatMessage({ id: "settings.modelProvider.apiKey" }),
-      apiKeyBadgeLabel: intl.formatMessage({
-        id: "settings.modelProvider.connectionMode.apiKeyBadge",
-      }),
-      codingPlanLabel: intl.formatMessage({
-        id: "settings.modelProvider.connectionMode.codingPlan",
-      }),
-      codingPlanBadgeLabel: intl.formatMessage({
-        id: "settings.modelProvider.connectionMode.codingPlanBadge",
-      }),
-      startPlanLabel: intl.formatMessage({
-        id: "settings.modelProvider.connectionMode.startPlan",
-      }),
-      startPlanBadgeLabel: intl.formatMessage({
-        id: "settings.modelProvider.connectionMode.startPlanBadge",
-      }),
-      teamPlanBadgeLabel: intl.formatMessage({
-        id: "settings.modelProvider.connectionMode.teamPlanBadge",
-      }),
-      teamPlanFallbackLabel: intl.formatMessage({
-        id: "settings.modelProvider.connectionMode.teamPlan",
-      }),
-    });
-  }, [displayProvider, intl, modelSelectionView]);
+    // P3 C4 供应商 family/specs 删除：分组改为中性按 provider 名称聚合，labels 参数已移除。
+    return buildRegistryModelSelectGroups(displayProvider, modelSelectionView);
+  }, [displayProvider, modelSelectionView]);
 
   // 修复：恢复「管理模型」入口（老版 onManageModels = 打开设置页并定位模型供应商区）。
   const handleOpenModelProviderSettings = useCallback(() => {

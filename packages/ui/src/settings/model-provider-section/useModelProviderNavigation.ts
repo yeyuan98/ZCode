@@ -1,25 +1,12 @@
-/* eslint-disable max-lines -- Model Provider 导航需要集中计算分组、选中项与 Coding Plan 权益态，后续拆分时再收敛。 */
 import { useEffect, useMemo } from "react";
 import type { ProviderSettingsFormProvider } from "@/lib/providerSettingsFormTypes.js";
 import { getProviderFormLabel } from "@/lib/providerSettingsFormTypes.js";
-import type { ProviderFamilyDomain } from "@zcode/shared";
-import {
-  BUILTIN_MODEL_PROVIDER_IDS,
-  isStartPlanModelProviderId,
-  resolveModelProviderFamilySpecByProviderId,
-  resolveProviderFamilyDomainFromOAuthProvider,
-  type OAuthProviderId,
-} from "@zcode/shared";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import {
-  CODING_PLAN_PROVIDER_SPECS,
-  type CodingPlanEntitlementState,
   type ModelProviderNavGroup,
-  type PresetProviderSpec,
+  type ModelProviderNavItem,
 } from "@/settings/model-provider-section/constants.js";
-import { pickCodingPlanEntitlementProvider } from "@/lib/codingPlanProvider.js";
 import {
-  createCodingPlanProviderNodeKey,
   createCustomProviderNodeKey,
   createPresetProviderNodeKey,
 } from "@/settings/model-provider-section/utils.js";
@@ -27,40 +14,24 @@ import {
   sortModelProvidersForDisplay,
   type ProviderOrderView,
 } from "@/lib/modelProviderOrdering.js";
-import {
-  buildVisibleFamilyConnectionItems,
-  resolveCodingPlanEntitlementState,
-} from "@/settings/model-provider-section/providerFamilyConnectionVisibility.js";
 
-interface PresetProviderWithConfig extends PresetProviderSpec {
-  provider: ProviderSettingsFormProvider | null;
-}
+// P3 C4 供应商 family/specs 删除：Coding Plan / Start Plan / Team Plan 导航簇
+// （CODING_PLAN_PROVIDER_SPECS、entitlement 状态解析、family 过滤与连接方式回落）
+// 已随设置页 de-plan 移除。分组退化为两层中性结构：
+// - preset：Registry 目录里非 standard-personal 的内置 provider（模板目录实例）。
+// - custom：用户自建 provider（standard-personal），沿用模型菜单的展示排序。
 
 interface UseModelProviderNavigationOptions {
-  presetProviders: PresetProviderWithConfig[];
   modelProviders: ProviderSettingsFormProvider[];
-  /**
-   * 当前账号明确有权益的 Provider。缺省等价于尚无账号权益；生产设置页始终显式传入。
-   */
-  entitledAccountProviderIds?: ReadonlySet<string>;
-  modelProvidersLoading?: boolean;
   displayOrder?: ProviderOrderView;
-  codingPlanEntitlements?: Partial<Record<string, CodingPlanEntitlementState>>;
-  /** OAuth active provider 推导的 family；P1 起不再读取 providerFamilyDomain 设置字段。 */
-  providerFamilyDomain?: ProviderFamilyDomain | null;
   selectedNodeKey: string | null;
   setSelectedNodeKey: (key: string | null) => void;
   intl: ReturnType<typeof useZCodeIntl>["intl"];
 }
 
 export function useModelProviderNavigation({
-  presetProviders,
   modelProviders,
-  entitledAccountProviderIds = new Set(),
-  modelProvidersLoading = false,
   displayOrder,
-  codingPlanEntitlements = {},
-  providerFamilyDomain = null,
   selectedNodeKey,
   setSelectedNodeKey,
   intl,
@@ -73,72 +44,12 @@ export function useModelProviderNavigation({
     return sortModelProvidersForDisplay(allCustomProviders, displayOrder);
   }, [displayOrder, modelProviders]);
 
-  const codingPlanItems = useMemo(
+  const presetProviders = useMemo(
     () =>
-      CODING_PLAN_PROVIDER_SPECS.filter((spec) =>
-        shouldShowCodingPlanForProviderFamilyDomain(spec.oauthProviderId, providerFamilyDomain),
-      ).map((spec) => {
-        const provider = modelProviders.find((item) => item.providerId === spec.id) ?? null;
-        const accountEntitled = entitledAccountProviderIds.has(spec.id);
-        const entitlementProvider = pickCodingPlanEntitlementProvider(provider);
-        const entitlement = codingPlanEntitlements[spec.id];
-        const state = resolveCodingPlanEntitlementState({
-          providerId: spec.id,
-          accountEntitled,
-          entitlement,
-          modelProvidersLoading,
-        });
-
-        return {
-          key: createCodingPlanProviderNodeKey(spec.id),
-          type: "codingPlan" as const,
-          presetId: spec.id,
-          oauthProviderId: spec.oauthProviderId,
-          label: isStartPlanModelProviderId(spec.id)
-            ? "Start Plan"
-            : `${spec.providerName} - ${intl.formatMessage({
-                id: "settings.modelProvider.connectionMode.codingPlan",
-              })}`,
-          providerName: spec.providerName,
-          provider: entitlementProvider,
-          accountEntitled,
-          status: state.status,
-          statusLabelId: state.statusLabelId,
-          ...(isStartPlanModelProviderId(spec.id) &&
-          entitlement?.snapshot?.unavailableReason === "not_authenticated"
-            ? {
-                accountLoginRequired: true,
-                statusLabelId: "settings.modelProvider.startPlan.status.loginExpired",
-              }
-            : {}),
-          planLevel: state.planLevel,
-          currentProductId: state.currentProductId,
-          subscriptionBillingCycle: state.subscriptionBillingCycle,
-          subscriptionRenewTime: state.subscriptionRenewTime,
-          subscriptionExpireTime: state.subscriptionExpireTime,
-          subscriptionDetails: state.subscriptionDetails,
-          quotaLimits: state.quotaLimits,
-          mcpQuotaLimit: state.mcpQuotaLimit ?? null,
-          purchaseUrl: spec.purchaseUrl,
-          statusActive: entitlementProvider?.executable === true,
-        };
-      }),
-    [
-      entitledAccountProviderIds,
-      codingPlanEntitlements,
-      intl,
-      modelProviders,
-      modelProvidersLoading,
-      providerFamilyDomain,
-    ],
-  );
-  const connectionModeCodingPlanItems = useMemo(
-    () =>
-      buildVisibleFamilyConnectionItems({
-        items: codingPlanItems.filter((item) => !isStartPlanModelProviderId(item.presetId)),
-        codingPlanEntitlements,
-      }),
-    [codingPlanEntitlements, codingPlanItems],
+      modelProviders.filter(
+        (provider) => provider.config.group !== "standard-personal" && !isHiddenProvider(provider),
+      ),
+    [modelProviders],
   );
 
   const navigationGroups = useMemo<ModelProviderNavGroup[]>(() => {
@@ -146,33 +57,15 @@ export function useModelProviderNavigation({
       {
         id: "preset",
         title: intl.formatMessage({ id: "settings.modelProvider.presetTitle" }),
-        items: [
-          ...presetProviders.map(({ id, displayName, provider }) => {
-            // P1：连接选择字段已删除，预置项的“当前连接方式”状态灯不再点亮（P3 重建）。
-            const statusProvider = resolvePresetFamilyStatusProvider({
-              presetId: id,
-              provider,
-              connectionModeItems: connectionModeCodingPlanItems,
-              modelProviders,
-            });
-            return {
-              key: createPresetProviderNodeKey(id),
-              type: "preset" as const,
-              presetId: id,
-              label: displayName,
-              logo: modelProviders.find(
-                (candidate) =>
-                  candidate.providerId ===
-                  resolveModelProviderFamilySpecByProviderId(id)?.individualCodingPlanProviderId,
-              )?.config.logo,
-              provider,
-              displayName,
-              statusProvider,
-              statusActive: statusProvider?.executable === true,
-            };
-          }),
-          ...codingPlanItems.filter((item) => isStartPlanModelProviderId(item.presetId)),
-        ],
+        items: presetProviders.map((provider) => ({
+          key: createPresetProviderNodeKey(provider.providerId),
+          type: "preset" as const,
+          presetId: provider.providerId,
+          label: getProviderFormLabel(provider),
+          provider,
+          displayName: getProviderFormLabel(provider),
+          statusActive: provider.executable === true,
+        })),
       },
       {
         id: "custom",
@@ -187,65 +80,27 @@ export function useModelProviderNavigation({
       },
     ];
 
-    return groups;
-  }, [
-    customProviders,
-    codingPlanItems,
-    connectionModeCodingPlanItems,
-    // 左侧导航分组标题在这个 memo 内格式化。
-    // 语言切换时 provider/权益引用可能不变，必须依赖 intl 才能刷新旧 locale 的文案。
-    intl,
-    presetProviders,
-    modelProviders,
-  ]);
+    // 目录暂未下发内置 provider 时收起 preset 分组，避免渲染空标题。
+    return groups.filter((group) => group.id !== "preset" || group.items.length > 0);
+  }, [customProviders, presetProviders, intl]);
 
-  const navigationItems = useMemo(() => {
-    const visibleItems = navigationGroups.flatMap((group) => group.items);
-    const visibleKeys = new Set(visibleItems.map((item) => item.key));
-    return [
-      ...visibleItems,
-      ...connectionModeCodingPlanItems.filter((item) => !visibleKeys.has(item.key)),
-    ];
-  }, [connectionModeCodingPlanItems, navigationGroups]);
-
-  const selectableNavigationItems = useMemo(
-    () => navigationItems.filter((item) => item.type !== "codingPlanLoading"),
-    [navigationItems],
-  );
-  const selectableSideNavigationItems = useMemo(
-    () =>
-      navigationGroups
-        .flatMap((group) => group.items)
-        .filter((item) => item.type !== "codingPlanLoading"),
+  const navigationItems = useMemo(
+    () => navigationGroups.flatMap((group) => group.items),
     [navigationGroups],
   );
 
   const navigationItemByKey = useMemo(
-    () => new Map(selectableNavigationItems.map((item) => [item.key, item])),
-    [selectableNavigationItems],
-  );
-  const sideNavigationItemByKey = useMemo(
-    () => new Map(selectableSideNavigationItems.map((item) => [item.key, item])),
-    [selectableSideNavigationItems],
+    () => new Map(navigationItems.map((item) => [item.key, item])),
+    [navigationItems],
   );
 
   const selectedNavItem = selectedNodeKey
-    ? resolveSelectedProviderFamilyConnectionItem({
-        selectedNodeKey,
-        navigationItemByKey,
-        selectableNavigationItems,
-        modelProvidersLoading,
-      })
+    ? (navigationItemByKey.get(selectedNodeKey) ?? null)
     : null;
 
-  // P1：连接选择字段已删除，导航不再因“已保存连接缺失”判定不可用。
-
-  const fallbackNodeKey = resolveFallbackModelProviderNodeKey({
-    selectedNodeKey,
-    selectableNavigationItems,
-  });
+  const fallbackNodeKey = resolveFallbackModelProviderNodeKey(navigationItems);
   useEffect(() => {
-    const hasSelectedNode = selectedNodeKey ? sideNavigationItemByKey.has(selectedNodeKey) : false;
+    const hasSelectedNode = selectedNodeKey ? navigationItemByKey.has(selectedNodeKey) : false;
     if (hasSelectedNode) {
       return;
     }
@@ -253,13 +108,7 @@ export function useModelProviderNavigation({
     if (selectedNodeKey !== fallbackNodeKey) {
       setSelectedNodeKey(fallbackNodeKey);
     }
-  }, [
-    fallbackNodeKey,
-    selectedNavItem,
-    selectedNodeKey,
-    setSelectedNodeKey,
-    sideNavigationItemByKey,
-  ]);
+  }, [fallbackNodeKey, selectedNodeKey, setSelectedNodeKey, navigationItemByKey]);
 
   return {
     navigationGroups,
@@ -268,161 +117,14 @@ export function useModelProviderNavigation({
   };
 }
 
-function shouldShowCodingPlanForProviderFamilyDomain(
-  oauthProviderId: OAuthProviderId,
-  providerFamilyDomain: ProviderFamilyDomain | null,
-): boolean {
-  if (!providerFamilyDomain) {
-    return true;
-  }
-  return resolveProviderFamilyDomainFromOAuthProvider(oauthProviderId) === providerFamilyDomain;
+function isHiddenProvider(provider: ProviderSettingsFormProvider): boolean {
+  // 内置目录允许下发隐藏 provider（仅作为模板/继承基线），不进入设置页导航。
+  return provider.config.visibility === "hidden";
 }
 
-function resolvePresetFamilyStatusProvider({
-  presetId,
-  provider,
-}: {
-  presetId: PresetProviderSpec["id"];
-  provider: ProviderSettingsFormProvider | null;
-  connectionModeItems: ModelProviderNavGroup["items"];
-  modelProviders: ProviderSettingsFormProvider[];
-}): ProviderSettingsFormProvider | null {
-  const familySpec = resolveModelProviderFamilySpecByProviderId(presetId);
-  if (!familySpec) {
-    return provider;
-  }
-  // P1：已保存连接选择（providerFamilyConnectionSelections）已删除，
-  // family 预置项没有可点亮的当前连接 provider，返回 null（P3 重建）。
-  return null;
-}
-
-function resolveFallbackModelProviderNodeKey({
-  selectedNodeKey,
-  selectableNavigationItems,
-}: {
-  selectedNodeKey: string | null;
-  selectableNavigationItems: Array<
-    Exclude<ModelProviderNavGroup["items"][number], { type: "codingPlanLoading" }>
-  >;
-}): string | null {
-  const initialConnectionItem = pickInitialConnectionNavigationItem(selectableNavigationItems);
-  const initialSideNodeKey = initialConnectionItem
-    ? resolveSideNavigationNodeKeyForConnectionItem(initialConnectionItem)
-    : null;
-  if (isFamilyPresetNodeKey(selectedNodeKey) && initialSideNodeKey) {
-    // App OAuth 登录成功后会按 active provider 隐藏另一组预置入口。
-    // 当前选中项消失时使用初始化优先级回落到对应 family，而不是把连接方式塞回侧栏。
-    return initialSideNodeKey;
-  }
-
-  // 初始化只在没有有效选中项时发生；如果当前用户选择仍有效，上层 effect 不会调用 fallback 抢焦点。
-  return (
-    initialSideNodeKey ??
-    resolveSideNavigationNodeKeyForConnectionItem(selectableNavigationItems[0] ?? null)
-  );
-}
-
-function resolveSelectedProviderFamilyConnectionItem({
-  selectedNodeKey,
-  navigationItemByKey,
-  selectableNavigationItems,
-  modelProvidersLoading,
-}: {
-  selectedNodeKey: string;
-  navigationItemByKey: Map<
-    string,
-    Exclude<ModelProviderNavGroup["items"][number], { type: "codingPlanLoading" }>
-  >;
-  selectableNavigationItems: Array<
-    Exclude<ModelProviderNavGroup["items"][number], { type: "codingPlanLoading" }>
-  >;
-  modelProvidersLoading?: boolean;
-}): Exclude<ModelProviderNavGroup["items"][number], { type: "codingPlanLoading" }> | null {
-  const selectedItem = navigationItemByKey.get(selectedNodeKey) ?? null;
-  if (!selectedItem) {
-    return null;
-  }
-  if (selectedItem.type !== "preset") {
-    return selectedItem;
-  }
-  const familySpec = resolveModelProviderFamilySpecByProviderId(selectedItem.presetId);
-  if (!familySpec) {
-    return selectedItem;
-  }
-  if (modelProvidersLoading) return null;
-  // P1：已保存连接选择已删除，family 预置项落到该 family 的初始连接项，
-  // 不写回偏好、不改会话 Selection；用户可在这个同 Family 页面手动选择。
-  return pickInitialConnectionNavigationItem(
-    selectableNavigationItems.filter(
-      (item) =>
-        "presetId" in item &&
-        resolveModelProviderFamilySpecByProviderId(item.presetId)?.id === familySpec.id,
-    ),
-  );
-}
-
-function resolveSideNavigationNodeKeyForConnectionItem(
-  item: Exclude<ModelProviderNavGroup["items"][number], { type: "codingPlanLoading" }> | null,
+function resolveFallbackModelProviderNodeKey(
+  items: readonly ModelProviderNavItem[],
 ): string | null {
-  if (!item) {
-    return null;
-  }
-  if (item.type !== "preset" && item.type !== "codingPlan" && item.type !== "teamPlan") {
-    return item.key;
-  }
-  if (item.type === "codingPlan" && isStartPlanModelProviderId(item.presetId)) return item.key;
-  const familySpec = resolveModelProviderFamilySpecByProviderId(item.presetId);
-  if (!familySpec) {
-    return item.key;
-  }
-  return createPresetProviderNodeKey(familySpec.startPlanProviderId);
-}
-
-function pickInitialConnectionNavigationItem(
-  selectableNavigationItems: Array<
-    Exclude<ModelProviderNavGroup["items"][number], { type: "codingPlanLoading" }>
-  >,
-): Exclude<ModelProviderNavGroup["items"][number], { type: "codingPlanLoading" }> | null {
-  const planItems = selectableNavigationItems.filter(isPlanConnectionNavigationItem);
-  const personalCodingPlanItem = planItems.find(
-    (item) =>
-      item.type === "codingPlan" &&
-      !isStartPlanModelProviderId(item.presetId) &&
-      item.status === "purchased",
-  );
-  if (personalCodingPlanItem) {
-    return personalCodingPlanItem;
-  }
-  const teamPlanItem = planItems.find((item) => item.type === "teamPlan");
-  if (teamPlanItem) {
-    return teamPlanItem;
-  }
-  const personalCodingPlanFallback = planItems.find(
-    (item) => item.type === "codingPlan" && !isStartPlanModelProviderId(item.presetId),
-  );
-  if (personalCodingPlanFallback) {
-    return personalCodingPlanFallback;
-  }
-  if (planItems[0]) {
-    return planItems[0];
-  }
-  return selectableNavigationItems.find((item) => item.type === "preset") ?? null;
-}
-
-function isPlanConnectionNavigationItem(
-  item: Exclude<ModelProviderNavGroup["items"][number], { type: "codingPlanLoading" }>,
-): item is Extract<ModelProviderNavGroup["items"][number], { type: "codingPlan" | "teamPlan" }> {
-  return (
-    (item.type === "codingPlan" && !isStartPlanModelProviderId(item.presetId)) ||
-    item.type === "teamPlan"
-  );
-}
-
-function isFamilyPresetNodeKey(nodeKey: string | null): boolean {
-  return (
-    nodeKey?.startsWith("coding-plan:") === true ||
-    nodeKey?.startsWith("team:") === true ||
-    nodeKey === `preset:${BUILTIN_MODEL_PROVIDER_IDS.zaiStartPlan}` ||
-    nodeKey === `preset:${BUILTIN_MODEL_PROVIDER_IDS.bigmodelStartPlan}`
-  );
+  // 初始化只在没有有效选中项时发生；如果当前用户选择仍有效，上层 effect 不会调用 fallback 抢焦点。
+  return items[0]?.key ?? null;
 }

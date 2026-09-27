@@ -233,8 +233,8 @@ export interface ResourceUsageSnapshot {
 }
 
 export interface AppSettings {
-  /** 当前 App/Host 不再显示提交前体验套餐推荐；不改变任何入口的模型选择。 */
-  startPlanRecommendationDismissed?: boolean;
+  // P3 C4 供应商账号删除：startPlanRecommendationDismissed（提交前体验套餐推荐
+  // 关闭标记）已随 Start Plan 推荐面移除；zod 默认 strip 旧 setting.json 残留键。
   recentProjects: string[]; // 最近项目列表，最多保留 10 个
   locale: Locale; // 界面语言
   /**

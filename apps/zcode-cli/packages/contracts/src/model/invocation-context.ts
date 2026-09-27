@@ -1,5 +1,4 @@
 import { AsyncLocalStorage } from "node:async_hooks";
-import type { ZCodeProviderAccountAccess } from "@zcode/shared";
 import type { ModelApiCallObservation } from "../telemetry/index.js";
 import type { TraceContext } from "../tracing/tracer.js";
 import type {
@@ -30,7 +29,8 @@ export interface ModelInvocationContext {
   streamRecovery?: ModelStreamRecoveryStatus;
   preserveProviderStreamBoundaries?: boolean;
   refreshRuntimeHeadersBeforeAttempt?: (input: {
-    accountAccess?: ZCodeProviderAccountAccess;
+    // P3 C4 供应商账号删除：accountAccess（zhipu-account 请求期鉴权身份）已移除，
+    // 刷新入参只保留中性的请求定位字段。
     attempt: number;
     reason?: "model-request";
     abortSignal?: AbortSignal;

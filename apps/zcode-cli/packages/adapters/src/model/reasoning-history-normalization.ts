@@ -6,27 +6,15 @@ import type {
   ModelId,
   ModelProviderId,
 } from "@zcode/contracts";
-import { BUILTIN_MODEL_PROVIDER_IDS } from "@zcode/shared";
 import { getStatusCode, unwrapRetryError } from "./failure-inspection.js";
 
 const EMPTY_ASSISTANT_CONTENT_FALLBACK = "(no content)";
 const REJECTED_REASONING_FALLBACK = "[Thinking removed]";
 
-// 旧历史保留 builtin 身份，当前选型已迁到 account 身份；Individual/Team
-// 也会使用不同 ID。只在 reasoning 回放时识别同服务的这些明确身份，不改变选型或鉴权。
-// 不能复用套餐展示分组：Start/Off-Peak/API 接入不在这份签名兼容范围内。
-const REASONING_PROVIDER_GROUPS: readonly (readonly string[])[] = [
-  [
-    "builtin:zai-coding-plan",
-    BUILTIN_MODEL_PROVIDER_IDS.zaiIndividualCodingPlan,
-    BUILTIN_MODEL_PROVIDER_IDS.zaiTeamCodingPlan,
-  ],
-  [
-    "builtin:bigmodel-coding-plan",
-    BUILTIN_MODEL_PROVIDER_IDS.bigmodelIndividualCodingPlan,
-    BUILTIN_MODEL_PROVIDER_IDS.bigmodelTeamCodingPlan,
-  ],
-];
+// P3 C4 供应商账号删除：reasoning 回放不再识别 zai/bigmodel 套餐的身份分组
+// （REASONING_PROVIDER_GROUPS 中的 account:* 与 builtin:* 历史映射已随账号概念移除）。
+// 中性规则：同 provider id 才视为兼容；跨 provider 的签名 reasoning 一律按跨模型清理，
+// 所有 provider id 统一处理，不做厂商特判。
 
 export function normalizeReasoningHistory(
   messages: ModelInputMessage[],
@@ -113,10 +101,7 @@ function areReasoningProvidersCompatible(
   source: ModelProviderId,
   target: ModelProviderId,
 ): boolean {
-  return (
-    source === target ||
-    REASONING_PROVIDER_GROUPS.some((group) => group.includes(source) && group.includes(target))
-  );
+  return source === target;
 }
 
 function filterReasoningBlocks(
