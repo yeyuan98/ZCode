@@ -64,6 +64,8 @@ export {
   ZCODE_PRODUCT_FLAVOR,
   ZCODE_APP_VERSION_ENV,
   ZCODE_BUILD_COMMIT_ID_ENV,
+  // P3 C3：自 official-mcp-auth.ts 迁入（官方 MCP 服务删除后保留的通用 workspace 身份常量）。
+  ZCODE_WORKSPACE_IDENTITY_ENV,
   RUNTIME_ZCODE_DEBUG,
   normalizeZCodeEnv,
   normalizeZCodeProductFlavor,
@@ -83,8 +85,8 @@ export * from "./remote-workspace-identity.js";
 export * from "./zcode-api-retry-status.js";
 export * from "./zcode-network-debug-status.js";
 export * from "./zcode-session-visible-content.js";
-export * from "./official-mcp-auth.js";
-export * from "./official-mcp-tool-error.js";
+// P3 C3：官方 MCP（Z.ai 托管）服务删除，official-mcp-auth.ts 与 official-mcp-tool-error.ts
+// 整文件移除；通用常量 ZCODE_WORKSPACE_IDENTITY_ENV 已迁至 env.ts。
 export * from "./conversation-message-projection-policy.js";
 export * from "./conversation-share.js";
 export * from "./conversation-preview-artifacts.js";

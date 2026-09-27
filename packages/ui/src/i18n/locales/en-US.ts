@@ -2599,12 +2599,8 @@ const enUS: Record<string, string> = {
   "settings.mcp.failure.unexpected_disconnect": "The MCP connection was closed unexpectedly.",
   "settings.mcp.failure.oauth_authorization_failed":
     "MCP authorization was not completed or timed out. Authorize again.",
-  "settings.mcp.failure.official_origin_untrusted":
-    "The MCP server URL failed the security check. The connection was blocked.",
-  "settings.mcp.failure.not_authenticated":
-    "You are not signed in. Sign in to ZCode to use this MCP server.",
-  "settings.mcp.failure.coding_plan_required":
-    "This account has no Coding Plan. Purchase or configure a Coding Plan to use this MCP server.",
+  // P3 C3：官方 MCP（Z.ai 托管）服务删除，official_origin_untrusted / not_authenticated /
+  // coding_plan_required 三个官方鉴权专属文案键随 MCP_SERVER_FAILURE_KINDS 成员一并移除。
   "settings.mcp.failure.server_not_found":
     "The MCP server was not found. Check the plugin or server configuration.",
   "settings.mcp.failure.server_unavailable":

@@ -2443,10 +2443,8 @@ const zhCN: Record<string, string> = {
   "settings.mcp.failure.tool_list_failed": "已连接 MCP 服务器，但获取工具列表失败。",
   "settings.mcp.failure.unexpected_disconnect": "MCP 连接已意外断开。",
   "settings.mcp.failure.oauth_authorization_failed": "MCP 授权未完成或已超时，请重新授权。",
-  "settings.mcp.failure.official_origin_untrusted": "MCP 服务器地址未通过安全校验，连接已阻止。",
-  "settings.mcp.failure.not_authenticated": "当前未登录，请先登录 ZCode。",
-  "settings.mcp.failure.coding_plan_required":
-    "当前账号没有 Coding Plan，请先购买或配置 Coding Plan。",
+  // P3 C3：官方 MCP（Z.ai 托管）服务删除，official_origin_untrusted / not_authenticated /
+  // coding_plan_required 三个官方鉴权专属文案键随 MCP_SERVER_FAILURE_KINDS 成员一并移除。
   "settings.mcp.failure.server_not_found": "找不到该 MCP 服务器，请检查插件或服务器配置。",
   "settings.mcp.failure.server_unavailable": "MCP 服务暂时不可用，请稍后重试。",
   "settings.mcp.failure.rate_limited": "MCP 请求过于频繁，请稍后重试。",

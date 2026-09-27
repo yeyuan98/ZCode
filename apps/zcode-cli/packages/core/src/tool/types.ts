@@ -91,8 +91,7 @@ export interface ToolMetadata {
     serverName: string;
     toolName: string;
     description?: string;
-    /** 来自声明 zcode_official 鉴权的 MCP server；仅用于信任其结果里的结构化标识。 */
-    official?: boolean;
+    // P3 C3：官方 MCP（Z.ai 托管）服务删除，official 信任标记随 zcode_official 鉴权一并移除。
   };
 }
 

@@ -228,11 +228,8 @@ export {
   OffPeakPermanentDispatchError,
 } from "./session/offPeakRuntimeModel.js";
 export { createServiceLogger } from "./logger/serviceLogger.js";
-export {
-  buildOfficialMcpAuthHeaders,
-  createOfficialMcpAuthHeadersResolver,
-  resolveOfficialMcpCredentials,
-} from "./official-mcp/officialMcpCredentials.js";
+// P3 C3：官方 MCP（Z.ai 托管）服务删除，official-mcp/ 目录（凭证解析 + 发放审计）
+// 与其导出一并移除。
 export {
   computeAutomationNextRunAt,
   computeNextRunAt,
@@ -374,11 +371,7 @@ import {
   OffPeakModelUnavailableError,
   OffPeakPermanentDispatchError,
 } from "./session/offPeakRuntimeModel.js";
-import { createOfficialMcpAuthHeadersResolver } from "./official-mcp/officialMcpCredentials.js";
-import {
-  createOfficialMcpTrustedOriginRegistry,
-  OFFICIAL_MCP_DEV_TRUSTED_ORIGINS_ENV,
-} from "@zcode/shared";
+// P3 C3：官方 MCP（Z.ai 托管）服务删除——身份头 resolver 与 trusted-origin 注册表装配移除。
 import {
   BROKER_SOCKET_ENV,
   BROKER_UNAVAILABLE_ENV,
@@ -1434,8 +1427,8 @@ export function createLocalServices(options: {
     }),
   });
   // P3 供应商套餐/配额面删除：原 officialMcpCredentialSource（MCP 额度查询共用凭证解析）
-  // 只服务于 usage 服务的 entitlement 面，已随之删除；MCP 调用身份头仍由
-  // createOfficialMcpAuthHeadersResolver 单独构造。
+  // 只服务于 usage 服务的 entitlement 面，已随之删除；P3 C3 又删除了官方 MCP 调用身份头
+  // resolver（createOfficialMcpAuthHeadersResolver），official-mcp 目录整体清空。
   // mcpSync/hooks 里引用 zcodeAgentService 的闭包是惰性调用，声明顺序不影响初始化。
   const skillsService = createSkillsService({ isDesktopRuntime: true });
   const mcpSyncService = createMcpSyncService({
@@ -1879,22 +1872,6 @@ export function createLocalServices(options: {
     spawnFallbackCwd: options?.zcodeAgentSpawnFallbackCwd,
     // browser-use：host→main 执行桥透传给 agent service 的 onRequest browserExecute 路由。
     browserControlExecutor: options?.browserControlExecutor,
-    // 官方 Server MCP 身份头：host 是唯一身份权威，Agent 经反向请求索取。
-    // Provider 存在性读取正式 Model Selection View；不恢复旧 Provider Snapshot。
-    officialMcpAuthHeadersResolver: createOfficialMcpAuthHeadersResolver({
-      accountRequestAuthService,
-      credentialService,
-      modelSelectionService: providerRuntime.modelSelection,
-    }),
-    // host 是身份权威边界：provenance/origin 必须在这里再校验一次，不能只依赖 agent
-    // adapter 的 fetch wrapper。判定实现与 CLI 侧共用 @zcode/shared 的同一份，避免分叉。
-    // origin 解析复用 resolveCurrentZCodeEndpointOrigin——与闲时任务同口径（含 settings
-    // 覆盖），否则会出现"闲时任务能连、官方 MCP 连不上"。
-    // dev 开关必须同样传入，否则本地自测会被 host 单方面拒绝。
-    officialMcpTrustedOrigins: createOfficialMcpTrustedOriginRegistry({
-      devTrustedOriginsRaw: process.env[OFFICIAL_MCP_DEV_TRUSTED_ORIGINS_ENV],
-      resolveZCodeApiOrigin: resolveCurrentZCodeEndpointOrigin,
-    }),
     cuaOperationStateReporter: shouldEnableCuaOperationStateReporter({
       serviceAuthorityMode: options?.serviceAuthorityMode,
       hasReporter: Boolean(options?.cuaOperationStateReporter),
