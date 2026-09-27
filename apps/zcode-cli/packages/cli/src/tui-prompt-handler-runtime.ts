@@ -4,7 +4,6 @@
 // 公开面仍从 tui-prompt-handler.ts 导出。
 import { loadBootstrapModule } from "./bootstrap-loader.js";
 import { loadCliDotenv } from "./env.js";
-import { createCliProviderRefreshReporter } from "./provider-runtime-env.js";
 import { resolveResumeSession } from "./resume.js";
 import type { CliResumeRequest, RunDependencies } from "./cli-types.js";
 
@@ -69,13 +68,13 @@ export async function prepareTuiAppRuntime(
   }
   state.providerRegistryRuntimePromise ??= startProviderRegistryRuntime(
     appEnv,
+    // P3 C5：远端内置目录刷新 reporter 已随供应商 client/configs 下载链路删除。
     deps.skipUserConfig
       ? {}
       : {
-          standalone: {
-            ...createCliProviderRefreshReporter(),
-            ...(deps.userConfigPath ? { legacyCliUserConfigFilePath: deps.userConfigPath } : {}),
-          },
+          standalone: deps.userConfigPath
+            ? { legacyCliUserConfigFilePath: deps.userConfigPath }
+            : {},
         },
   );
   const providerRegistryRuntime = await state.providerRegistryRuntimePromise;

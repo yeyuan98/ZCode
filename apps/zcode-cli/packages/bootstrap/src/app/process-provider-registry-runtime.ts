@@ -1,13 +1,7 @@
-import { resolveRuntimeZCodeEndpointOrigin, ZCODE_VERSION } from "@zcode/shared";
-import { dirname, join } from "node:path";
 import {
   NodeModelSelectionConfigRepository,
   NodeProviderRegistryRuntime,
   resolveNodeProviderRuntimePaths,
-  downloadZCodeBuiltinRelease,
-  resolveZCodeBuiltinClientPlatform,
-  ZCODE_BUILTIN_PROVIDER_BUNDLED_CONFIG_FILE_ENV,
-  type ZCodeBuiltinRefreshEvent,
 } from "@zcode/provider-node";
 import { readLegacyCliPersonalProviderConfig } from "./legacy-cli-personal-provider-config-importer.js";
 
@@ -15,12 +9,14 @@ export interface ProcessProviderRegistryRuntimeOptions {
   /** Standalone Prompt CLI / TUI 自己拥有旧配置的一次性导入。 */
   readonly standalone?: {
     readonly legacyCliUserConfigFilePath?: string;
-    readonly request?: typeof fetch;
-    readonly onBuiltinRefreshError?: (error: unknown) => void;
-    readonly onBuiltinRefreshResult?: (event: ZCodeBuiltinRefreshEvent) => void;
   };
 }
 
+// P3 C5 供应商 client/configs 拉取删除：远端内置目录下载（client/configs →
+// builtin_provider_config_json → CDN）与 TTL/租约刷新（zcodeBuiltinRemote）、
+// 刷新 reporter（onBuiltinRefreshError / onBuiltinRefreshResult）已整体移除。
+// Registry 只读打包/本地 zcode-builtin.json（ZCODE_BUILTIN_PROVIDER_CONFIG_FILE），
+// 离线可用，不再有后台下载或刷新日志。
 export async function startProcessProviderRegistryRuntime(
   env: Readonly<Record<string, string | undefined>>,
   options: ProcessProviderRegistryRuntimeOptions = {},
@@ -30,34 +26,8 @@ export async function startProcessProviderRegistryRuntime(
     throw new Error("缺少进程 Provider Registry 的 ZCode Built-in / Personal Config 路径");
   }
 
-  const bundledFile = options.standalone
-    ? env[ZCODE_BUILTIN_PROVIDER_BUNDLED_CONFIG_FILE_ENV]?.trim()
-    : undefined;
   const runtime = new NodeProviderRegistryRuntime({
     ...paths,
-    ...(bundledFile
-      ? {
-          zcodeBuiltinFilePath: bundledFile,
-          zcodeBuiltinActiveFilePath: paths.zcodeBuiltinFilePath,
-          zcodeBuiltinRemote: {
-            controlFilePath: join(
-              dirname(paths.zcodeBuiltinFilePath),
-              "zcode-builtin-refresh.json",
-            ),
-            resolveEndpointKey: () => resolveRuntimeZCodeEndpointOrigin(env),
-            fetchRelease: (endpointOrigin, signal) =>
-              downloadZCodeBuiltinRelease({
-                endpointOrigin,
-                signal,
-                appVersion: ZCODE_VERSION,
-                platform: resolveZCodeBuiltinClientPlatform(),
-                request: options.standalone?.request ?? globalThis.fetch,
-              }),
-            onRefreshResult: options.standalone?.onBuiltinRefreshResult,
-          },
-        }
-      : {}),
-    onZCodeBuiltinRefreshError: options.standalone?.onBuiltinRefreshError,
     ...(options.standalone
       ? {
           importLegacy: () =>
