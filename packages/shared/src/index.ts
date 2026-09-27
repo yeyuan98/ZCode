@@ -241,6 +241,8 @@ export * from "./permission-request-preview.js";
 export * from "./settings-sync.js";
 export * from "./uuid.js";
 export * from "./usage-stats.js";
+// P3 供应商套餐/配额面删除：通用 App Usage 形状迁至 app-usage.ts，协议与 UI 改从新家读取。
+export * from "./app-usage.js";
 export * from "./coding-plan-subscription.js";
 export * from "./forceUpdate.js";
 export * from "./intranetProbe.js";
