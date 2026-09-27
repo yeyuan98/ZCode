@@ -17,7 +17,6 @@ import {
   resolveRuntimeZCodeEndpointOrigin,
   readProductEndpointEnv,
   pickProductEndpointEnv,
-  resolveZaiBusinessBaseUrl,
   normalizeDynamicWorkflowMode,
   readZCodeAgentTelemetryEnv,
   sanitizeZCodeRuntimeEnv,
@@ -277,9 +276,9 @@ function applySelectedZCodeEnvLinks(env: Record<string, string>): Record<string,
     ...pickProductEndpointEnv(endpointEnv),
     ...env,
     ZCODE_BASE_URL: env.ZCODE_BASE_URL ?? resolveRuntimeZCodeEndpointOrigin(endpointEnv),
-    // P3 C1 供应商 OAuth 删除：ZAI_OAUTH_ORIGIN / ZAI_OAUTH_CLIENT_ID 注入已移除；
-    // ZAI_BUSINESS_BASE_URL 的消费方（官网 webview 允许列表等）属 C2，暂保留。
-    ZAI_BUSINESS_BASE_URL: env.ZAI_BUSINESS_BASE_URL ?? resolveZaiBusinessBaseUrl(endpointEnv),
+    // P3 C1 供应商 OAuth 删除：ZAI_OAUTH_ORIGIN / ZAI_OAUTH_CLIENT_ID 注入已移除。
+    // P3 C2 供应商套餐/计费面删除：ZAI_BUSINESS_BASE_URL 注入（官网购买 webview
+    // 允许列表/业务端点）已随购买链路一并移除。
   };
 }
 

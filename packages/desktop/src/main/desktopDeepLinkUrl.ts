@@ -1,7 +1,6 @@
 const DEEP_LINK_SCHEME = "zcode";
 const DEEP_LINK_RE = /\bzcode:(?:\/\/|\/)?[^\s"'<>]+/i;
 const OAUTH_CALLBACK_HOSTS = new Set(["oauth"]);
-const PAYMENT_CALLBACK_HOST = "payment";
 const WORKSPACE_OPEN_HOST = "workspace";
 const SHARE_IMPORT_HOST = "share";
 const DEEP_LINK_ADDITIONAL_DATA_KEY = "deepLinkUrl";
@@ -34,23 +33,8 @@ export function isOAuthCallbackUrl(parsedUrl: URL): boolean {
   );
 }
 
-export function isPaymentCallbackUrl(parsedUrl: URL): boolean {
-  if (parsedUrl.protocol !== `${DEEP_LINK_SCHEME}:`) {
-    return false;
-  }
-
-  const normalizedPath = normalizeOAuthCallbackPath(parsedUrl.pathname);
-  if (parsedUrl.hostname === PAYMENT_CALLBACK_HOST) {
-    return normalizedPath === "/callback";
-  }
-
-  if (parsedUrl.hostname) {
-    return false;
-  }
-
-  const [, host, ...pathParts] = normalizedPath.split("/");
-  return Boolean(host === PAYMENT_CALLBACK_HOST && `/${pathParts.join("/")}` === "/callback");
-}
+// P3 C2 供应商套餐/计费面删除：zcode://payment/callback 购买回调路由已随官网购买
+// webview 链路移除（renderer 侧无消费方），此处不再解析 payment host。
 
 export function isWorkspaceOpenUrl(parsedUrl: URL): boolean {
   if (parsedUrl.protocol !== `${DEEP_LINK_SCHEME}:`) {
@@ -162,14 +146,6 @@ function isCompleteDeepLinkUrl(value: string): boolean {
 
   if (isOAuthCallbackUrl(parsedUrl)) {
     return parsedUrl.searchParams.has("state");
-  }
-
-  if (isPaymentCallbackUrl(parsedUrl)) {
-    return (
-      parsedUrl.searchParams.has("provider") &&
-      parsedUrl.searchParams.has("channel") &&
-      parsedUrl.searchParams.has("status")
-    );
   }
 
   if (isWorkspaceOpenUrl(parsedUrl)) {

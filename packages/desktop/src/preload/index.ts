@@ -561,12 +561,8 @@ contextBridge.exposeInMainWorld("zcode", {
   startCuaHelperPermissionDrag: () =>
     ipcRenderer.send(PlatformChannels.StartCuaHelperPermissionDrag),
   // P3 C1 供应商 OAuth 删除：registerOAuthState / onOAuthCallback 已随登录 deep link 链路移除。
-  /** 注册支付 deep link 回调，返回 disposer */
-  onPaymentCallback: (callback: (url: string) => void): (() => void) => {
-    const handler = (_event: unknown, url: string) => callback(url);
-    ipcRenderer.on(PlatformChannels.PaymentCallback, handler);
-    return () => ipcRenderer.removeListener(PlatformChannels.PaymentCallback, handler);
-  },
+  // P3 C2 供应商套餐/计费面删除：onPaymentCallback（zcode://payment 购买回调）
+  // 已随官网购买 webview 链路移除。
   onShareImport: (callback: (payload: { shareCode: string }) => void): (() => void) => {
     shareImportCallbacks.add(callback);
     while (pendingShareImports.length > 0) {

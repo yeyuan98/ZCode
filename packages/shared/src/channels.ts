@@ -287,8 +287,8 @@ export const PlatformChannels = {
    * 立刻消失可能打断正在进行的拖拽。
    */
   NotifyCuaHelperPermissionDragEnded: "zcode:notify-cua-helper-permission-drag-ended",
-  /** Main → Renderer：转发支付 deep link URL */
-  PaymentCallback: "zcode:payment-callback",
+  // P3 C2 供应商套餐/计费面删除：PaymentCallback（zcode://payment 购买回调）已随
+  // 官网购买 webview 链路移除。
   /** Main → Renderer：外部分享页请求导入 share code。 */
   ShareImport: "zcode:share-import",
   /** Renderer → Main：renderer 已就绪，可接收缓存的 deep link */
@@ -845,10 +845,6 @@ export interface PlatformChannelMap {
   };
   [PlatformChannels.CancelCuaPermissionOnboarding]: {
     request: { operationId: string };
-    response: void;
-  };
-  [PlatformChannels.PaymentCallback]: {
-    request: string;
     response: void;
   };
   [PlatformChannels.ShareImport]: {

@@ -32,14 +32,10 @@ function loadEnvFiles(): Record<string, string> {
   // 真实环境变量优先级最高
   if (process.env.ZCODE_ENV) vars.ZCODE_ENV = process.env.ZCODE_ENV;
   if (process.env.ZCODE_BASE_URL) vars.ZCODE_BASE_URL = process.env.ZCODE_BASE_URL;
-  if (process.env.VITE_ZCODE_BASE_URL) vars.VITE_ZCODE_BASE_URL = process.env.VITE_ZCODE_BASE_URL;
   // P3 C1 供应商 OAuth 删除：ZAI_OAUTH_* / VITE_ZAI_OAUTH_* 覆盖入口已移除。
-  if (process.env.ZAI_BUSINESS_BASE_URL) {
-    vars.ZAI_BUSINESS_BASE_URL = process.env.ZAI_BUSINESS_BASE_URL;
-  }
-  if (process.env.ZAI_BUSINESS_LOGIN_URL) {
-    vars.ZAI_BUSINESS_LOGIN_URL = process.env.ZAI_BUSINESS_LOGIN_URL;
-  }
+  // P3 C2 供应商套餐/计费面删除：ZAI_BUSINESS_BASE_URL / ZAI_BUSINESS_LOGIN_URL
+  // （官网购买 webview 链路）与 VITE_ZCODE_BASE_URL（rendererZCodeEndpoint，仅购买
+  // webview 弹窗消费）的覆盖入口一并移除。
   return {
     ...vars,
     ...Object.fromEntries(
@@ -175,7 +171,6 @@ export default defineConfig([
     name: "preload",
     entry: {
       "preload/embeddedBrowserJavaScriptDialog": "src/preload/embeddedBrowserJavaScriptDialog.ts",
-      "preload/codingPlanWebview": "src/preload/codingPlanWebview.ts",
       "preload/browserVideoRecorder": "src/preload/browserVideoRecorder.ts",
       "preload/index": "src/preload/index.ts",
       "preload/resourceManager": "src/preload/resourceManager.ts",
