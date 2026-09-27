@@ -31,6 +31,12 @@ export interface IOffPeakTaskService {
   cancelTask(offPeakTaskId: string): Promise<ZCodeOffPeakTask | null>;
   pauseTask(offPeakTaskId: string): Promise<ZCodeOffPeakTask | null>;
   continueTask(offPeakTaskId: string): Promise<ZCodeOffPeakTask | null>;
+  /**
+   * Run-now 强制派发（P3 本地准入）：queued/paused 任务绕过窗口立即派发；
+   * paused 先回 queued；已在派发在途（claim_running=1）或 running/终态时幂等 no-op。
+   * 实际认领由 scheduler 端原子完成（claimOneForRunNow）。
+   */
+  runNow(offPeakTaskId: string): Promise<ZCodeOffPeakTask | null>;
   deleteTask(offPeakTaskId: string): Promise<void>;
   /** 仅隐藏本地 History 行；不删除 task/session/执行字段。 */
   deleteHistory(offPeakTaskId: string): Promise<ZCodeOffPeakTask | null>;

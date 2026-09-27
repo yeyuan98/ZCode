@@ -590,6 +590,45 @@ export class OffPeakTaskRepo {
   }
 
   /**
+   * Run-now 强制认领（P3 本地准入）：只对 status='queued' 且 claim_running=0 的单任务
+   * 原子置 claim_running=1 并返回；其余情况（不存在/paused/running/已在派发在途/终态）返回 null。
+   * 与 claimDue 不同：不做批量、不检查可调度快照——绕过窗口是 Run-now 的产品语义。
+   */
+  async claimOneForRunNow(offPeakTaskId: string, now: number): Promise<ZCodeOffPeakTask | null> {
+    await this.ensureReady();
+    const db = this.getDatabase();
+    db.exec("BEGIN IMMEDIATE");
+    try {
+      const row = db
+        .prepare(
+          `SELECT * FROM off_peak_tasks
+           WHERE off_peak_task_id = @id AND status = 'queued' AND claim_running = 0`,
+        )
+        .get({ id: offPeakTaskId }) as OffPeakTaskRow | undefined;
+      if (!row) {
+        db.exec("COMMIT");
+        return null;
+      }
+      const res = db
+        .prepare(
+          `UPDATE off_peak_tasks
+           SET claim_running = 1, claimed_at = @now, updated_at = @now
+           WHERE off_peak_task_id = @id AND claim_running = 0`,
+        )
+        .run({ id: offPeakTaskId, now });
+      if (res.changes !== 1) {
+        db.exec("COMMIT");
+        return null;
+      }
+      db.exec("COMMIT");
+      return rowToTask({ ...row, claim_running: 1, claimed_at: now });
+    } catch (error) {
+      db.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
+  /**
    * 派发成功（网关 admitted）：queued→running，回填首跑产生的 conversation/session 与
    * 本段 ticket，释放认领。守卫：仅 queued 可入 running（终态不可逆出；paused 竞态下
    * 派发结果作废，返回 null 由调用方处理）。续跑段保留首段 started_at（用户视角单任务）。

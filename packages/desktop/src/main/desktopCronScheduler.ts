@@ -41,6 +41,11 @@ interface CronSchedulerDeps {
   resolveDispatchHost: () => ElectronUtilityProcess | null;
   /** 闲时任务执行中计数变化（keep-awake：main 据此 + 设置切 powerSaveBlocker）。 */
   onOffPeakActiveCountChanged?: (count: number) => void;
+  /**
+   * 闲时任务本地准入求值（P3）：main 是 settings 唯一属主，scheduler 每 tick 认领前
+   * 经 correlated req/id 询问；返回 withinWindow(now, settings.offPeakWindow)。
+   */
+  resolveOffPeakAdmission: () => boolean | Promise<boolean>;
 }
 
 export interface CronSchedulerHandle {
@@ -50,6 +55,8 @@ export interface CronSchedulerHandle {
   handleOffPeakRunResult: (result: OffPeakRunResultPayload) => void;
   /** manual run 落库后立即唤醒 scheduler，不等待下一次轮询。 */
   wake: (automationId: string) => void;
+  /** Run-now 强制派发（P3）：转发 scheduler 认领单个任务，绕过本地窗口。 */
+  runNow: (offPeakTaskId: string) => void;
   /** app 退出前优雅收尾（通知 scheduler 释放认领 + 关库，兜底强杀）。 */
   dispose: () => Promise<void>;
 }
@@ -92,6 +99,25 @@ export function spawnCronScheduler(deps: CronSchedulerDeps): CronSchedulerHandle
 
     if (msg.type === "offpeak-active-count") {
       deps.onOffPeakActiveCountChanged?.(msg.count);
+      return;
+    }
+
+    if (msg.type === "offpeak-admission-request") {
+      // P3 本地准入：main 持有 settings（单一属主），按 req/id 关联回包；
+      // 求值异常按拒绝回包（fail-closed），scheduler 下轮 tick 会重新询问。
+      void (async () => {
+        let allowed = false;
+        try {
+          allowed = await deps.resolveOffPeakAdmission();
+        } catch (error) {
+          deps.logger.warn("[cron-scheduler] off-peak admission evaluate failed:", error);
+        }
+        postToScheduler({
+          type: "offpeak-admission-response",
+          requestId: msg.requestId,
+          allowed,
+        });
+      })();
       return;
     }
 
@@ -199,6 +225,10 @@ export function spawnCronScheduler(deps: CronSchedulerDeps): CronSchedulerHandle
     wake(automationId) {
       if (isDisposing) return;
       postToScheduler({ type: "scheduler-wake", automationId });
+    },
+    runNow(offPeakTaskId) {
+      if (isDisposing) return;
+      postToScheduler({ type: "offpeak-run-now", offPeakTaskId });
     },
     dispose() {
       if (disposePromise) return disposePromise;
