@@ -430,15 +430,7 @@ export const TID_MODEL_PROVIDER_TEMPLATE_ITEM = "model-provider-template-item";
 export const TID_MODEL_PROVIDER_TEMPLATE_BACK_BUTTON = "model-provider-template-back-button";
 /** 模型供应商左侧导航条目（动态后缀为 provider node key） */
 export const TID_MODEL_PROVIDER_NAV_ITEM = "model-provider-nav-item";
-/** 模型供应商连接方式下拉触发器 */
-export const TID_MODEL_PROVIDER_CONNECTION_MODE_TRIGGER = "model-provider-connection-mode-trigger";
-/** 设置页已有 Start Plan 的数量快捷入口。 */
-export const TID_MODEL_PROVIDER_START_PLAN_COUNT_SHORTCUT =
-  "model-provider-start-plan-count-shortcut";
-export const TID_MODEL_PROVIDER_START_PLAN_SWITCH_PREFIX =
-  "model-provider-start-plan-switch-prefix";
-/** 模型供应商连接方式下拉项（动态后缀为连接方式 key） */
-export const TID_MODEL_PROVIDER_CONNECTION_MODE_ITEM = "model-provider-connection-mode-item";
+// P3 C4：Start Plan 与连接方式 UI 已删除，相关 test-id 一并移除。
 /** 模型供应商详情 API Key 输入框 */
 export const TID_MODEL_PROVIDER_API_KEY_INPUT = "model-provider-api-key-input";
 /** 模型供应商名称编辑按钮 */
@@ -725,7 +717,7 @@ export function testId(base: string, suffix: string): string {
   return `${base}-${suffix}`;
 }
 
-export const TID_START_PLAN_RECOMMENDATION_DIALOG = "start-plan-recommendation-dialog";
+// P3 C4：start-plan 推荐弹窗已删除，test-id 一并移除。
 
 /** 用户反馈的诊断日志授权开关 */
 export const TID_FEEDBACK_LOGS_OPT_IN = "feedback-logs-opt-in";
