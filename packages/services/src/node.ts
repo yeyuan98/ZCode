@@ -113,9 +113,6 @@ export type {
 } from "./cua-permission-broker/index.js";
 export { createBotsService } from "./bots/botsService.js";
 export { createFileWatcherService } from "./fileWatcher/fileWatcherService.js";
-export { createOAuthService } from "./oauth/oauthService.js";
-export { createOAuthProviderLogoutHandler } from "./oauth/oauthProviderLogout.js";
-export { OAuthCredentialRepo } from "./oauth/repo/oauthCredentialRepo.js";
 export { ensureDeviceMid } from "./device/deviceMid.js";
 export type { EnsureDeviceMidOptions } from "./device/deviceMid.js";
 export type { AccountRequestAuthResolver } from "./model-provider/accountProviderRequestAuthService.js";
@@ -273,7 +270,6 @@ import { createLocalConversationShareArtifactSource } from "./conversation-share
 import { ConversationShareHttpClient } from "./conversation-share/conversationShareHttpClient.js";
 import { IBotsService } from "./bots/bots.js";
 import { IFileWatcherService } from "./fileWatcher/fileWatcher.js";
-import { IOAuthService } from "./oauth/oauth.js";
 import { IUsageStatsService } from "./usage-stats/usageStats.js";
 import { ICodingPlanSubscriptionService } from "./coding-plan-subscription/codingPlanSubscription.js";
 import { IClientScenesService } from "./client-scenes/clientScenes.js";
@@ -314,17 +310,9 @@ import { createBotsService } from "./bots/botsService.js";
 import { createBotRemoteWorkspaceService } from "./bots/botRemoteWorkspaceBridge.js";
 import type { SessionMessageSendRequested } from "#src/session/sessionMailbox.js";
 import { createFileWatcherService } from "./fileWatcher/fileWatcherService.js";
-import { createOAuthService } from "./oauth/oauthService.js";
-import { isCurrentOAuthCredentialRequest } from "#src/oauth/oauthUnauthorizedRequest.js";
-import { createOAuthProviderLogoutHandler } from "./oauth/oauthProviderLogout.js";
-import { OAuthCredentialRepo } from "./oauth/repo/oauthCredentialRepo.js";
 import { readLegacyZCodeConfigProviders } from "./model-provider/legacyZCodeConfigProviderReader.js";
 import { resolveAccountTeamPlanRuntimeApiKey } from "./model-provider/accountProviderTeamPlanRequestKey.js";
-import { createAccountProviderCredentialStore } from "./model-provider/accountProviderCredentialStore.js";
-import { createAccountProviderCredentialService } from "./model-provider/accountProviderCredentialService.js";
 import { createAccountProviderRequestAuthService } from "./model-provider/accountProviderRequestAuthService.js";
-import { AccountProviderApiClient } from "./model-provider/accountProviderApiClient.js";
-import { AccountProviderApiKeyResolver } from "./model-provider/accountProviderApiKeyResolver.js";
 import { createProviderConfigRuntime } from "./model-provider/providerConfigRuntime.js";
 import { fetchZCodeBuiltinRemoteRelease } from "./model-provider/zcodeBuiltinRemoteConfig.js";
 import {
@@ -339,7 +327,6 @@ import { createProviderSettingsConnectivityTester } from "./model-provider/provi
 import {
   createProviderProvisioningSource,
   listProviderProvisioningCredentialKeys,
-  PROVIDER_PROVISIONING_OAUTH_CREDENTIAL_KEYS,
   resolveCredentialFilePath,
   type ProviderProvisioningSource,
 } from "./model-provider/providerProvisioningSource.js";
@@ -441,9 +428,7 @@ import { resolveBrokerSocketPath } from "@zcode/zcode-cua/broker/socketPath";
 import { completeNewModelSelection } from "@zcode/provider";
 import {
   DEFAULT_ZCODE_MODEL_CONTEXT_BUDGET_STRATEGY,
-  ZCODE_JWT_INVALID_BROADCAST_CHANNEL,
   formatLogPrefix,
-  BIGMODEL_PROVIDER_ID,
   type ServiceAuthorityMode,
   resolveRuntimeZCodeEndpointOrigin,
   type BrowserBackendDescriptor,
@@ -457,7 +442,6 @@ import {
   type ZCodeAutomationRun,
   getCapturedZCodeAgentTelemetryEnv,
   ZCODE_DESKTOP_CONTEXT_PROMPT_ENABLED_ENV,
-  ZAI_PROVIDER_ID,
   ZCODE_VERSION,
   buildRuntimeZCodeApiUrl,
 } from "@zcode/shared";
@@ -1322,18 +1306,11 @@ export function createLocalServices(options: {
     resolveRuntimeZCodeEndpointOrigin(process.env, {
       overrideOrigin: (await settingService.get()).zcodeEndpointOrigin,
     });
-  const provisioningOAuthKeys = new Set<string>(PROVIDER_PROVISIONING_OAUTH_CREDENTIAL_KEYS);
-  const credentialService = createCredentialService({
-    onDidMutate: ({ key }) => {
-      // P2：account-provider 凭据键已删除；只有 OAuth 会话凭据变化仍触发 Provisioning 同步。
-      if (provisioningOAuthKeys.has(key)) {
-        options.onProviderProvisioningSourceChanged?.("credential");
-      }
-    },
-  });
-  const accountProviderCredentialStore = createAccountProviderCredentialStore({
-    credentialService,
-  });
+  const credentialService = createCredentialService(
+    // P3 C1 供应商 OAuth 删除：OAuth 会话凭据键（oauth:* / zcodejwttoken）不再进入
+    // Provisioning 同步信封，credential 变更不再触发 onProviderProvisioningSourceChanged；
+    // 通用凭据存储本身保留（bots/webhooks 等继续使用）。
+  );
   const broadcastService = createBroadcastService(options?.parentPort ?? null);
   const gitCheckpointService = createGitCheckpointService();
   const hostApiNetworkTransport =
@@ -1346,66 +1323,30 @@ export function createLocalServices(options: {
         caCertPath: settings.httpProxyCaCertPath,
       };
     });
-  const zcodeJwtLogoutHandlerRef: {
-    current: ((input: string | URL, headers: Headers) => void) | null;
-  } = { current: null };
+  // P3 C1 供应商 OAuth 删除：apiClient 的 401 分类钩子（onZcodeJwtInvalid /
+  // isZcodeJwtRequest）与 corrupt-session 登出广播链路已随 OAuth 仓储一并移除。
   const apiClient = createNodeApiClient({
     fetchImpl: hostApiNetworkTransport.fetch,
-    onZcodeJwtInvalid: (input, headers) => zcodeJwtLogoutHandlerRef.current?.(input, headers),
-    isZcodeJwtRequest: (input, headers) =>
-      isCurrentOAuthCredentialRequest({ input, headers, credentialService }),
     resolveZCodeEndpointOrigin: resolveCurrentZCodeEndpointOrigin,
   });
   const systemService = createSystemService();
   // onboarding 资格与任务列表共用同一份全局 tasks-index；repo 懒加载数据库，提前构造不会
   // 增加启动 I/O，后续 session syncer 也继续复用这一实例。
   const taskIndexRepo = new TaskIndexRepo();
-  // onboarding 完成记录：userId 由登录态补全（apikey/未登录为 null）。
+  // onboarding 完成记录：OAuth 登录态已删除（P3 C1），本地无身份提供方，userId 恒为 null。
   const onboardingRecordService = createOnboardingRecordService({
-    loadUserId: async () => (await oauthCredentialRepo.loadActiveUserProfile())?.id ?? null,
+    loadUserId: async () => null,
     hasExistingLocalTask: async () => (await taskIndexRepo.listTaskMetas({})).length > 0,
   });
-  let handleOAuthProviderLogout: ReturnType<typeof createOAuthProviderLogoutHandler> | null = null;
-  const oauthCredentialRepo = new OAuthCredentialRepo(credentialService, {
-    onCorruptOAuthSessionCleared: async (providers) => {
-      // telemetry 之外的后台路径可能先读到损坏 OAuth 凭据。
-      // 这类恢复也必须等价于 logout，复用同一 handler 清理派生模型 provider key。
-      await Promise.all(
-        providers.map((provider) => handleOAuthProviderLogout?.(provider) ?? Promise.resolve()),
-      );
-    },
-  });
-  const accountProviderApiKeyRemoteClient = new AccountProviderApiClient(apiClient);
-  const accountProviderApiKeyResolver = new AccountProviderApiKeyResolver(
-    accountProviderApiKeyRemoteClient.fetchRemoteData.bind(accountProviderApiKeyRemoteClient),
-  );
-  const accountProviderCredentialService = createAccountProviderCredentialService({
-    credentialStore: accountProviderCredentialStore,
-    async loadOAuthAccessToken(family) {
-      const oauthProviderId = family === "zai" ? ZAI_PROVIDER_ID : BIGMODEL_PROVIDER_ID;
-      return (await oauthCredentialRepo.loadTokenSet(oauthProviderId))?.accessToken ?? null;
-    },
-    resolveProviderApiKey: (family, accessToken) =>
-      accountProviderApiKeyResolver.resolveProviderApiKey(
-        family === "zai" ? ZAI_PROVIDER_ID : BIGMODEL_PROVIDER_ID,
-        accessToken,
-      ),
-  });
+  // P3 C1 供应商 OAuth 删除：oauthCredentialRepo / handleOAuthProviderLogout /
+  // accountProvider 派生 key 清理链路已移除；账号 provider 远端解析属 C2 范围，
+  // 当前所有 OAuth 凭据装载回调收敛为 null（与 P2 起账号连接恒为空的事实一致）。
   const accountRequestAuthService = createAccountRequestAuthService(
     createAccountProviderRequestAuthService({
       // P2：Registry 不再发布账号 Access；当前账号连接解析恒为空，待 P3 重建连接选择。
       resolveCurrentAccountAccess: async () => null,
-      loadOAuthTokenSet: (providerId) => oauthCredentialRepo.loadTokenSet(providerId),
-      async loadIndividualPlanApiKey(providerId, family) {
-        const oauthProviderId = family === "zai" ? ZAI_PROVIDER_ID : BIGMODEL_PROVIDER_ID;
-        const accountIdentity = (await oauthCredentialRepo.loadUserProfile(oauthProviderId))?.id;
-        if (!accountIdentity) return null;
-        return accountProviderCredentialService.loadCodingPlanApiKey({
-          providerId,
-          family,
-          accountIdentity,
-        });
-      },
+      loadOAuthTokenSet: async () => null,
+      loadIndividualPlanApiKey: async () => null,
       resolveTeamPlanApiKey: (access) =>
         resolveAccountTeamPlanRuntimeApiKey({ apiClient, credentialService, access }),
     }),
@@ -1492,9 +1433,6 @@ export function createLocalServices(options: {
         return providerConnectivityAgentService.testModelConnectivity(input);
       },
     }),
-  });
-  handleOAuthProviderLogout = createOAuthProviderLogoutHandler({
-    accountProviderCredentialStore,
   });
   // P3 供应商套餐/配额面删除：原 officialMcpCredentialSource（MCP 额度查询共用凭证解析）
   // 只服务于 usage 服务的 entitlement 面，已随之删除；MCP 调用身份头仍由
@@ -2039,12 +1977,8 @@ export function createLocalServices(options: {
         };
       }
       const telemetryEnv = getCapturedZCodeAgentTelemetryEnv();
-      const telemetryConfigured = Boolean(
-        telemetryEnv.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT || telemetryEnv.OTEL_EXPORTER_OTLP_ENDPOINT,
-      );
-      const telemetryProfile = telemetryConfigured
-        ? await oauthCredentialRepo.loadActiveUserProfile().catch(() => null)
-        : null;
+      // P3 C1 供应商 OAuth 删除：遥测不再关联登录用户档案（原 oauthCredentialRepo
+      // 读 active user profile），OTel 匿名身份由 CLI 自行生成。
       // Host 是旧配置迁移的唯一写入者。Agent spawn 前等待初始化完成，避免 Worker
       // 先拿到尚不存在的 provider_config.json 并发布短暂空 Registry。
       await providerConfigRuntime.start();
@@ -2066,7 +2000,6 @@ export function createLocalServices(options: {
           // 已移除厂商 device_mid：OTel 匿名身份由 CLI 自行生成，不再持久化机器标识。
           runtimeSurface: options?.agentRuntimeContext?.runtimeSurface ?? "remote_workspace_host",
           telemetryEnv,
-          userId: telemetryProfile?.id,
         }),
         ...createNodeProviderRuntimePathEnv({
           // Built-in Active 路径按当前 Endpoint 隔离，不能通过同步的固定路径
@@ -2170,28 +2103,8 @@ export function createLocalServices(options: {
     settingService,
     credentialService,
   });
-  const oauthService = createOAuthService(credentialService, {
-    apiClient,
-    onProviderLogout: handleOAuthProviderLogout,
-  });
-  const zcodeJwtLogoutLogger = createServiceLogger("zcode-jwt-logout");
-  zcodeJwtLogoutHandlerRef.current = (input, headers) => {
-    // 条件退出本身已串行去重；不能丢弃等待旧候选期间到来的新凭据 401。
-    void oauthService
-      .logoutIfCurrentCredentialRequest(input, headers)
-      .then((invalidated) => {
-        // 401 分类后可能已完成新登录；只有队列内真正清理的旧会话才广播过期。
-        if (invalidated) {
-          void broadcastService.send({
-            channel: ZCODE_JWT_INVALID_BROADCAST_CHANNEL,
-            payload: {},
-          });
-        }
-      })
-      .catch((error) => {
-        zcodeJwtLogoutLogger.warn("ZCode JWT logout failed", { error });
-      });
-  };
+  // P3 C1 供应商 OAuth 删除：oauthService 与 ZCode JWT 失效登出广播
+  // （ZCODE_JWT_INVALID_BROADCAST_CHANNEL）已随登录会话机制一并移除。
   const fileService = createFileService({
     workspaceFileSearchFilter: options?.workspaceFileSearchFilter,
   });
@@ -2205,13 +2118,18 @@ export function createLocalServices(options: {
     // 不能让开发环境默认生成仅存在于进程内存的 mock-share 链接。
     apiClient,
     baseUrl: buildRuntimeZCodeApiUrl(process.env, "/api/v1"),
+    // P3 C1 供应商 OAuth 删除：分享链路保留 zcodejwttoken 的纯字符串凭据读取
+    // （不复活 OAuth 仓储/解密恢复语义）；P5 移除分享功能时一并删除。
     tokenProvider: async (): Promise<string | null> => {
-      const activeProvider = await oauthCredentialRepo.getActiveProvider();
+      const activeProvider = await credentialService.load("oauth:active_provider");
       if (!activeProvider) {
         return null;
       }
-      const tokenSet = await oauthCredentialRepo.loadTokenSet(activeProvider);
-      return tokenSet?.zcodeJwtToken ?? tokenSet?.accessToken ?? null;
+      const zcodeJwtToken = await credentialService.load("zcodejwttoken");
+      if (zcodeJwtToken) {
+        return zcodeJwtToken;
+      }
+      return credentialService.load(`oauth:${activeProvider}:access_token`);
     },
   });
   const conversationShareService: IConversationShareServiceType = isDesktopAttachedRemote
@@ -2259,7 +2177,6 @@ export function createLocalServices(options: {
       }),
     )
     .register(IFileWatcherService, createFileWatcherService())
-    .register(IOAuthService, oauthService)
     .register(
       IUsageStatsService,
       // P3 供应商套餐/配额面删除：用量服务只剩 App Usage（agent 数据库统计），

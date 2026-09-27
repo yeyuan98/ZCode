@@ -5,10 +5,7 @@
  */
 
 // Login entry
-/** 右上角登录触发按钮 */
-export const TID_LOGIN_TRIGGER = "login-trigger";
-/** 用户菜单中的登录操作 */
-export const TID_LOGIN_MENU_ITEM = "login-menu-item";
+// P3 C1 供应商 OAuth 删除：login-trigger / login-menu-item / logout-button 已随登录 UI 移除。
 /** 登录页切换到 API Key 登录方式按钮 */
 export const TID_LOGIN_USE_API_KEY_BUTTON = "login-use-api-key-button";
 /** API Key 登录 provider 选择触发器 */
@@ -39,8 +36,6 @@ export const TID_APP_HEADER = "app-header";
 export const TID_LOCALE_TOGGLE = "locale-toggle";
 /** 主题切换按钮 */
 export const TID_THEME_TOGGLE = "theme-toggle";
-/** 退出登录按钮 */
-export const TID_LOGOUT_BUTTON = "logout-button";
 /** 终端显隐切换按钮 */
 export const TID_TERMINAL_TOGGLE = "terminal-toggle";
 export const TID_SIDE_PANE_TOGGLE = "side-pane-toggle";

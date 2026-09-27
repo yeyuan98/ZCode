@@ -69,9 +69,9 @@ export function getBotReplyGranularityEntryForProvider(
 export function getBotProviderRegionTagLabelId(provider: BotProviderEntryId): string | null {
   switch (provider) {
     case "lark":
-      return "login.oauth.regionTag.zai";
+      return "bots.regionTag.zai";
     case "feishu":
-      return "login.oauth.regionTag.bigmodel";
+      return "bots.regionTag.bigmodel";
     default:
       return null;
   }

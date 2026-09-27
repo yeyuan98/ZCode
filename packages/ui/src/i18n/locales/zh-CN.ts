@@ -442,8 +442,6 @@ const zhCN: Record<string, string> = {
   "quickPick.command.myTickets": "我的反馈",
   "quickPick.command.community": "用户社群",
   "quickPick.command.productDocs": "产品文档",
-  "quickPick.command.login": "连接",
-  "quickPick.command.logout": "断开连接",
   "commandCenter.placeholder": "搜索操作、任务或文件",
   "commandCenter.open": "搜索",
   "commandCenter.noResults": "暂无相关结果",
@@ -772,15 +770,11 @@ const zhCN: Record<string, string> = {
   "login.title": "欢迎来到 ZCode",
   // P2：登录页改为首次配置向导（选模板 → 填 API Key → 保存），OAuth 面板文案已删除。
   "login.description": "选择模型供应商，开始使用 ZCode",
-  // botsUi（BotsDialog/WebRemoteControlDialog）仍在复用 regionTag 文案，勿删。
-  "login.oauth.regionTag.zai": "全球",
-  "login.oauth.regionTag.bigmodel": "中国",
-  // Root 层 OAuth 回调失败提示（useRootOAuthEffects）仍在使用；OAuth 服务在 P3 删除。
-  "login.oauth.loginFailure": "登录失败，请重试",
-  "login.expired.title": "登录已过期",
-  "login.expired.description": "为了保障账号安全，请重新登录。",
+  // P3 C1 供应商 OAuth 删除：原 login.oauth.regionTag.* 迁移为 bots.regionTag.*（botsUi 专用）。
+  "bots.regionTag.zai": "全球",
+  "bots.regionTag.bigmodel": "中国",
+  // P3 C1 供应商 OAuth 删除：login.expired.* 其余键已删；action 保留给 StatusCards（C4 随设置套餐簇清理）。
   "login.expired.action": "重新登录",
-  "login.expired.restart": "确认并重启",
   "login.useApiKey": "使用 API key",
   "login.wizard.keyStepDescription": "输入 {provider} 的 API Key，完成配置。",
   "login.wizard.keylessStepDescription": "连接 {provider} 并发现本地模型，无需 API Key。",
@@ -815,15 +809,7 @@ const zhCN: Record<string, string> = {
 
   // 应用头部
   "app.currentTheme": "当前: {theme}",
-  "app.login": "连接使用",
-  "app.logout": "断开连接",
-  "logout.confirm.title": "断开连接并重启 ZCode？",
-  "logout.confirm.descriptionWithRunningSessions":
-    "检测到 {count} 个会话正在运行。断开连接会中断这些会话并重启 App。",
-  "logout.confirm.descriptionDefault": "断开连接后会重启 App，之后需要重新连接账号。",
-  "logout.confirm.ok": "断开连接并重启",
-  "logout.confirm.cancel": "取消",
-  "sidebar.profile.notLoggedIn": "连接使用",
+  // P3 C1 供应商 OAuth 删除：logout.confirm.* 与 app.login/app.logout、sidebar.profile.notLoggedIn 已随登录 UI 移除。
   "app.selectFile": "选择文件以开始",
   "app.workspace": "工作区",
   "browser.title": "浏览器",
@@ -2144,6 +2130,7 @@ const zhCN: Record<string, string> = {
   "settings.locale.system": "系统默认",
   "settings.locale.zh-CN": "中文简体",
   "settings.locale.en-US": "English",
+  "sidebar.preferences": "偏好设置",
   "sidebar.settings.systemDefault": "系统默认",
   "sidebar.settings.locale.en-US": "English",
   "sidebar.settings.locale.zh-CN": "中文简体",

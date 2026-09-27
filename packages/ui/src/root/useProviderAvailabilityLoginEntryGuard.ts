@@ -12,7 +12,7 @@ interface ProviderAvailabilityLoginEntryGuardResult {
 export function useProviderAvailabilityLoginEntryGuard({
   enabled = true,
   onboardingDismissed,
-  isRestoringOAuthSession,
+  startupStatePending,
   modelSelectionView,
   modelSelectionError,
   refreshProviderState,
@@ -22,7 +22,8 @@ export function useProviderAvailabilityLoginEntryGuard({
   enabled?: boolean;
   /** 用户已在向导点击“跳过”（providerOnboardingDismissedAt 已写入 settings）。 */
   onboardingDismissed: boolean;
-  isRestoringOAuthSession: boolean;
+  /** 启动门禁等待位：provider 同步未落定前不判定可用性（OAuth 恢复等待已在 P3 C1 删除）。 */
+  startupStatePending: boolean;
   modelSelectionView: ModelSelectionView | null;
   modelSelectionError?: Error;
   refreshProviderState: () => Promise<void>;
@@ -99,11 +100,7 @@ export function useProviderAvailabilityLoginEntryGuard({
       return;
     }
 
-    if (
-      startupCheckCompletedRef.current ||
-      isRestoringOAuthSession ||
-      !providerAvailabilityHydrated
-    ) {
+    if (startupCheckCompletedRef.current || startupStatePending || !providerAvailabilityHydrated) {
       return;
     }
 
@@ -115,7 +112,7 @@ export function useProviderAvailabilityLoginEntryGuard({
     });
   }, [
     enabled,
-    isRestoringOAuthSession,
+    startupStatePending,
     modelSelectionError,
     providerAvailabilityHydrated,
     syncLoginEntryWithProviderAvailability,

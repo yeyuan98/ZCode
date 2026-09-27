@@ -115,7 +115,8 @@ export * from "./test-ids.js";
 export * from "./test-ids-workflow.js";
 export * from "./channels.js";
 export * from "./storage.js";
-export * from "./oauth.js";
+export * from "./user.js";
+export * from "./credential.js";
 export * from "./desktopMenu.js";
 // P2：内置反馈中心（packages/shared/src/feedback.ts）已删除，反馈改为外部 GitHub Issues 预填跳转。
 export * from "./githubIssueUrl.js";
@@ -254,7 +255,6 @@ export * from "./workspaceSessionRestore.js";
 export * from "./skill-scan-policy.js";
 export * from "./browser-use/index.js";
 
-export * from "./coding-plan-reset.js";
 export {
   parseSubagentMarkdownSelection,
   formatSubagentMarkdownModel,

@@ -36,6 +36,30 @@ import { logger } from "@/logger.js";
 
 export type LoginEntryPurpose = "app-login";
 
+// P3 ruling 6 休眠用户框架（specs/account-services-purge.md）：供应商 OAuth 登录已删除，
+// 启动时由 StoreProvider 的 initializer 注册一次内置本地用户；store 保留 user / setUser /
+// authSessionSeq（仅在 null→user 时递增），后续恢复真实身份提供方时无需改动管道。
+export const DEFAULT_LOCAL_USER: UserInfo = {
+  id: "user",
+  username: "user",
+  displayName: "User",
+};
+
+/**
+ * 休眠用户 initializer 的纯函数形态：user 为 null 时注册 DEFAULT_LOCAL_USER 并返回 true，
+ * 已有用户时保持幂等不改动（authSessionSeq 只在 null→user 时递增一次）。
+ */
+export function registerDefaultLocalUserIfAbsent(state: {
+  user: UserInfo | null;
+  setUser: (user: UserInfo | null) => void;
+}): boolean {
+  if (state.user !== null) {
+    return false;
+  }
+  state.setUser(DEFAULT_LOCAL_USER);
+  return true;
+}
+
 // v4 重构：类型与默认值下沉到 @/lib/codePreviewSettings.ts，
 // 让纯展示组件不依赖 store；这里保留 re-export 兼容既有 import 路径。
 export type { CodePreviewSettings } from "@/lib/codePreviewSettings.js";
@@ -126,18 +150,6 @@ export interface ZCodeState {
   authSessionSeq: number;
   setUser: (user: UserInfo | null) => void;
 
-  /** 启动阶段是否仍在恢复 OAuth 登录态 */
-  isRestoringOAuthSession: boolean;
-  setIsRestoringOAuthSession: (restoring: boolean) => void;
-
-  /** OAuth 回调错误（Root 层写入，统一登录入口读取） */
-  oauthError: string | null;
-  setOAuthError: (error: string | null) => void;
-  oauthPollingActive: boolean;
-  setOAuthPollingActive: (active: boolean) => void;
-  oauthSuccessSeq: number;
-  lastOAuthSuccessProvider: OAuthProviderId | null;
-  markOAuthSuccess: (provider?: OAuthProviderId) => void;
   /** 请求打开统一登录入口，可携带需要自动发起登录/连接的 provider */
   loginEntryRequest: {
     id: number;
@@ -181,12 +193,7 @@ const STATE_CHANNEL_PREFIX = "state:";
  *
  * @param broadcastService - 广播服务。Desktop 走 RPC，Web 可传 no-op 实现
  */
-export function createZCodeStore(
-  broadcastService: IBroadcastService,
-  options: {
-    initialIsRestoringOAuthSession?: boolean;
-  } = {},
-) {
+export function createZCodeStore(broadcastService: IBroadcastService) {
   /** 标记：正在应用来自广播的更新，此时不再重复广播（防止循环） */
   let applyingBroadcast = false;
   let loginEntryRequestSeq = 0;
@@ -274,20 +281,6 @@ export function createZCodeStore(
           state.user === null && user !== null ? state.authSessionSeq + 1 : state.authSessionSeq,
       })),
 
-    isRestoringOAuthSession: options.initialIsRestoringOAuthSession ?? false,
-    setIsRestoringOAuthSession: (restoring: boolean) => set({ isRestoringOAuthSession: restoring }),
-
-    oauthError: null,
-    setOAuthError: (error: string | null) => set({ oauthError: error }),
-    oauthPollingActive: false,
-    setOAuthPollingActive: (active: boolean) => set({ oauthPollingActive: active }),
-    oauthSuccessSeq: 0,
-    lastOAuthSuccessProvider: null,
-    markOAuthSuccess: (provider?: OAuthProviderId) =>
-      set((state) => ({
-        oauthSuccessSeq: state.oauthSuccessSeq + 1,
-        lastOAuthSuccessProvider: provider ?? state.lastOAuthSuccessProvider,
-      })),
     loginEntryRequest: null,
     loginEntryAttempt: null,
     requestLoginEntry: (providerId?: OAuthProviderId, purpose?: LoginEntryPurpose) => {

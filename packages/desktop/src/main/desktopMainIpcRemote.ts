@@ -1,4 +1,4 @@
-/* eslint-disable max-lines -- 远程连接、OAuth 回调、遥测和通知 IPC 共用窗口级上下文，集中注册避免跨文件状态漂移。 */
+/* eslint-disable max-lines -- 远程连接、deep link 投递和通知 IPC 共用窗口级上下文，集中注册避免跨文件状态漂移。 */
 import { app, BrowserWindow, ipcMain, shell } from "electron";
 import {
   formatZodError,
@@ -11,12 +11,7 @@ import {
   type RemoteTarget,
 } from "@zcode/shared";
 import { dispatchTaskNotification } from "./desktopNotifications.js";
-import {
-  clearOAuthRoutesForWindow,
-  deliverPendingDeepLink,
-  parseOAuthStateRegistration,
-  registerOAuthState,
-} from "./desktopOAuthDeepLink.js";
+import { clearDeepLinkRoutesForWindow, deliverPendingDeepLink } from "./desktopDeepLink.js";
 import { openPathInDefaultApp } from "./desktopMainIpcHelpers.js";
 
 function isAllowedExternalOpenUrl(value: string): boolean {
@@ -131,8 +126,7 @@ export function registerRemoteIpcHandlers(options: {
     error: (...args: unknown[]) => void;
   };
   appLaunchCoordinator: {
-    onRendererReady(payload: { hasPendingOAuthCallback: boolean; rendererId: number }): boolean;
-    onOAuthCallbackHandled(payload: { rendererId: number }): boolean;
+    onRendererReady(payload: { rendererId: number }): boolean;
   };
   createRemoteWorkspaceSession: (
     win: BrowserWindow,
@@ -173,15 +167,8 @@ export function registerRemoteIpcHandlers(options: {
     if (!sessionId || !attachmentId) return;
     options.confirmRendererAttachmentReady(event.sender.id, { sessionId, attachmentId });
   });
-  ipcMain.on(PlatformChannels.OAuthRegisterState, (event, payload: unknown) => {
-    const registration = parseOAuthStateRegistration(payload);
-    if (!registration) {
-      options.logger.warn("[oauth-register-state] invalid payload", payload);
-      return;
-    }
-
-    registerOAuthState(event.sender.id, registration);
-  });
+  // P3 C1 供应商 OAuth 删除：OAuthRegisterState / OAuthCallbackHandled IPC 已随
+  // 登录 deep link 链路移除（PlatformChannels 同步删除）。
 
   ipcMain.on(PlatformChannels.OpenExternal, (event, payload: unknown) => {
     const request = parseOpenExternalRequest(payload);
@@ -226,16 +213,10 @@ export function registerRemoteIpcHandlers(options: {
   );
 
   ipcMain.on(PlatformChannels.RendererReady, (event) => {
-    const hasPendingOAuthCallback = deliverPendingDeepLink(event.sender);
     // 已移除厂商遥测：renderer ready 仅保留启动协调（deep link 时序）语义。
-    options.appLaunchCoordinator.onRendererReady({
-      hasPendingOAuthCallback,
-      rendererId: event.sender.id,
-    });
-  });
-
-  ipcMain.on(PlatformChannels.OAuthCallbackHandled, (event) => {
-    options.appLaunchCoordinator.onOAuthCallbackHandled({ rendererId: event.sender.id });
+    // P3 C1 起 OAuth 回调等待逻辑删除，ready 后直接投递缓存的 workspace/share/payment 请求。
+    deliverPendingDeepLink(event.sender);
+    options.appLaunchCoordinator.onRendererReady({ rendererId: event.sender.id });
   });
 
   ipcMain.on(PlatformChannels.ShowTaskNotification, (event, payload: unknown) => {
@@ -251,7 +232,7 @@ export function registerRemoteIpcHandlers(options: {
       // BrowserWindow 的 closed 阶段里 webContents 可能已被 Electron 释放。
       // 之前这里直接读取 win.webContents.id，会把正常关窗流程变成主进程未捕获异常。
       // 提前缓存 id 后再做清理，避免访问已经销毁的对象。
-      clearOAuthRoutesForWindow(windowWebContentsId);
+      clearDeepLinkRoutesForWindow(windowWebContentsId);
     });
   });
 
