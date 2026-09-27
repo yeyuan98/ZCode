@@ -1,37 +1,13 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback } from "react";
 import type { PluginStoreOrder } from "@zcode/shared";
-import { useServices } from "@/hooks/useServices.js";
-import { logger } from "@/logger.js";
 
-/** 只持有当前页面投影；请求合并与 TTL 统一归 Host 配置服务管理。 */
-export function usePluginStoreOrder(enabled = true) {
-  const { clientConfigService: service } = useServices();
-  const [snapshot, setSnapshot] = useState<{
-    service: typeof service;
-    order: PluginStoreOrder | null;
-  }>();
-  const generation = useRef(0);
-  const refresh = useCallback(
-    async (forceRefresh = false) => {
-      const current = ++generation.current;
-      try {
-        const { pluginStoreOrder: order } = await service.getSnapshot({ forceRefresh });
-        if (generation.current === current) setSnapshot({ service, order });
-      } catch {
-        if (generation.current === current) {
-          logger.warn("[PluginStoreOrder] 配置读取失败，保留当前排序");
-        }
-      }
-    },
-    [service],
-  );
-
-  useEffect(() => {
-    if (enabled) void refresh();
-    return () => {
-      generation.current += 1;
-    };
-  }, [enabled, refresh]);
-
-  return { order: snapshot?.service === service ? snapshot.order : null, refresh };
+// P3 C5 供应商 client/configs 拉取删除：插件商店排序不再由远端
+// /api/v1/client/configs（pluginStoreOrder）下发，固定回退打包默认顺序——
+// shared/pluginStoreOrdering 的产品默认分类顺序 + 文档插件置顶 + 本地化名称稳定排序。
+// order 恒为 null，消费方（PluginStorePage / WorkspacePluginPreview / mentions provider）
+// 走默认排序；保留 hook 形状（含 refresh）避免连锁改动。
+export function usePluginStoreOrder(_enabled = true) {
+  // 远端来源已删除；refresh 保留签名但为 no-op（本地默认顺序无需刷新）。
+  const refresh = useCallback(async (_forceRefresh?: boolean) => {}, []);
+  return { order: null as PluginStoreOrder | null, refresh };
 }

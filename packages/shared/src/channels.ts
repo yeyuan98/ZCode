@@ -103,7 +103,9 @@ export const ServiceChannels = {
   UsageStats: "usage-stats",
   // P3 C2 供应商套餐/计费面删除：CodingPlanSubscription 服务频道
   // （购买/企业订单/灰度快照 RPC 面）已随服务删除。
-  ClientConfig: "client-config",
+  // P3 C5 供应商 client/configs 配置拉取删除：ClientConfig 服务频道
+  // （/api/v1/client/configs 快照 RPC 面，最后一个消费方是插件商店排序）已随服务删除，
+  // 排序回退打包默认顺序。
   /** ZCode 客户端场景配置服务 */
   ClientScenes: "client-scenes",
   /** Skills 管理服务 */

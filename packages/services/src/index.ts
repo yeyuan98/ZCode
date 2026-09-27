@@ -280,4 +280,4 @@ export type {
   PromptAttachmentTransferPhase,
   PromptAttachmentTransferProgress,
 } from "./prompt-attachment-transfer/promptAttachmentTransfer.js";
-export { IClientConfigService } from "./client-config/clientConfig.js";
+// P3 C5 供应商 client/configs 拉取删除：IClientConfigService 导出已随服务删除。

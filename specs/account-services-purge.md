@@ -52,6 +52,18 @@ services + shared types + UI + desktop/web + CLI-forced edits land together):
    full `IClientConfigService` registration/channel removal; CLI `dynamic-workflow-policy`
    gate → local source. Off-peak enablement is no longer remote-gated (see
    off-peak-local-admission spec).
+   - C5 delivery notes: the Electron fetcher `createElectronDesktopContextPromptConfigFetcher`
+     was shared with `rendererActionTraceRollout` — it dies with the file and renderer action
+     trace resolves to its local disabled default (local env overrides
+     `ZCODE_RENDERER_ACTION_TRACE_ENABLED` / `ZCODE_LOCAL_TTFT_ENABLED` stay live); the
+     `singleFeatureRollout` mechanism loses both consumers and dies. Context-prompt pins the
+     rollout's own local default OFF (`ZCODE_DESKTOP_CONTEXT_PROMPT_ENABLED=0` injected by
+     desktop main; the env chain + presentation-surface machinery survive for local override).
+     The remote builtin-catalog purge also removes the endpoint-scoped cache/synchronizer
+     (`EndpointScopedZCodeBuiltinSource`, `ZCodeBuiltinRemoteSynchronizer`,
+     `zcode-builtin-cache-paths`): registry reads the bundled `config/provider/zcode-builtin.json`
+     only. The force-update gate's own `/api/v1/client/configs` read stays wired until P5
+     (updater domain) and remains skipped via the vendor-manifest-feed policy.
 
 Rulings recorded (2026-09-27): web-share login dies now with publishing broken-until-P5
 (ruling 3); feature-flag fetches die with local fallbacks (ruling 4); image-search unpinned
