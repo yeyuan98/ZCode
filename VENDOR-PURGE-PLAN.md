@@ -3,7 +3,7 @@
 - **Repo:** `/home/administrator/git/ZCode` (fork of ZCode v3.14.3, branch base `main`)
 - **Goal:** Remove all Z.ai / Zhipu / BigModel vendor-specific code — platform backend, logins, accounts/plans/subscriptions, vendor-bound skills/tools, vendor CDN/telemetry/infra — while keeping the product fully usable via generic API-key providers and local models. zai/bigmodel remain available as **ordinary, equal vendors**.
 - **Version policy:** stay upstream-consistent at **3.14.3**; per-phase test releases as `3.14.3-alpha.N`; final release is exactly `3.14.3`.
-- **Status:** EXECUTING. P0 done (`v3.14.3-alpha.1`); P2 done (`v3.14.3-alpha.2`, 2026-09-26) + wizard UX hotfix (`v3.14.3-alpha.3`); P1 done (`v3.14.3-alpha.4`, 2026-09-27, with amendments A1-A4 recorded in its §4 section); P1.1 done (`v3.14.3-alpha.5`, 2026-09-27, merge `e1a14fc`, release `c17469e`); P1.2 done (`v3.14.3-alpha.6`, 2026-09-27, merge `9821744`, release `c49c962`); next: P3 (ships as alpha.7). Investigation: 4 parallel deep-dive subagents + 3 independent review rounds, all findings source-verified on `main`.
+- **Status:** EXECUTING. P0 done (`v3.14.3-alpha.1`); P2 done (`v3.14.3-alpha.2`, 2026-09-26) + wizard UX hotfix (`v3.14.3-alpha.3`); P1 done (`v3.14.3-alpha.4`, 2026-09-27, with amendments A1-A4 recorded in its §4 section); P1.1 done (`v3.14.3-alpha.5`, 2026-09-27, merge `e1a14fc`, release `c17469e`); P1.2 done (`v3.14.3-alpha.6`, 2026-09-27, merge `9821744`, release `c49c962`); P3 done (2026-09-27, amendments A6–A14, branch merged; release hashes recorded in §4 P3); next: P4 (ships as alpha.8). Investigation: 4 parallel deep-dive subagents + 3 independent review rounds per phase, all findings source-verified on `main`.
 - **Fresh-start policy:** no migration/compat shims for old setups; there are no existing libre-zcode users.
 
 ---
@@ -211,7 +211,9 @@ guard (no vendor anthropic site rule carries inputFormat). Catalog revision stay
 (appVersion-scoped active cache; same-revision conflict → bundled wins). Legacy V-suffixed
 vision rules (glm-5v-turbo, glm-4.xv) predate the current 11-model lineup and are name-correct.
 
-### P3 — Services purge + off-peak local backend → **alpha.7**
+### P3 — Services purge + off-peak local backend → **alpha.7** (done)
+
+Delivered on `agent/coder/vendor-purge-p3` (S0 specs+free-deletes → S2 usage split → S1 off-peak rebuild → C1 OAuth+dormant user → C2 billing/webview → C3 official-MCP+image-search unpin → C4 family/specs+settings de-plan → C5 config-fetches/remote-catalog → S4 sweep → [ulw] review round (RA GO-WITH-FIXES / RB GO / RC GO-WITH-FIXES; fixes applied once + full gates re-run)): OAuth/account/entitlement middle-tier fully deleted (services oauth 16 files, web auth 7, coding-plan-subscription, bigmodel quota chain, accountProvider* family, official-MCP host+CLI chain, clientConfigService + remote builtin-catalog download, PayPal/webview chain, desktopOAuthDeepLink split); `usage-stats.ts` split (AppUsage rehomed; `IUsageStatsService` = app-snapshot only); off-peak rebuilt local (window-only admission in main via correlated scheduler request + window-open wake, Run-now, hands-off auto-decline for permission/AskUserQuestion/plan-approval, persisted model_selection dispatch, 6 ticket columns hard-cut, scheduler port-injection harness, tool default build); dormant user framework (`UserInfo`→`user.ts`, `DEFAULT_LOCAL_USER {id:"user"}` auto-registered, all user UI unrendered, questionnaire re-triggers once); settings provider page de-planned (plain preset+custom; ~556/514 i18n lines dropped/locale); dead CLI auth trio + slash-login help pulled forward from P4. Key files: `specs/off-peak-local-admission.md`, `specs/account-services-purge.md`, `packages/shared/src/off-peak-window.ts`, `packages/services/src/session/offPeak*`, `packages/desktop/src/scheduler/schedulerRuntime.ts`, `packages/ui/src/store/index.ts`(DEFAULT_LOCAL_USER). Reviewer-flagged P4 carryovers: streaming-recovery 3008-3010 cluster (delete, don't rename — numeric-only match can misclassify personal bigmodel keys),`app-submit.ts`login regex, CLI`shared-credentials.ts`vendor key constants,`ModelRequestAuth` inert chain. Effort: delivered ≈ 6 focused sessions (vs 13–19 d estimate — worker delegation + dead-at-the-gate off-peak de-risked S1).
 
 **Amendments (P3, in-phase; investigation- and review-driven; user rulings 2026-09-27):**
 
@@ -366,17 +368,17 @@ Manual: fresh Windows install of the alpha + upgrade from the previous alpha; ph
 
 ## 7. Effort estimate
 
-| Item                                                              | Estimate                  |
-| ----------------------------------------------------------------- | ------------------------- |
-| P0 (incl. 3 updater guards)                                       | 3–5 d                     |
-| P2 onboarding wizard + gate                                       | 5–8 d                     |
-| P1 excision + auto-discovery + Ollama template                    | 7–11 d                    |
-| P3 deletions + off-peak local backend                             | 13–19 d                   |
-| P4 rename + WebSearch removal                                     | 4–6 d                     |
-| P5 update/assets/marketplace/share-export/identity                | 9–12 d                    |
-| P6 sweep gate + CI workflow + docs + notices                      | 3–4 d                     |
-| Versioning/QA overlay (test scripts, harnesses, release dry-runs) | 3–4 d                     |
-| **Total**                                                         | **≈ 7–10 engineer-weeks** |
+| Item                                                                    | Estimate                  |
+| ----------------------------------------------------------------------- | ------------------------- |
+| P0 (incl. 3 updater guards)                                             | 3–5 d                     |
+| P2 onboarding wizard + gate                                             | 5–8 d                     |
+| P1 excision + auto-discovery + Ollama template                          | 7–11 d                    |
+| P3 deletions + off-peak local backend (delivered in ~6 worker sessions) | 13–19 d (est.)            |
+| P4 rename + WebSearch removal                                           | 4–6 d                     |
+| P5 update/assets/marketplace/share-export/identity                      | 9–12 d                    |
+| P6 sweep gate + CI workflow + docs + notices                            | 3–4 d                     |
+| Versioning/QA overlay (test scripts, harnesses, release dry-runs)       | 3–4 d                     |
+| **Total**                                                               | **≈ 7–10 engineer-weeks** |
 
 ---
 
