@@ -1,7 +1,22 @@
-import { BIGMODEL_PROVIDER_ID, type OAuthProviderId, ZAI_PROVIDER_ID } from "./oauth.js";
 import { BUILTIN_MODEL_PROVIDER_IDS, type BuiltinModelProviderId } from "./model-provider-types.js";
 import { ZCODE_ENV } from "./env.js";
 import { buildBigModelCodingPlanTeamManageUrl } from "./zcodeEndpoint.js";
+
+// P3 C1 供应商 OAuth 删除：以下 provider id 常量与 OAuthProviderId 类型从
+// shared/src/oauth.ts 迁入（该文件已删除）。剩余消费方是 family/设置面与
+// C2/C4 待删除的账号 provider 链；C4 随 vendor ids/guards 一并清理。
+
+/** 内置 BigModel provider id */
+export const BIGMODEL_PROVIDER_ID = "bigmodel" as const;
+
+/** 内置 ZAI provider id */
+export const ZAI_PROVIDER_ID = "zai" as const;
+
+/** OAuth provider 标识（登录会话已删除；仅作为 provider 面的字符串标识保留） */
+export type OAuthProviderId =
+  | typeof BIGMODEL_PROVIDER_ID
+  | typeof ZAI_PROVIDER_ID
+  | (string & { readonly __oauthProviderBrand?: never });
 
 export type ModelProviderFamilyId = "zai" | "bigmodel";
 export type ProviderFamilyDomain = ModelProviderFamilyId;

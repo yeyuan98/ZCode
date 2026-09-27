@@ -33,10 +33,11 @@ test("provider startup sync waits for both settings hydration and model selectio
   );
 });
 
-test("root render gate keeps blocking while auth/provider state resolves", () => {
+// P3 C1 供应商 OAuth 删除：启动 auth 恢复门禁字段（isResolvingStartupAuthState）已移除，
+// 门禁只由 provider 启动态 / tab 恢复 / workspace 引导构成。
+test("root render gate keeps blocking while provider startup state resolves", () => {
   assert.equal(
     shouldBlockRootRender({
-      isResolvingStartupAuthState: false,
       isResolvingProviderStartupState: false,
       isRestoring: false,
       isBootstrappingInitialWorkspace: false,
@@ -45,8 +46,7 @@ test("root render gate keeps blocking while auth/provider state resolves", () =>
   );
   assert.equal(
     shouldBlockRootRender({
-      isResolvingStartupAuthState: true,
-      isResolvingProviderStartupState: false,
+      isResolvingProviderStartupState: true,
       isRestoring: false,
       isBootstrappingInitialWorkspace: false,
     }),
@@ -57,7 +57,6 @@ test("root render gate keeps blocking while auth/provider state resolves", () =>
 test("root startup loading stays hidden once the welcome screen is open", () => {
   const base = {
     isDesktop: true,
-    isResolvingStartupAuthState: false,
     isResolvingProviderStartupState: true,
     isRestoring: false,
     isBootstrappingInitialWorkspace: false,

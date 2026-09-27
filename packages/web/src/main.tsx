@@ -225,9 +225,6 @@ function createWebPlatform(): IPlatformService {
     openInFileManager: () =>
       Promise.resolve({ success: false, error: "Not supported in web mode" }),
     openExternalFile: () => Promise.resolve({ success: false, error: "Not supported in web mode" }),
-    // P3 C1 待 shared IPlatformService 删除 OAuth 方法后同步移除这两个 no-op stub。
-    registerOAuthState: (_payload) => {},
-    onOAuthCallback: () => () => {},
     onPaymentCallback: () => () => {},
     onShareImport: () => () => {},
     notifyRendererReady: () => {},

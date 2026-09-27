@@ -483,8 +483,6 @@ const enUS: Record<string, string> = {
   "quickPick.command.myTickets": "My feedback",
   "quickPick.command.community": "Community",
   "quickPick.command.productDocs": "Product docs",
-  "quickPick.command.login": "Connect",
-  "quickPick.command.logout": "Disconnect",
   "commandCenter.placeholder": "Search actions, tasks, or files",
   "commandCenter.open": "Search",
   "commandCenter.noResults": "No related results",
@@ -844,15 +842,11 @@ const enUS: Record<string, string> = {
   "login.title": "Welcome to ZCode",
   // P2: the login screen became the onboarding wizard (pick template → paste API key → save); OAuth panel strings were removed.
   "login.description": "Pick a model provider to start using ZCode",
-  // botsUi (BotsDialog/WebRemoteControlDialog) still reuses the regionTag strings — do not delete.
-  "login.oauth.regionTag.zai": "Global",
-  "login.oauth.regionTag.bigmodel": "CN",
-  // Root-layer OAuth callback failure toast (useRootOAuthEffects) still uses this; OAuth services die in P3.
-  "login.oauth.loginFailure": "Login failed, please try again",
-  "login.expired.title": "Your session has expired",
-  "login.expired.description": "To keep your account secure, please sign in again.",
+  // P3 C1 供应商 OAuth 删除：原 login.oauth.regionTag.* 迁移为 bots.regionTag.*（botsUi 专用）。
+  "bots.regionTag.zai": "Global",
+  "bots.regionTag.bigmodel": "CN",
+  // P3 C1 供应商 OAuth 删除：login.expired.* 其余键已删；action 保留给 StatusCards（C4 随设置套餐簇清理）。
   "login.expired.action": "Sign in again",
-  "login.expired.restart": "Confirm and restart",
   "login.useApiKey": "Use API key",
   "login.wizard.keyStepDescription": "Enter your {provider} API key to finish setup.",
   "login.wizard.keylessStepDescription":
@@ -890,16 +884,6 @@ const enUS: Record<string, string> = {
 
   // App header
   "app.currentTheme": "Current: {theme}",
-  "app.login": "Connect",
-  "app.logout": "Disconnect",
-  "logout.confirm.title": "Disconnect and restart ZCode?",
-  "logout.confirm.descriptionWithRunningSessions":
-    "{count} session(s) are currently running. Disconnecting will interrupt them and restart the app.",
-  "logout.confirm.descriptionDefault":
-    "The app will restart after disconnecting. You will need to connect your account again.",
-  "logout.confirm.ok": "Disconnect and restart",
-  "logout.confirm.cancel": "Cancel",
-  "sidebar.profile.notLoggedIn": "Connect",
   "app.selectFile": "Select a file to get started",
   "app.workspace": "Workspace",
   "browser.title": "Browser",
@@ -2278,6 +2262,7 @@ const enUS: Record<string, string> = {
   "settings.locale.system": "System default",
   "settings.locale.zh-CN": "中文简体",
   "settings.locale.en-US": "English",
+  "sidebar.preferences": "Preferences",
   "sidebar.settings.systemDefault": "System default",
   "sidebar.settings.locale.en-US": "English",
   "sidebar.settings.locale.zh-CN": "中文简体",

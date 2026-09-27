@@ -7,7 +7,6 @@ import {
 import {
   BIGMODEL_PROVIDER_ID,
   BUILTIN_MODEL_PROVIDER_IDS,
-  DesktopCommandIds,
   isStartPlanModelProviderId,
   type BuiltinModelProviderId,
   type ModelConnectivityResult,
@@ -180,7 +179,7 @@ export function ModelProviderSection({
   const { intl, locale } = useZCodeIntl();
   const confirmDialog = useConfirmDialog();
   const platform = usePlatform();
-  const { modelSelectionService, oauthService, credentialService } = useServices();
+  const { modelSelectionService, credentialService } = useServices();
   const {
     modelProviders,
     providerTemplates,
@@ -308,9 +307,8 @@ export function ModelProviderSection({
     new Map<string, "inFlight" | "succeeded" | "failed">(),
   );
   const requestLoginEntry = useZCodeStore((state) => state.requestLoginEntry);
-  const setUser = useZCodeStore((state) => state.setUser);
-  const oauthError = useZCodeStore((state) => state.oauthError);
-  const setOAuthError = useZCodeStore((state) => state.setOAuthError);
+  // P3 C1 供应商 OAuth 删除：store 的 oauthError/setOAuthError/setUser OAuth 写入面已删除；
+  // 套餐面板的鉴权错误位（codingPlanAuthError）暂传 null，C4 随设置套餐簇一并清理。
   // P1：providerFamilyDomain / providerFamilyConnectionSelections 已删除，
   // 设置页不再读取连接选择快照；family 过滤改用 OAuth active provider 推导。
   const authenticatedEnterpriseProducts = useEnterpriseCodingPlanProducts({
@@ -401,15 +399,11 @@ export function ModelProviderSection({
           normalizedActiveProvider === BIGMODEL_PROVIDER_ID &&
           (bigmodelToken?.trim().length ?? 0) > 0,
       });
-      if (!normalizedActiveProvider && options.clearUserWhenLoggedOut) {
-        // provider Unlink 已等价于 App logout。
-        // 服务端 token 已清理后，设置页也要同步清掉 Zustand user，否则侧边栏会一直显示旧登录态直到重启。
-        setUser(null);
-        setOAuthError(null);
-      }
+      // P3 C1 供应商 OAuth 删除：provider Unlink 后同步清空 Zustand user/OAuth 错误的
+      // 回调块已删除（休眠用户框架下无登录态可清）。
       return normalizedActiveProvider;
     },
-    [credentialService, setOAuthError, setUser],
+    [credentialService],
   );
 
   const refreshProviderPanelAfterAuthChange = useCallback(
@@ -710,14 +704,8 @@ export function ModelProviderSection({
           providerId,
           providerName,
         });
-        // ZAI/BigModel provider 已恢复为 App 登录镜像。
-        // 这里的 Unlink 必须走 provider logout，退出当前 active provider 并触发另一组 provider 恢复 Connect。
-        // P1：解绑不再清空 providerFamilyDomain（设置字段已删除，P3 重建）。
-        await oauthService.logout(providerId);
-        // Coding Plan 官网 webview 使用独立持久 partition，provider Unlink 也属于账号边界。
-        if (typeof platform.executeDesktopCommand === "function") {
-          await platform.executeDesktopCommand(DesktopCommandIds.ClearCodingPlanWebviewStorage);
-        }
+        // P3 C1 供应商 OAuth 删除：provider logout（oauthService.logout）与官网 webview
+        // partition 清理已随登录会话机制移除；Unlink 入口本身属 C4 设置套餐簇，届时整体删除。
         await refreshCodingPlanPurchaseTokenState({ clearUserWhenLoggedOut: true });
         await refresh();
         // 解绑后 batch-preview 的订阅/鉴权态已经失效，套餐卡片内部缓存必须刷新，
@@ -738,8 +726,6 @@ export function ModelProviderSection({
       }
     },
     [
-      oauthService,
-      platform,
       modelSelectionService,
       refresh,
       refreshCodingPlanEntitlements,
@@ -881,7 +867,7 @@ export function ModelProviderSection({
               : (entitlement?.snapshot?.subscription?.details.length ?? 0);
           })()}
           presetLoading={presetLoading}
-          codingPlanAuthError={oauthError}
+          codingPlanAuthError={null}
           codingPlanPurchaseTokenAuthenticatedByProviderId={
             codingPlanPurchaseTokenAuthenticatedByProviderId
           }
@@ -911,7 +897,7 @@ export function ModelProviderSection({
           onSelectNavItem={handleSelectNavItem}
           onOpenBigModelRegistration={() => {
             // 未注册提示来自一次失败的 OAuth checking 状态；跳转注册后要恢复普通状态，避免提示卡住。
-            setOAuthError(null);
+            // P3 C1：store 的 setOAuthError 已删除，这里只复位订阅面板的展示态。
             setPresetSubscriptionProviderId((current) =>
               current === BUILTIN_MODEL_PROVIDER_IDS.bigmodelIndividualCodingPlan ? null : current,
             );

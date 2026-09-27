@@ -15,7 +15,6 @@ import {
   IConversationShareService,
   IBotsService,
   IFileWatcherService,
-  IOAuthService,
   IModelSelectionService,
   IProviderSettingsService,
   IUsageStatsService,
@@ -45,9 +44,6 @@ import {
   createNodeApiClient,
   createHostApiNetworkTransport,
   registerHostApiNetworkTransportForDispose,
-  createOAuthService,
-  createOAuthProviderLogoutHandler,
-  createAccountProviderCredentialStore,
   createSettingsSyncService,
   createBotsService,
   createUsageStatsService,
@@ -88,9 +84,6 @@ export function createRemoteWorkspaceServiceCollection(params: {
   assertLegacyRemoteWorkspaceRpcContract(params.connectionServices);
   const localSettingService = createSettingService();
   const localCredentialService = createCredentialService();
-  const localAccountProviderCredentialStore = createAccountProviderCredentialStore({
-    credentialService: localCredentialService,
-  });
   const hostApiNetworkTransport = createHostApiNetworkTransport(async () => {
     const settings = await localSettingService.get();
     return {
@@ -103,18 +96,14 @@ export function createRemoteWorkspaceServiceCollection(params: {
     fetchImpl: hostApiNetworkTransport.fetch,
   });
   const localBroadcastService = createBroadcastService(params.parentPort);
-  let handleOAuthProviderLogout: ReturnType<typeof createOAuthProviderLogoutHandler> | null = null;
   // P3 供应商套餐/配额面删除：localOAuthCredentialRepo / localAccountProviderCredentialService
-  // 只服务已删除的 vendor 用量查询链（localAccountRequestAuthService），一并移除；
-  // OAuth 登出清理（createOAuthProviderLogoutHandler）与凭据 store 属其它 slice，保持不动。
-  // P3 供应商套餐/配额面删除：本集合的 localAccountRequestAuthService 只服务用量服务的
-  // vendor 查询链，已随 usage 注册精简删除（账号/OAuth 重建属其它 slice）。
+  // 只服务已删除的 vendor 用量查询链（localAccountRequestAuthService），一并移除。
+  // P3 C1 供应商 OAuth 删除：本集合的 OAuth 服务重实例化（createOAuthService）与
+  // OAuth 登出清理（createOAuthProviderLogoutHandler + accountProviderCredentialStore）
+  // 已随登录会话机制删除；凭据 store 仅保留分享 zcodejwttoken 纯字符串读取。
   const localCodingPlanSubscriptionService = createCodingPlanSubscriptionService({
     apiClient: localApiClient,
     credentialService: localCredentialService,
-  });
-  handleOAuthProviderLogout = createOAuthProviderLogoutHandler({
-    accountProviderCredentialStore: localAccountProviderCredentialStore,
   });
   const conversationShareClient = new ConversationShareHttpClient({
     // 远端 workspace 的分享也必须使用真实 API；本地 Mock 仅用于单测，不生成无法跨进程访问的链接。
@@ -247,7 +236,7 @@ export function createRemoteWorkspaceServiceCollection(params: {
   // Web 手机远控进入 SSH task 时只连到 remote workspace host，
   // 没有桌面 renderer 那层 `baseServices + remoteServices` 合并。
   // 因此这里为 remote workspace host 补齐本地全局 channel；文件、终端、ZCode Agent 仍来自远端，
-  // 设置、凭据、OAuth、模型供应商和 settings-sync 继续读写本机配置。
+  // 设置、凭据、模型供应商和 settings-sync 继续读写本机配置。
   const services = new ServiceCollection()
     .register(IFileService, params.connectionServices.fileService)
     .register(IGitService, params.connectionServices.gitService)
@@ -275,13 +264,6 @@ export function createRemoteWorkspaceServiceCollection(params: {
       }),
     )
     .register(IFileWatcherService, params.connectionServices.fileWatcherService)
-    .register(
-      IOAuthService,
-      createOAuthService(localCredentialService, {
-        apiClient: localApiClient,
-        onProviderLogout: handleOAuthProviderLogout,
-      }),
-    )
     // Provider/Model 事实属于目标 Environment。远端 workspace 的选择和设置视图
     // 必须直接读取远端 Registry，不能继续显示 Desktop 本地 Provider。
     .register(IModelSelectionService, params.connectionServices.modelSelectionService)

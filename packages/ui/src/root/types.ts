@@ -1,4 +1,4 @@
-import type { IPlatformService, UserInfo } from "@zcode/shared";
+import type { IPlatformService } from "@zcode/shared";
 import type { IServiceAccessor } from "@zcode/services";
 import type { ReactNode } from "react";
 import type { CreateTaskRequest } from "@/app-shell/types.js";
@@ -49,7 +49,4 @@ export interface WorkspaceSettingsLayerProps {
   captionWorkspacePath?: string | null;
   onBack?: () => void;
   onCreateTask?: (request?: CreateTaskRequest) => void;
-  onLogin?: () => void;
-  onLogout?: () => void;
-  user?: UserInfo | null;
 }
