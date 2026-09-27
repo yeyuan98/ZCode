@@ -6,13 +6,12 @@ import { useZCodeIntl, type IntlInstance } from "@/i18n/IntlProvider.js";
 import type { ToolCallBlockRenderContext } from "@/ToolCallBlocks/shared.js";
 
 // OffPeakCreate 的静态轮尾卡（cron-create 兄弟实现，样式契约一致）。
-// 位次是创建时快照（取自取号返回），不订阅后续状态——历史回看不产生过期活数据。
+// P3：无服务端位次——统一「已加入闲时队列」，等待本地时间窗或 Run-now。
 
 export interface OffPeakCreateTaskSummary {
   offPeakTaskId?: string;
   title?: string;
   status?: string;
-  queuePosition?: number;
 }
 
 function normalizeToolName(value: unknown): string {
@@ -65,18 +64,11 @@ function readOffPeakCreateTaskOutputSummary(value: unknown): OffPeakCreateTaskSu
     return null;
   }
   const status = typeof task.status === "string" && task.status.trim() ? task.status : undefined;
-  const queuePosition =
-    typeof task.queuePosition === "number" &&
-    Number.isFinite(task.queuePosition) &&
-    task.queuePosition > 0
-      ? task.queuePosition
-      : undefined;
 
   return {
     offPeakTaskId,
     ...(title ? { title } : {}),
     ...(status ? { status } : {}),
-    ...(queuePosition !== undefined ? { queuePosition } : {}),
   };
 }
 
@@ -105,14 +97,8 @@ export function readOffPeakCreateTaskSummary(
   return null;
 }
 
-/** 卡片第二行：创建时位次快照优先，缺位次回退「已加入闲时队列」文案。 */
-function describeOffPeakCardStatus(task: OffPeakCreateTaskSummary, intl: IntlInstance): string {
-  if (typeof task.queuePosition === "number" && task.queuePosition > 0) {
-    return intl.formatMessage(
-      { id: "offPeak.chatCreated.queuedAt" },
-      { position: task.queuePosition },
-    );
-  }
+/** 卡片第二行：P3 起无位次快照，统一「已加入闲时队列」。 */
+function describeOffPeakCardStatus(_task: OffPeakCreateTaskSummary, intl: IntlInstance): string {
   return intl.formatMessage({ id: "offPeak.chatCreated.queued" });
 }
 
@@ -125,7 +111,7 @@ export function OffPeakCreateTaskCard({
 }) {
   const { intl } = useZCodeIntl();
   const title = task.title ?? intl.formatMessage({ id: "offPeak.chatCreated.defaultTitle" });
-  // 会话内创建的任务绑定并运行在当前会话；位次快照后追加一句提示。
+  // 会话内创建的任务绑定并运行在当前会话；状态后追加一句提示。
   const statusLine = `${describeOffPeakCardStatus(task, intl)} · ${intl.formatMessage({
     id: "offPeak.chatCreated.boundHint",
   })}`;

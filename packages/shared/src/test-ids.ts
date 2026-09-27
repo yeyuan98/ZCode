@@ -5,10 +5,7 @@
  */
 
 // Login entry
-/** 右上角登录触发按钮 */
-export const TID_LOGIN_TRIGGER = "login-trigger";
-/** 用户菜单中的登录操作 */
-export const TID_LOGIN_MENU_ITEM = "login-menu-item";
+// P3 C1 供应商 OAuth 删除：login-trigger / login-menu-item / logout-button 已随登录 UI 移除。
 /** 登录页切换到 API Key 登录方式按钮 */
 export const TID_LOGIN_USE_API_KEY_BUTTON = "login-use-api-key-button";
 /** API Key 登录 provider 选择触发器 */
@@ -39,8 +36,6 @@ export const TID_APP_HEADER = "app-header";
 export const TID_LOCALE_TOGGLE = "locale-toggle";
 /** 主题切换按钮 */
 export const TID_THEME_TOGGLE = "theme-toggle";
-/** 退出登录按钮 */
-export const TID_LOGOUT_BUTTON = "logout-button";
 /** 终端显隐切换按钮 */
 export const TID_TERMINAL_TOGGLE = "terminal-toggle";
 export const TID_SIDE_PANE_TOGGLE = "side-pane-toggle";
@@ -435,15 +430,7 @@ export const TID_MODEL_PROVIDER_TEMPLATE_ITEM = "model-provider-template-item";
 export const TID_MODEL_PROVIDER_TEMPLATE_BACK_BUTTON = "model-provider-template-back-button";
 /** 模型供应商左侧导航条目（动态后缀为 provider node key） */
 export const TID_MODEL_PROVIDER_NAV_ITEM = "model-provider-nav-item";
-/** 模型供应商连接方式下拉触发器 */
-export const TID_MODEL_PROVIDER_CONNECTION_MODE_TRIGGER = "model-provider-connection-mode-trigger";
-/** 设置页已有 Start Plan 的数量快捷入口。 */
-export const TID_MODEL_PROVIDER_START_PLAN_COUNT_SHORTCUT =
-  "model-provider-start-plan-count-shortcut";
-export const TID_MODEL_PROVIDER_START_PLAN_SWITCH_PREFIX =
-  "model-provider-start-plan-switch-prefix";
-/** 模型供应商连接方式下拉项（动态后缀为连接方式 key） */
-export const TID_MODEL_PROVIDER_CONNECTION_MODE_ITEM = "model-provider-connection-mode-item";
+// P3 C4：Start Plan 与连接方式 UI 已删除，相关 test-id 一并移除。
 /** 模型供应商详情 API Key 输入框 */
 export const TID_MODEL_PROVIDER_API_KEY_INPUT = "model-provider-api-key-input";
 /** 模型供应商名称编辑按钮 */
@@ -688,7 +675,11 @@ export const TID_OFFPEAK_FORM_TITLE = "offpeak-form-title";
 export const TID_OFFPEAK_FORM_INSTRUCTIONS = "offpeak-form-instructions";
 export const TID_OFFPEAK_ACTION_PAUSE = "offpeak-action-pause";
 export const TID_OFFPEAK_ACTION_CONTINUE = "offpeak-action-continue";
+export const TID_OFFPEAK_ACTION_RUN_NOW = "offpeak-action-run-now";
 export const TID_OFFPEAK_ACTION_DELETE = "offpeak-action-delete";
+export const TID_OFFPEAK_WINDOW_NOTICE = "offpeak-window-notice";
+export const TID_OFFPEAK_WINDOW_START = "offpeak-window-start";
+export const TID_OFFPEAK_WINDOW_END = "offpeak-window-end";
 export const TID_OFFPEAK_TAB = "offpeak-tab";
 export const TID_AUTOMATION_CARD_MENU = "automation-card-menu";
 export const TID_AUTOMATION_ACTION_TOGGLE = "automation-action-toggle";
@@ -726,7 +717,7 @@ export function testId(base: string, suffix: string): string {
   return `${base}-${suffix}`;
 }
 
-export const TID_START_PLAN_RECOMMENDATION_DIALOG = "start-plan-recommendation-dialog";
+// P3 C4：start-plan 推荐弹窗已删除，test-id 一并移除。
 
 /** 用户反馈的诊断日志授权开关 */
 export const TID_FEEDBACK_LOGS_OPT_IN = "feedback-logs-opt-in";

@@ -32,9 +32,7 @@ export class NodeProviderRegistryRuntime {
     return this.#configRuntime.personalRepository;
   }
 
-  onDidCheckZCodeBuiltin(listener: () => Promise<void>): () => void {
-    return this.#configRuntime.onDidCheckZCodeBuiltin(listener);
-  }
+  // P3 C5：onDidCheckZCodeBuiltin（远端刷新周期回调）已随供应商目录下载删除。
 
   dispose(): void {
     if (this.#disposed) return;

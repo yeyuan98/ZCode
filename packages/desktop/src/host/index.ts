@@ -27,7 +27,7 @@ import {
   ServiceCollection,
   IBotsService,
   IFileService,
-  IClientConfigService,
+  // P3 C5 供应商 client/configs 拉取删除：IClientConfigService 已随服务移除。
   IMediaPreviewService,
   IOffPeakTaskService,
   IModelSelectionService,
@@ -39,12 +39,12 @@ import {
   IZCodeSessionService,
   ICuaPipSessionService,
   createZCodeAgentConnectionScope,
+  createOffPeakInteractionPolicy,
   type ZCodeAgentV4ClientMode,
   collectServiceMemoryDiagnostics,
 } from "@zcode/services";
 import {
   createLocalServices,
-  getOffPeakRequestAuthBuilder,
   disposeServiceResources,
   disposeServiceResourcesAndWait,
   AutomationRepo,
@@ -57,7 +57,6 @@ import {
   OffPeakModelUnavailableError,
   OffPeakPermanentDispatchError,
   type HostApiNetworkTransport,
-  type OffPeakRequestAuthBuilder,
 } from "@zcode/services/node";
 import { createHostResourceUsageResponder } from "./hostResourceUsage.js";
 import {
@@ -73,7 +72,6 @@ import {
   formatZodError,
   buildRemoteWorkspaceIdentity,
   buildRemoteEnvironmentKey,
-  isOffPeakTicketExpiredError,
   isRemoteWorkspaceIdentity,
   resolveWorkspaceKey,
   formatModelPickerValue,
@@ -316,13 +314,10 @@ const OFF_PEAK_RESUME_PROMPT =
   "(app restart or execution window expired). Do not start over; review what has " +
   "already been done and complete the remaining work.";
 
-// ---- off-peak 运行时装配（server client + 进程内 mock 网关 + 编排服务，host 域属主）----
-// ⚠ 多窗口=多 host 会各自跑一份 sync 轮询（批量接口幂等、写入同库同数据，重复仅多耗请求）；
-// mock 网关用固定端口单实例共享票据状态。若多窗口轮询放大成本，再加跨 host 选主。
+// ---- off-peak 运行时装配（编排服务来自本进程 ServiceCollection，host 域属主）----
+// P3：无 server client/mock 网关/票据鉴权——派发只消费任务持久化的模型选择。
 interface OffPeakRuntime {
   service: OffPeakTaskService;
-  /** 派发时按本段票据构造逐请求鉴权；静态模型事实由 CLI Built-in Config 提供。 */
-  buildRequestAuth: OffPeakRequestAuthBuilder;
   validateSelection: (selection: {
     providerId: string;
     modelId: string;
@@ -336,14 +331,12 @@ async function ensureOffPeakRuntime(): Promise<OffPeakRuntime | null> {
   const services = activeServices;
   if (!services) return null;
   const service = services.getOptional(IOffPeakTaskService);
-  const buildRequestAuth = getOffPeakRequestAuthBuilder(services);
-  if (!service || !buildRequestAuth) {
+  if (!service) {
     logger.warn("off-peak runtime unavailable: missing host services");
     return null;
   }
   offPeakRuntime = {
     service: service as OffPeakTaskService,
-    buildRequestAuth,
     validateSelection: (selection) =>
       (service as OffPeakTaskService).validateDispatchModelSelection(selection),
   };
@@ -356,6 +349,19 @@ function disposeOffPeakRuntime(): void {
   offPeakRuntime = null;
 }
 
+/**
+ * 闲时免打扰（P3 binding policy）的 turn 级归因注册表（实现见 services，
+ * services/test 有归因生命周期单测）：
+ * 派发成功（sendPrompt 已接受）登记 sessionId；run 终态（onDynamicTaskTerminalOutcome）
+ * 或订阅释放时摘除。注册表存在期间，该 session 的 permission/AskUserQuestion/
+ * plan-approval 反向请求在 zcodeAgentService 层被自动拒绝（shouldDeclineInteractionForSession）。
+ * 普通（非闲时）turn 不登记，交互语义不变；Run-now 也不豁免（交互需求由普通任务承载）。
+ */
+const offPeakInteractionPolicy = createOffPeakInteractionPolicy();
+const trackOffPeakActiveTurnSession = offPeakInteractionPolicy.track;
+const untrackOffPeakActiveTurnSession = offPeakInteractionPolicy.untrack;
+const isOffPeakActiveTurnSession = offPeakInteractionPolicy.shouldDecline;
+
 interface OffPeakRunDispatchRequest {
   offPeakTaskId: string;
   prompt: string;
@@ -363,7 +369,6 @@ interface OffPeakRunDispatchRequest {
   modelSelection: ModelSelection;
   conversationId?: string;
   sessionId?: string;
-  serverTicketId?: string;
   workspacePath: string;
   workspaceIdentity?: string;
 }
@@ -377,6 +382,9 @@ function disposeOffPeakRunSubscription(key: string): void {
   if (!disposable) return;
   offPeakRunSubscriptions.delete(key);
   disposable.dispose();
+  // 订阅释放 = 本次派发在本 host 的生命周期终点（终态回写完成/换代清理）；
+  // 摘除免打扰归因，避免同一会话的后续普通 turn 被残留注册误拒。
+  untrackOffPeakActiveTurnSession(key.split("\u0000")[0]!);
 }
 
 /** 终态回填 files_changed：复用现有 task diff 汇总（工具写盘型统计，Bash 改动不计入，接受）。 */
@@ -412,19 +420,9 @@ async function finalizeOffPeakRun(params: {
   outcome: ZCodeAutomationRunOutcome;
   error?: string;
 }): Promise<void> {
-  // 自动续跑：票据过期（active 3h 到期 / ready 废票）不是失败——
-  // 同 task_id 重取号回 queued，等下一个 ready 再 resume 同 session 续跑。
-  if (params.outcome === "failed" && isOffPeakTicketExpiredError(params.error)) {
-    const runtime = await ensureOffPeakRuntime();
-    if (runtime) {
-      await runtime.service.handleTicketExpiredDuringRun(params.offPeakTaskId);
-      logger.info(
-        `off-peak segment expired, requeued for continuation task=${params.offPeakTaskId}`,
-      );
-      return;
-    }
-    // 运行时不可用（服务缺失）时按普通失败落库，避免任务卡在 running。
-  }
+  // P3：票据过期续跑（3102）已随供应商票据模型删除——run-to-completion，
+  // 中断只由 app 重启恢复（recoverInterrupted 置回 queued，resume 同 session）。
+  untrackOffPeakActiveTurnSession(params.taskId);
   const status =
     params.outcome === "succeeded"
       ? ("completed" as const)
@@ -502,16 +500,11 @@ async function dispatchOffPeakRun(request: OffPeakRunDispatchRequest): Promise<{
   if (!runtime) {
     throw new Error("off-peak runtime is not available");
   }
-  if (!request.serverTicketId) {
-    // schedulable 必然已取号；无票派发说明快照失序，按 transient 回执等下轮（轮询会补票）。
-    throw new Error("off-peak dispatch without server ticket");
-  }
-  // idle plan 使用普通 Selection；单次执行约束保证它不写入 Session Selection。
+  // P3：执行用任务持久化的 Selection（用户自己的 Provider）；单次执行约束保证它不写入 Session Selection。
   const idleSelection = request.modelSelection;
   if (!(await runtime.validateSelection(idleSelection))) {
     throw new OffPeakModelUnavailableError("idlePlan");
   }
-  const requestAuth = await runtime.buildRequestAuth(request.serverTicketId);
   // 首次派发与复用会话的恢复派发需要在轮次事实中可区分；该字段只描述
   // 当前自动 turn 的调度阶段，不改变稳定 task ID、独立 message ID 或手动消息语义。
   const dispatchKind = resolveOffPeakDispatchKind(request);
@@ -610,10 +603,10 @@ async function dispatchOffPeakRun(request: OffPeakRunDispatchRequest): Promise<{
       toolDenylist: ["CronCreate", "OffPeakCreate"],
       modelSelection: idleSelection,
       modelExecution: {
-        // 闲时执行凭据只服务主 Turn；完成后不再派生自动 Memory 请求。
+        // 闲时执行结束后不再派生自动 Memory 请求（P3：requestAuth 注入已删除，
+        // 执行凭据完全由目标 Provider 的常规配置解析）。
         memoryExtraction: "skip",
         selectionScope: "execution",
-        requestAuth,
         subagents: {
           foregroundModel: "submission",
           background: "deny",
@@ -622,6 +615,9 @@ async function dispatchOffPeakRun(request: OffPeakRunDispatchRequest): Promise<{
       offPeakTaskId: request.offPeakTaskId,
       offPeakRunType,
     });
+    // prompt 已被 session 接受 = 本次闲时 turn 成为该会话的活跃 turn；
+    // 登记免打扰归因（终态回写/订阅释放时摘除），交互自动拒绝只在登记期间生效。
+    trackOffPeakActiveTurnSession(taskId);
     return { conversationId: taskId, sessionId: taskId };
   } catch (error) {
     if (trackedKey) disposeOffPeakRunSubscription(trackedKey);
@@ -1575,7 +1571,8 @@ async function createWindowRemoteConnectionHandle(params: {
   signal: AbortSignal;
 }): Promise<WindowRemoteConnectionHandle<ServiceCollection, HostRemoteConnectionCapabilities>> {
   if (!activeServices) throw new Error("Local Host services are not initialized.");
-  const clientConfigService = activeServices.get(IClientConfigService);
+  // P3 C5 供应商 client/configs 拉取删除：ClientConfig 服务不再存在，
+  // 远端 workspace 集合不再透传该快照（排序回退打包默认顺序）。
   if (params.signal.aborted) {
     throw new Error("远程连接已取消");
   }
@@ -1620,7 +1617,6 @@ async function createWindowRemoteConnectionHandle(params: {
     },
   );
   const services = createRemoteWorkspaceServiceCollection({
-    clientConfigService,
     connectionServices: backendConnection.services,
     sourceServices: activeServices ?? undefined,
     parentPort,
@@ -2742,6 +2738,15 @@ parentPort.on("message", async (e: Electron.MessageEvent) => {
               onOffPeakSchedulerWakeRequested: () => {
                 parentPort?.postMessage({ type: HostResponseTypes.OffPeakSchedulerWakeRequest });
               },
+              onOffPeakRunNowRequested: (offPeakTaskId) => {
+                parentPort?.postMessage({
+                  type: HostResponseTypes.OffPeakRunNowRequest,
+                  offPeakTaskId,
+                });
+              },
+              // 闲时免打扰（P3）：session 的活跃 turn 属于本 host 派发的闲时 run 时，
+              // 该 session 的交互反向请求在 agent service 层自动拒绝（turn 级归因）。
+              shouldDeclineInteractionForSession: isOffPeakActiveTurnSession,
               onProviderProvisioningSourceChanged: (trigger) => {
                 parentPort?.postMessage({
                   type: HostResponseTypes.ProviderProvisioningSourceChanged,

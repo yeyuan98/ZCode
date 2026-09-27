@@ -8,6 +8,7 @@ import {
   DEFAULT_EMBEDDED_BROWSER_VIEWPORT_PREFERENCE,
   embeddedBrowserViewportPreferenceSchema,
 } from "./browser-use/command-metadata.js";
+import { DEFAULT_OFF_PEAK_WINDOW, offPeakWindowSchema } from "./off-peak-window.js";
 
 /** 引导职业枚举；单独导出供 onboarding 记录回填 settings 时做窄化校验。 */
 const appSettingsOccupationSchema = z.enum([
@@ -438,6 +439,8 @@ const appSettingsObjectSchema = z.object({
   closeToTrayOnWindows: z.boolean().default(true),
   closeToTrayOnWindowsMigrationInitialized: z.boolean().default(true),
   keepAwakeWhileRunning: z.boolean().default(false),
+  // 闲时任务本地准入窗口（P3）：enabled=false 表示任意时间可调度。
+  offPeakWindow: offPeakWindowSchema.default(DEFAULT_OFF_PEAK_WINDOW),
   desktopZoomLevel: desktopZoomLevelSchema.optional(),
   desktopWindowSize: desktopWindowSizeSchema.optional(),
   desktopChromiumHardwareAccelerationEnabled: z.boolean().default(true),
@@ -450,9 +453,10 @@ const appSettingsObjectSchema = z.object({
   zcodeInteractionBehavior: zcodeInteractionBehaviorSchema.default("queue"),
   askUserQuestionAutoResolutionEnabled: z.boolean().default(true),
   modelIoFullRetentionEnabled: z.boolean().default(false),
-  startPlanRecommendationDismissed: z.boolean().default(false),
   // P1：providerFamilyDomain / providerFamilyConnectionSelections 字段族已删除；
-  // zod object 默认 strip 未知键，旧 setting.json 中的残留键会被静默丢弃，无需迁移。
+  // P3 C4：startPlanRecommendationDismissed（Start Plan 推荐关闭标记）已随设置页
+  // de-plan 删除。zod object 默认 strip 未知键，旧 setting.json 中的残留键会被
+  // 静默丢弃，无需迁移。
   // 跳过时间必须是可选 ISO 字符串：settings 加载走宽松解析，必填新字段会让老用户整体回退默认值。
   providerOnboardingDismissedAt: z.string().datetime().optional(),
   nativeSearchEnhancementsEnabled: z.boolean().default(true),
@@ -505,6 +509,7 @@ export const appSettingsPatchSchema = z.object({
   taskAutoArchiveOlderThanDays: z.number().int().positive().max(365).optional(),
   closeToTrayOnWindows: z.boolean().optional(),
   keepAwakeWhileRunning: z.boolean().optional(),
+  offPeakWindow: offPeakWindowSchema.optional(),
   closeToTrayOnWindowsMigrationInitialized: z.boolean().optional(),
   desktopZoomLevel: desktopZoomLevelSchema.optional(),
   desktopWindowSize: desktopWindowSizeSchema.optional(),
@@ -518,7 +523,6 @@ export const appSettingsPatchSchema = z.object({
   zcodeInteractionBehavior: zcodeInteractionBehaviorSchema.optional(),
   askUserQuestionAutoResolutionEnabled: z.boolean().optional(),
   modelIoFullRetentionEnabled: z.boolean().optional(),
-  startPlanRecommendationDismissed: z.boolean().optional(),
   // 空串先经 normalizeSettingsPatch 归一成 undefined（重置跳过状态），这里只接受合法 ISO 时间。
   providerOnboardingDismissedAt: z.string().datetime().optional(),
   nativeSearchEnhancementsEnabled: z.boolean().optional(),

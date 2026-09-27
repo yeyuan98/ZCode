@@ -1,4 +1,10 @@
-import { TID_AUTOMATION_CREATE_MANUALLY, TID_AUTOMATION_CREATE_MENU } from "@zcode/shared";
+import {
+  TID_AUTOMATION_CREATE_MANUALLY,
+  TID_AUTOMATION_CREATE_MENU,
+  TID_OFFPEAK_WINDOW_END,
+  TID_OFFPEAK_WINDOW_NOTICE,
+  TID_OFFPEAK_WINDOW_START,
+} from "@zcode/shared";
 import type { ReactNode } from "react";
 import {
   DropdownMenu,
@@ -8,7 +14,11 @@ import {
 } from "@/components/ui/dropdown-menu.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import { AutomationSwitchToggle } from "@/settings/AutomationSwitchToggle.js";
-import { AutomationChevronDownIcon, AutomationInfoIcon } from "@/settings/AutomationIcons.js";
+import {
+  AutomationChevronDownIcon,
+  AutomationIdleTimeIcon,
+  AutomationInfoIcon,
+} from "@/settings/AutomationIcons.js";
 import { Button } from "@/components/ui/button.js";
 import { SettingsSegmentedTabs } from "@/settings/SettingsSegmentedTabs.js";
 
@@ -65,6 +75,66 @@ export function AutomationSettingsHistoryTabs({
       ]}
       onValueChange={onValueChange}
     />
+  );
+}
+
+/** 闲时时间窗提示条（P3 本地准入）：开关 + start/end 本地时钟输入。
+ *  设置属主在 desktop main；此处只读写共享 settings，不做窗口求值。 */
+export function OffPeakWindowNotice({
+  enabled,
+  start,
+  end,
+  onChange,
+}: {
+  enabled: boolean;
+  start: string;
+  end: string;
+  onChange: (next: { enabled: boolean; start: string; end: string }) => void;
+}) {
+  const { intl } = useZCodeIntl();
+  return (
+    <div
+      data-testid={TID_OFFPEAK_WINDOW_NOTICE}
+      data-automations-offpeak-window
+      className="flex min-h-11 w-full flex-wrap items-center gap-3 rounded-[10px] bg-surface px-3 py-3 text-foreground-subtle"
+    >
+      <span className="flex size-5 shrink-0 items-center justify-center" aria-hidden="true">
+        <AutomationIdleTimeIcon className="size-4" />
+      </span>
+      <p className="min-w-0 flex-1 text-ui-base leading-5">
+        {intl.formatMessage({ id: "offPeak.window.notice" })}
+      </p>
+      <AutomationSwitchToggle
+        checked={enabled}
+        ariaLabel={intl.formatMessage({ id: "offPeak.window.enabled" })}
+        onChange={(value) => onChange({ enabled: value, start, end })}
+        color="blue"
+        size="sm"
+      />
+      {enabled ? (
+        <span className="flex items-center gap-1.5">
+          <input
+            type="time"
+            step={60}
+            data-testid={TID_OFFPEAK_WINDOW_START}
+            aria-label={intl.formatMessage({ id: "offPeak.window.start" })}
+            value={start}
+            onChange={(event) => onChange({ enabled, start: event.target.value, end })}
+            className="h-7 rounded-md border border-card-border bg-background px-1.5 text-ui-base leading-5 text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-input-border-focused"
+          />
+          <span aria-hidden="true">–</span>
+          <input
+            type="time"
+            step={60}
+            data-testid={TID_OFFPEAK_WINDOW_END}
+            aria-label={intl.formatMessage({ id: "offPeak.window.end" })}
+            value={end}
+            onChange={(event) => onChange({ enabled, start, end: event.target.value })}
+            className="h-7 rounded-md border border-card-border bg-background px-1.5 text-ui-base leading-5 text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-input-border-focused"
+          />
+        </span>
+      ) : null}
+    </div>
   );
 }
 

@@ -36,7 +36,6 @@ const TERMINAL_SQL_LIST = OFF_PEAK_TERMINAL_STATUSES.map((s) => `'${s}'`).join("
 
 interface OffPeakTaskRow {
   off_peak_task_id: string;
-  server_ticket_id: string | null;
   title: string;
   conversation_id: string | null;
   session_id: string | null;
@@ -56,12 +55,7 @@ interface OffPeakTaskRow {
   ended_at: number | null;
   failure_reason: string | null;
   files_changed: number | null;
-  settled_at: number | null;
   history_deleted_at: number | null;
-  registered_at: number | null;
-  schedulable: number;
-  queue_position: number | null;
-  next_poll_at: number | null;
   claim_running: number;
   claimed_at: number | null;
   attempt_count: number;
@@ -74,7 +68,6 @@ function rowToTask(row: OffPeakTaskRow): ZCodeOffPeakTask {
   const modelSelection = readOffPeakModelSelection(row);
   return {
     offPeakTaskId: row.off_peak_task_id,
-    serverTicketId: row.server_ticket_id ?? undefined,
     title: row.title,
     conversationId: row.conversation_id ?? undefined,
     sessionId: row.session_id ?? undefined,
@@ -98,12 +91,7 @@ function rowToTask(row: OffPeakTaskRow): ZCodeOffPeakTask {
     endedAt: row.ended_at ?? undefined,
     failureReason: row.failure_reason ?? undefined,
     filesChanged: row.files_changed ?? undefined,
-    settledAt: row.settled_at ?? undefined,
     historyDeletedAt: row.history_deleted_at ?? undefined,
-    registeredAt: row.registered_at ?? undefined,
-    schedulable: row.schedulable === 1,
-    queuePosition: row.queue_position ?? undefined,
-    nextPollAt: row.next_poll_at ?? undefined,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -140,7 +128,7 @@ function serializeOffPeakModelSelection(
  *
  * 仓库只做存储与原子状态迁移，守卫两条不变量：
  * 终态不可逆出；单任务认领 single-flight（任务间并发不设本地上限）。
- * 排队/晋级语义在服务端，仓库不感知——schedulable 只是 host 轮询写回的快照。
+ * 排队语义在本地：仓库不感知时间窗——认领前准入由 scheduler 向 main 求值（P3）。
  */
 /** INSERT 撞上 idx_off_peak_bound_active（并发双创建的失败方）。 */
 export function isOffPeakBoundSessionConflict(error: unknown): boolean {
@@ -248,21 +236,16 @@ export class OffPeakTaskRepo {
   // ---- 管理 CRUD ----
 
   /**
-   * 创建即入队（status=queued）。取号在 service 层先行（POST /ticket 成功才落库），
-   * 取号结果经 options 一并写入；mock 先行阶段允许不带服务端字段。
+   * 创建即入队（status=queued）。P3 起准入完全本地化：无取号、无服务端字段，
+   * 是否可派发由 claim 时的时间窗求值决定（scheduler→main correlated 询问）。
    */
   async create(
     params: ZCodeOffPeakTaskCreateParams,
     options?: {
       /** 测试注入用；缺省 Date.now()。 */
       now?: number;
-      /** service 层先取号后落库时外部指定主键（取号需先有 task_id）；缺省内部生成。 */
+      /** 外部指定主键（测试/协议投影）；缺省内部生成。 */
       offPeakTaskId?: string;
-      serverTicketId?: string;
-      queuePosition?: number;
-      registeredAt?: number;
-      /** 取号即 ready（低峰空闲时服务端可直接晋级）时随建随派。 */
-      schedulable?: boolean;
     },
   ): Promise<ZCodeOffPeakTask> {
     await this.ensureReady();
@@ -275,22 +258,21 @@ export class OffPeakTaskRepo {
     this.getDatabase()
       .prepare(
         `INSERT INTO off_peak_tasks (
-          off_peak_task_id, server_ticket_id, title, conversation_id, session_id,
+          off_peak_task_id, title, conversation_id, session_id,
           prompt, permission_mode, model, thought_level, model_selection,
           workspace_key, workspace_path, workspace_identity,
-          status, queued_at, registered_at, schedulable, queue_position,
+          status, queued_at,
           claim_running, attempt_count, created_at, updated_at
         ) VALUES (
-          @off_peak_task_id, @server_ticket_id, @title, NULL, @session_id,
+          @off_peak_task_id, @title, NULL, @session_id,
           @prompt, @permission_mode, @model, @thought_level, @model_selection,
           @workspace_key, @workspace_path, @workspace_identity,
-          'queued', @queued_at, @registered_at, @schedulable, @queue_position,
+          'queued', @queued_at,
           0, 0, @now, @now
         )`,
       )
       .run({
         off_peak_task_id: offPeakTaskId,
-        server_ticket_id: options?.serverTicketId ?? null,
         title: params.title,
         // 会话内创建绑定当前会话；conversation_id 仍等首跑回填（非空 = 已跑过）。
         session_id: params.boundSessionId ?? null,
@@ -303,9 +285,6 @@ export class OffPeakTaskRepo {
         workspace_path: params.workspacePath,
         workspace_identity: params.workspaceIdentity ?? null,
         queued_at: now,
-        registered_at: options?.registeredAt ?? null,
-        schedulable: options?.schedulable ? 1 : 0,
-        queue_position: options?.queuePosition ?? null,
         now,
       });
     return rowToTask(this.getRow(offPeakTaskId)!);
@@ -377,7 +356,7 @@ export class OffPeakTaskRepo {
       db.prepare(
         `UPDATE off_peak_tasks
          SET model = @model, thought_level = @thought_level,
-             model_selection = NULL, schedulable = 0, updated_at = @now
+             model_selection = NULL, updated_at = @now
          WHERE off_peak_task_id = @id`,
       ).run({
         id: offPeakTaskId,
@@ -502,51 +481,12 @@ export class OffPeakTaskRepo {
     return rowToTask(this.getRow(offPeakTaskId)!);
   }
 
-  // ---- 服务端同步快照（host offPeakTaskSync 写 / scheduler 读）----
-
-  /** 轮询/重新取号写回：仅覆盖显式传入的字段。 */
-  async updateSchedulingSnapshot(
-    offPeakTaskId: string,
-    patch: {
-      schedulable?: boolean;
-      queuePosition?: number | null;
-      nextPollAt?: number | null;
-      serverTicketId?: string;
-      registeredAt?: number;
-      now?: number;
-    },
-  ): Promise<void> {
-    await this.ensureReady();
-    const row = this.getRow(offPeakTaskId);
-    if (!row) return;
-    this.getDatabase()
-      .prepare(
-        `UPDATE off_peak_tasks SET
-          schedulable = @schedulable,
-          queue_position = @queue_position,
-          next_poll_at = @next_poll_at,
-          server_ticket_id = @server_ticket_id,
-          registered_at = @registered_at,
-          updated_at = @now
-        WHERE off_peak_task_id = @id`,
-      )
-      .run({
-        id: offPeakTaskId,
-        schedulable: patch.schedulable === undefined ? row.schedulable : patch.schedulable ? 1 : 0,
-        queue_position:
-          patch.queuePosition === undefined ? row.queue_position : patch.queuePosition,
-        next_poll_at: patch.nextPollAt === undefined ? row.next_poll_at : patch.nextPollAt,
-        server_ticket_id: patch.serverTicketId ?? row.server_ticket_id,
-        registered_at: patch.registeredAt ?? row.registered_at,
-        now: patch.now ?? Date.now(),
-      });
-  }
-
   // ---- 调度状态机 ----
 
   /**
-   * single-flight 认领可派发任务：status=queued 且 schedulable=1 且无在途认领，
-   * 原子 claim_running 0→1。FIFO 序按 queued_at（权威序由服务端取号顺序保证）。
+   * single-flight 认领到期任务：status='queued' 且无在途认领，原子 claim_running 0→1。
+   * FIFO 序按 queued_at（本地入队序）。P3 起可调度性不再落库——时间窗准入由 scheduler
+   * 在调用本方法之前向 main 询问（withinWindow），Run-now 路径绕过窗口走 claimOneForRunNow。
    * 同时回收认领超时（claimed_at 过期）的僵尸认领。
    */
   async claimDue(now: number): Promise<ZCodeOffPeakTask[]> {
@@ -562,7 +502,7 @@ export class OffPeakTaskRepo {
       const dueRows = db
         .prepare(
           `SELECT * FROM off_peak_tasks
-          WHERE status = 'queued' AND schedulable = 1 AND claim_running = 0
+          WHERE status = 'queued' AND claim_running = 0
           ORDER BY queued_at ASC, created_at ASC`,
         )
         .all() as unknown as OffPeakTaskRow[];
@@ -590,8 +530,47 @@ export class OffPeakTaskRepo {
   }
 
   /**
-   * 派发成功（网关 admitted）：queued→running，回填首跑产生的 conversation/session 与
-   * 本段 ticket，释放认领。守卫：仅 queued 可入 running（终态不可逆出；paused 竞态下
+   * Run-now 强制认领（P3 本地准入）：只对 status='queued' 且 claim_running=0 的单任务
+   * 原子置 claim_running=1 并返回；其余情况（不存在/paused/running/已在派发在途/终态）返回 null。
+   * 与 claimDue 不同：不做批量、不检查可调度快照——绕过窗口是 Run-now 的产品语义。
+   */
+  async claimOneForRunNow(offPeakTaskId: string, now: number): Promise<ZCodeOffPeakTask | null> {
+    await this.ensureReady();
+    const db = this.getDatabase();
+    db.exec("BEGIN IMMEDIATE");
+    try {
+      const row = db
+        .prepare(
+          `SELECT * FROM off_peak_tasks
+           WHERE off_peak_task_id = @id AND status = 'queued' AND claim_running = 0`,
+        )
+        .get({ id: offPeakTaskId }) as OffPeakTaskRow | undefined;
+      if (!row) {
+        db.exec("COMMIT");
+        return null;
+      }
+      const res = db
+        .prepare(
+          `UPDATE off_peak_tasks
+           SET claim_running = 1, claimed_at = @now, updated_at = @now
+           WHERE off_peak_task_id = @id AND claim_running = 0`,
+        )
+        .run({ id: offPeakTaskId, now });
+      if (res.changes !== 1) {
+        db.exec("COMMIT");
+        return null;
+      }
+      db.exec("COMMIT");
+      return rowToTask({ ...row, claim_running: 1, claimed_at: now });
+    } catch (error) {
+      db.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
+  /**
+   * 派发成功（session 已接受 prompt）：queued→running，回填首跑产生的 conversation/session，
+   * 释放认领。守卫：仅 queued 可入 running（终态不可逆出；paused 竞态下
    * 派发结果作废，返回 null 由调用方处理）。续跑段保留首段 started_at（用户视角单任务）。
    */
   async markRunning(
@@ -600,7 +579,6 @@ export class OffPeakTaskRepo {
       startedAt: number;
       conversationId?: string;
       sessionId?: string;
-      serverTicketId?: string;
     },
   ): Promise<ZCodeOffPeakTask | null> {
     await this.ensureReady();
@@ -611,7 +589,6 @@ export class OffPeakTaskRepo {
             started_at = COALESCE(started_at, @started_at),
             conversation_id = COALESCE(@conversation_id, conversation_id),
             session_id = COALESCE(@session_id, session_id),
-            server_ticket_id = COALESCE(@server_ticket_id, server_ticket_id),
             claim_running = 0, claimed_at = NULL,
             last_error = NULL,
             updated_at = @started_at
@@ -622,7 +599,6 @@ export class OffPeakTaskRepo {
         started_at: options.startedAt,
         conversation_id: options.conversationId ?? null,
         session_id: options.sessionId ?? null,
-        server_ticket_id: options.serverTicketId ?? null,
       });
     if (res.changes !== 1) return null;
     return rowToTask(this.getRow(offPeakTaskId)!);
@@ -630,7 +606,7 @@ export class OffPeakTaskRepo {
 
   /**
    * 终态落库（completed/failed/cancelled）。守卫：终态不可逆出——已终态的行拒绝二次迁移，
-   * 返回 null（OffPeakRunResult 迟到兜底时调用方据此丢弃）。settled_at 由核销单独回填。
+   * 返回 null（OffPeakRunResult 迟到兜底时调用方据此丢弃）。
    */
   async markTerminal(
     offPeakTaskId: string,
@@ -653,7 +629,6 @@ export class OffPeakTaskRepo {
             files_changed = COALESCE(@files_changed, files_changed),
             attempt_count = attempt_count + @dispatch_attempt_inc,
             last_error = COALESCE(@dispatch_error, last_error),
-            schedulable = 0,
             claim_running = 0, claimed_at = NULL,
             updated_at = @ended_at
         WHERE off_peak_task_id = @id AND status NOT IN (${TERMINAL_SQL_LIST})`,
@@ -673,7 +648,7 @@ export class OffPeakTaskRepo {
 
   /**
    * 用户 Pause / Continue：queued ⇄ paused。
-   * Pause 只停本地派发（票留服务端队列）；Continue 的票有效性判断与重取号在 service 层。
+   * Pause 只停本地派发（时间窗开也不会被认领）；Continue 的资格处理在 service 层。
    * 已被认领派发在途（claim_running=1）的任务不可 Pause，返回 null。
    */
   async setPaused(
@@ -755,29 +730,7 @@ export class OffPeakTaskRepo {
     }
   }
 
-  /**
-   * 3h 时间盒到期 / ready 废票的续跑回队：running → queued，保留
-   * session/conversation/started_at 供 resume 接续；清 schedulable 与位次等待重新取号后由轮询刷新。
-   * 终态/paused 不可回队，返回 null（如用户已抢先取消）。
-   */
-  async requeueForContinuation(
-    offPeakTaskId: string,
-    options?: { now?: number },
-  ): Promise<ZCodeOffPeakTask | null> {
-    await this.ensureReady();
-    const res = this.getDatabase()
-      .prepare(
-        `UPDATE off_peak_tasks
-        SET status = 'queued', schedulable = 0, queue_position = NULL,
-            claim_running = 0, claimed_at = NULL, updated_at = @now
-        WHERE off_peak_task_id = @id AND status = 'running'`,
-      )
-      .run({ id: offPeakTaskId, now: options?.now ?? Date.now() });
-    if (res.changes !== 1) return null;
-    return rowToTask(this.getRow(offPeakTaskId)!);
-  }
-
-  /** 全部非终态任务（offPeakTaskSync 轮询输入：有非终态才轮）。 */
+  /** 全部非终态任务（运行中任务观测/测试用）。 */
   async listNonTerminal(): Promise<ZCodeOffPeakTask[]> {
     await this.ensureReady();
     const rows = this.getDatabase()
@@ -785,33 +738,6 @@ export class OffPeakTaskRepo {
         `SELECT * FROM off_peak_tasks
         WHERE status NOT IN (${TERMINAL_SQL_LIST})
         ORDER BY queued_at ASC`,
-      )
-      .all() as unknown as OffPeakTaskRow[];
-    return rows.map(rowToTask);
-  }
-
-  // ---- 终态核销 outbox----
-
-  /** settle 服务端 ack 后回填；仅终态行可核销（幂等，重复回填覆盖为最新 ack 时间）。 */
-  async markSettled(offPeakTaskId: string, settledAt: number): Promise<void> {
-    await this.ensureReady();
-    this.getDatabase()
-      .prepare(
-        `UPDATE off_peak_tasks
-        SET settled_at = @settled_at, updated_at = @settled_at
-        WHERE off_peak_task_id = @id AND status IN (${TERMINAL_SQL_LIST})`,
-      )
-      .run({ id: offPeakTaskId, settled_at: settledAt });
-  }
-
-  /** 未核销的终态任务：poll 周期捎带补报 + host 启动扫描（不新增计时器）。 */
-  async listUnsettledTerminal(): Promise<ZCodeOffPeakTask[]> {
-    await this.ensureReady();
-    const rows = this.getDatabase()
-      .prepare(
-        `SELECT * FROM off_peak_tasks
-        WHERE status IN (${TERMINAL_SQL_LIST}) AND settled_at IS NULL
-        ORDER BY ended_at ASC`,
       )
       .all() as unknown as OffPeakTaskRow[];
     return rows.map(rowToTask);

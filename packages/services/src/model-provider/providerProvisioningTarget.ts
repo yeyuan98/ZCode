@@ -16,13 +16,14 @@ import type { ICredentialService } from "../credential/credential.js";
 import type { ProviderRuntime } from "./providerRuntime.js";
 import type { IProviderProvisioningTargetService } from "./providerProvisioning.js";
 import {
-  PROVIDER_PROVISIONING_OAUTH_CREDENTIAL_KEYS,
+  PROVIDER_PROVISIONING_CREDENTIAL_KEYS,
   readProvisionablePersonalConfig,
 } from "./providerProvisioningSource.js";
 
 const PROVISIONING_SCHEMA_VERSION = 1 as const;
 
-const OAUTH_CREDENTIAL_KEYS = new Set<string>(PROVIDER_PROVISIONING_OAUTH_CREDENTIAL_KEYS);
+// P3 C1 供应商 OAuth 删除：allowlist 已清空，replace-allowlist 语义不再删除任何历史键。
+const ALLOWED_CREDENTIAL_KEYS = new Set<string>(PROVIDER_PROVISIONING_CREDENTIAL_KEYS);
 
 export interface ProviderProvisioningTargetOptions {
   readonly providerRuntime: ProviderRuntime;
@@ -169,13 +170,13 @@ async function captureBeforeState(
   );
   const credentials = new Map<string, string | null>();
   const credentialKeys = new Set<string>([
-    ...OAUTH_CREDENTIAL_KEYS,
+    ...ALLOWED_CREDENTIAL_KEYS,
     ...((await options.listProvisioningCredentialKeys?.()) ?? []),
     ...envelope.credentials.map((entry) => entry.key),
   ]);
   for (const key of credentialKeys) {
     // P2：account-provider 凭据键已删除；基线只保留 OAuth allowlist 内的键。
-    if (!OAUTH_CREDENTIAL_KEYS.has(key)) {
+    if (!ALLOWED_CREDENTIAL_KEYS.has(key)) {
       continue;
     }
     credentials.set(key, await options.credentialService.load(key));
@@ -252,7 +253,7 @@ function validateCredentialEntries(envelope: ProviderProvisioningEnvelope): void
   for (const entry of envelope.credentials) {
     if (seen.has(entry.key)) throw new Error(`重复 Provisioning Credential key: ${entry.key}`);
     seen.add(entry.key);
-    const allowed = entry.scope === "oauth-session" && OAUTH_CREDENTIAL_KEYS.has(entry.key);
+    const allowed = entry.scope === "oauth-session" && ALLOWED_CREDENTIAL_KEYS.has(entry.key);
     if (!allowed) throw new Error(`不允许同步的 Credential key: ${entry.key}`);
   }
 }

@@ -1,28 +1,13 @@
-import { useEffect } from "react";
-import type { AppSettings } from "@zcode/shared";
 import { useServices } from "@/hooks/useServices.js";
 import { useOffPeakTaskStore } from "@/store/offPeakTaskStore.js";
 
-/** 两个闲时入口共享初始化/连接/Registry 通知边界，不在组件中另存资格。 */
-export function useOffPeakEligibility(
-  settings: AppSettings | null | undefined,
-  registryRevision: number | undefined,
-): void {
-  const { offPeakTaskService, codingPlanSubscriptionService } = useServices();
+/**
+ * 闲时入口共享列表初始化（P3 本地化：无灰度/套餐/额度资格链）。
+ * Registry revision 变化只作为可见性刷新信号——创建资格由 AutomationsSection
+ * 直接读 provider view（存在可选模型即可创建），store 不保存资格状态。
+ */
+export function useOffPeakEligibility(): void {
+  const { offPeakTaskService } = useServices();
   const initialize = useOffPeakTaskStore((state) => state.initialize);
-  const refresh = useOffPeakTaskStore((state) => state.refreshCodingPlanSupport);
-  // P1：providerFamilyDomain / providerFamilyConnectionSelections 已删除，
-  // 闲时资格失去连接变化失效信号，只用 Registry revision 作为刷新键（P3 重建）。
-  const freshnessKey = settings ? JSON.stringify([registryRevision]) : undefined;
-
-  useEffect(() => {
-    void initialize({ offPeakTaskService, codingPlanSubscriptionService });
-  }, [initialize, offPeakTaskService, codingPlanSubscriptionService]);
-
-  useEffect(() => {
-    if (freshnessKey === undefined) return;
-    // Settings 变化只是失效信号；ProviderSettings View revision 来自 Registry 已完成发布。
-    // 即使选择没变，账号稍后就绪也会重查；相同 key 的双入口通知由 Store 去重。
-    void refresh(offPeakTaskService, freshnessKey);
-  }, [freshnessKey, offPeakTaskService, refresh]);
+  void initialize({ offPeakTaskService });
 }

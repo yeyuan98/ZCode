@@ -7,33 +7,43 @@ import {
   createContext,
   useCallback,
   useContext,
+  useEffect,
   useRef,
   useSyncExternalStore,
   type ReactNode,
 } from "react";
 import { useStore } from "zustand";
 import type { IBroadcastService } from "@zcode/services";
-import { createZCodeStore, type ZCodeStore, type ZCodeState } from "./index.js";
+import {
+  createZCodeStore,
+  registerDefaultLocalUserIfAbsent,
+  type ZCodeStore,
+  type ZCodeState,
+} from "./index.js";
 
 // 导出 Context 供测试直接注入已构造的 store 实例（如跨窗口广播抑制用例）。
 const StoreContext = createContext<ZCodeStore | null>(null);
 
 export function StoreProvider({
   broadcastService,
-  initialIsRestoringOAuthSession = false,
   children,
 }: {
   broadcastService: IBroadcastService;
-  initialIsRestoringOAuthSession?: boolean;
   children: ReactNode;
 }) {
   // 只在首次渲染时创建 store，避免 HMR 重复订阅
   const storeRef = useRef<ZCodeStore | null>(null);
   if (!storeRef.current) {
-    storeRef.current = createZCodeStore(broadcastService, {
-      initialIsRestoringOAuthSession,
-    });
+    storeRef.current = createZCodeStore(broadcastService);
   }
+
+  // P3 ruling 6 休眠用户框架：供应商 OAuth 删除后不再有登录会话恢复；
+  // 挂载时 user === null 就注册一次内置本地用户（幂等、不持久化、无 UI 面）。
+  // 覆盖 desktop renderer 与 web（两者都经由 StoreProvider 挂载）。
+  // 恢复真实身份提供方时替换此 initializer 即可，user/setUser/authSessionSeq 管道不变。
+  useEffect(() => {
+    registerDefaultLocalUserIfAbsent(storeRef.current!.getState());
+  }, []);
 
   return <StoreContext.Provider value={storeRef.current}>{children}</StoreContext.Provider>;
 }

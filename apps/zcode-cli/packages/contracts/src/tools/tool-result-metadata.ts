@@ -1,5 +1,4 @@
 import { z } from "zod";
-import { OFFICIAL_MCP_TOOL_ERROR_CODES } from "@zcode/shared";
 
 import {
   CREATE_WORKFLOW_DISPLAY_MAX_DIAGNOSTICS,
@@ -189,17 +188,10 @@ export const mcpToolResultDisplayPayloadSchema = z
     serverName: z.string().min(1).max(MCP_TOOL_DISPLAY_MAX_NAME_CHARS),
     toolName: z.string().min(1).max(MCP_TOOL_DISPLAY_MAX_NAME_CHARS),
     description: z.string().min(1).max(MCP_TOOL_DISPLAY_MAX_DESCRIPTION_CHARS).optional(),
-    /**
-     * 官方 Server MCP 判定本次调用不可用时下发的结构化标识（额度耗尽 / 无 Coding Plan）。
-     * 只在 tool result 为 isError 且该 MCP 为官方来源时出现，UI 据此在输入框上方提示。
-     * 与 code 同源：`@zcode/shared` 的 OFFICIAL_MCP_TOOL_ERROR_CODES。
-     */
-    unavailable: z
-      .object({ code: z.enum(OFFICIAL_MCP_TOOL_ERROR_CODES) })
-      .strict()
-      .optional(),
   })
   .strict();
+// P3 C3：官方 MCP（Z.ai 托管）服务删除，unavailable（额度耗尽/无套餐结构化标识）字段
+// 随 @zcode/shared 的 official-mcp-tool-error.ts 一并移除。
 
 /**
  * ⚠ 这个字段集合是**冻结**的。既有 kind 上多出来的键不是「旧客户端少读一个字段」，而是整块 display

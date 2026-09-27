@@ -1,12 +1,6 @@
 /* eslint-disable max-lines -- Root workspace action hook 集中编排项目、远程和 conversation 入口；合并期保持动作边界完整，后续按领域拆分。 */
 import { useCallback, useEffect, useState } from "react";
-import {
-  DesktopCommandIds,
-  type IPlatformService,
-  type RemoteTarget,
-  type UserInfo,
-  type ZCodeTaskClientMode,
-} from "@zcode/shared";
+import { type IPlatformService, type RemoteTarget, type ZCodeTaskClientMode } from "@zcode/shared";
 import type { IServiceAccessor } from "@zcode/services";
 import type { CreateTaskRequest } from "@/app-shell/types.js";
 import { useConfirmDialog } from "@/hooks/useConfirmDialog.js";
@@ -77,10 +71,6 @@ export function useRootWorkspaceActions({
   allowOpenWorkspace,
   preferDirectoryBrowser,
   openDirectoryBrowser,
-  refreshProviderState,
-  setOAuthError,
-  setUser,
-  userId,
   onOpenRemoteConnection,
   workbenchGroupClientMode = "desktop-continuous",
 }: {
@@ -95,10 +85,6 @@ export function useRootWorkspaceActions({
   allowOpenWorkspace: NonNullable<RootProps["allowOpenWorkspace"]>;
   preferDirectoryBrowser: boolean;
   openDirectoryBrowser?: () => void;
-  refreshProviderState: () => Promise<void>;
-  setOAuthError: (error: string | null) => void;
-  setUser: (user: UserInfo | null) => void;
-  userId?: string;
   onOpenRemoteConnection?: (preference?: OpenRemoteConnectionPreference) => void;
   workbenchGroupClientMode?: ZCodeTaskClientMode;
 }) {
@@ -275,57 +261,8 @@ export function useRootWorkspaceActions({
     [addTab, intl, tabStoreApi, workbenchGroupClientMode],
   );
 
-  const handleLogout = useCallback(async () => {
-    let runningAgentSessionCount: number | null = null;
-    try {
-      const sessionActivity = await platform.getDesktopSessionActivity?.();
-      runningAgentSessionCount =
-        typeof sessionActivity?.runningAgentSessionCount === "number"
-          ? sessionActivity.runningAgentSessionCount
-          : null;
-    } catch (error) {
-      logger.warn("[Root] 查询桌面运行中会话数量失败，使用保守退出登录文案", { error });
-    }
-
-    const confirmed = await requestConfirmation({
-      title: intl.formatMessage({ id: "logout.confirm.title" }),
-      description:
-        runningAgentSessionCount !== null && runningAgentSessionCount > 0
-          ? intl.formatMessage(
-              { id: "logout.confirm.descriptionWithRunningSessions" },
-              { count: String(runningAgentSessionCount) },
-            )
-          : intl.formatMessage({ id: "logout.confirm.descriptionDefault" }),
-      confirmLabel: intl.formatMessage({ id: "logout.confirm.ok" }),
-      cancelLabel: intl.formatMessage({ id: "logout.confirm.cancel" }),
-    });
-    if (!confirmed) {
-      return;
-    }
-
-    // P1：退出登录不再清空 providerFamilyDomain（字段已删除）；账号边界清理由 OAuth logout 与 Host hook 负责。
-    await services.oauthService.logout();
-    // ZAI/BigModel provider 已恢复为 App 登录镜像。
-    // 派生 Coding/Start key 由 OAuth logout 的 host hook 统一清理，Root 只负责刷新展示态。
-    setOAuthError(null);
-    setUser(null);
-    // 退出登录后刷新 Account Source 与 Registry，避免继续展示退出前的 Provider 状态。
-    await refreshProviderState();
-    // Coding Plan 官网 webview 使用独立持久 partition，App logout 必须同步清理。
-    await platform.executeDesktopCommand(DesktopCommandIds.ClearCodingPlanWebviewStorage);
-    await platform.executeDesktopCommand(DesktopCommandIds.RelaunchApp);
-  }, [
-    intl,
-    requestConfirmation,
-    refreshProviderState,
-    platform,
-    services.oauthService,
-    services.modelSelectionService,
-    services.settingService,
-    setOAuthError,
-    setUser,
-    userId,
-  ]);
+  // P3 C1 供应商 OAuth 删除：handleLogout（oauthService.logout + 清理派生 key + 重启）
+  // 已随登录会话机制删除；休眠单用户下退出登录无意义，不提供替代行为（ruling 6）。
 
   const handleSelectProject = useCallback(
     async (path: string) => {
@@ -522,7 +459,6 @@ export function useRootWorkspaceActions({
     setWorkspaceActionError,
     startDraftInWorkspace,
     startNewTaskFromActiveWorkspace,
-    handleLogout,
     handleSelectProject,
     handleSelectConversationWorkspace,
     handleResolveConversationWorkspace,

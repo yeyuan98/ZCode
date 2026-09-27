@@ -22,8 +22,9 @@ export function createProviderRuntimeHeadersPort(
 ): NonNullable<ZCodeAppOptions["providerRuntimeHeadersPort"]> {
   return {
     shouldRefreshBeforeModelRequest() {
-      // Account 请求由绑定 Model 决定是否进入鉴权，不能把所有账号收窄到旧 Start ID。
-      // 普通 API 不进入此端口；Team/Individual 继续复用请求级鉴权合同。
+      // P3：供应商账号（zhipu-account）概念已删除，此端口不再有账号鉴权用途；
+      // 保留为通用 runtime-headers 契约（当前 Host 侧统一快速失败 headersApplied:false，
+      // CLI 侧亦在 runner 装配处剥离回调），整体链路随 P4/P5 运行时清理处置。
       return true;
     },
     async refreshBeforeModelRequest(input) {
@@ -40,7 +41,6 @@ export function createProviderRuntimeHeadersPort(
             workspace,
             modelSelection: { providerId: input.providerId, modelId: input.modelId },
             providerId: input.providerId,
-            ...(input.accountAccess ? { accountAccess: input.accountAccess } : {}),
             reason: input.reason,
           },
           zcodeProviderRuntimeHeadersResponseSchema,

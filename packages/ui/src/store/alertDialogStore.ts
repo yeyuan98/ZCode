@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { logger } from "@/logger.js";
 
+/** requestAlert 的请求形状（useAlertDialog 显式引用，构成跨模块消费）。 */
 export interface AlertDialogRequest {
   title: string;
   description?: string;

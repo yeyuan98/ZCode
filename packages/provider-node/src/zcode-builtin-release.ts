@@ -56,6 +56,7 @@ export function decodeZCodeBuiltinRelease(input: unknown): ZCodeBuiltinRelease {
   });
 }
 
+// encode 仍由本地 Active 缓存修复（#writeActiveLocked）使用；远端 Release 落盘已删除。
 export function encodeZCodeBuiltinRelease(release: ZCodeBuiltinRelease): object {
   return {
     schemaVersion: ZCODE_BUILTIN_RELEASE_SCHEMA_VERSION,

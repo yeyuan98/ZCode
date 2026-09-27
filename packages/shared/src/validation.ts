@@ -350,8 +350,8 @@ export const hostCronRunMessageSchema = z.object({
 });
 
 // main → host：闲时任务派发（仿 cron-run，字段独立不复用）。首跑不带 conversationId/sessionId，
-// host createTask 新建 session；3h 续跑 / 中断恢复带上两者 resume 同一会话。
-// serverTicketId 供 idle plan 适配层注入 X-Off-Peak-Ticket-ID 请求头（run 作用域）。
+// host createTask 新建 session；中断恢复带上两者 resume 同一会话。
+// P3：serverTicketId 已随供应商票据模型删除；执行用任务持久化的模型选择。
 export const hostOffPeakRunMessageSchema = z.object({
   type: z.literal("off-peak-run"),
   offPeakTaskId: nonEmptyStringSchema,
@@ -363,7 +363,6 @@ export const hostOffPeakRunMessageSchema = z.object({
   modelSelection: modelSelectionSchema,
   conversationId: z.string().optional(),
   sessionId: z.string().optional(),
-  serverTicketId: z.string().optional(),
 });
 
 // main → host：browser-use 命令执行结果（按 requestId 关联到 host 的 pending）。
@@ -728,10 +727,17 @@ export const hostCronSchedulerWakeRequestResponseSchema = z.object({
   automationId: nonEmptyStringSchema,
 });
 
-// host → main：闲时任务 schedulable 翻转后的 scheduler 唤醒；业务数据仍由 scheduler 从 sqlite 读取。
+// host → main：闲时任务 Run-now 强制派发请求；业务数据仍由 scheduler 从 sqlite 读取。
 export const hostOffPeakSchedulerWakeRequestResponseSchema = z.object({
   type: z.literal("off-peak-scheduler-wake-request"),
   offPeakTaskId: z.string().optional(),
+});
+
+// host → main：Run-now 强制派发请求（UI→host service→main→scheduler）。
+// 绕过本地窗口；scheduler 端对 status='queued' 且 claim_running=0 的任务原子认领，其余 no-op。
+export const hostOffPeakRunNowRequestResponseSchema = z.object({
+  type: z.literal("off-peak-run-now-request"),
+  offPeakTaskId: nonEmptyStringSchema,
 });
 
 // host → main：执行一条 browser-use 命令（main 用 WebContentsView+CDP 执行）。
@@ -843,6 +849,7 @@ export const hostResponseMessageSchema = z.discriminatedUnion("type", [
   hostOffPeakRunResultResponseSchema,
   hostCronSchedulerWakeRequestResponseSchema,
   hostOffPeakSchedulerWakeRequestResponseSchema,
+  hostOffPeakRunNowRequestResponseSchema,
 ]);
 
 export const zcodeTaskPersistStatusSchema = z.enum(["running", "completed", "error"]);

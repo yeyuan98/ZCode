@@ -137,9 +137,8 @@ function createSettingsMutationTarget(
       ),
     refresh: (reason) => registryService.refresh(reason),
     refreshSources: async (reason) => {
-      const sourceResults = await Promise.allSettled([
-        configRuntime.refreshZCodeBuiltin({ force: true }),
-      ]);
+      // P3 C5：远端内置目录刷新已删除；这里只做一次 Built-in 文件源本地重读。
+      const sourceResults = await Promise.allSettled([configRuntime.refreshZCodeBuiltin()]);
       const snapshot = await registryService.refresh(reason);
       const failed = sourceResults.find(
         (result): result is PromiseRejectedResult => result.status === "rejected",

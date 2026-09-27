@@ -64,6 +64,8 @@ export {
   ZCODE_PRODUCT_FLAVOR,
   ZCODE_APP_VERSION_ENV,
   ZCODE_BUILD_COMMIT_ID_ENV,
+  // P3 C3：自 official-mcp-auth.ts 迁入（官方 MCP 服务删除后保留的通用 workspace 身份常量）。
+  ZCODE_WORKSPACE_IDENTITY_ENV,
   RUNTIME_ZCODE_DEBUG,
   normalizeZCodeEnv,
   normalizeZCodeProductFlavor,
@@ -75,7 +77,6 @@ export * from "./rendererActionTrace.js";
 export * from "./validation.js";
 export * from "./api.js";
 export * from "./zcode-protocol/index.js";
-export * from "./account-provider-state.js";
 // re-home：旧协议承重面的幸存文件（消费者继续走 barrel，零感知）
 export * from "./zcode-protocol-legacy-types.js";
 export * from "./zcode-task-types-core.js";
@@ -84,8 +85,8 @@ export * from "./remote-workspace-identity.js";
 export * from "./zcode-api-retry-status.js";
 export * from "./zcode-network-debug-status.js";
 export * from "./zcode-session-visible-content.js";
-export * from "./official-mcp-auth.js";
-export * from "./official-mcp-tool-error.js";
+// P3 C3：官方 MCP（Z.ai 托管）服务删除，official-mcp-auth.ts 与 official-mcp-tool-error.ts
+// 整文件移除；通用常量 ZCODE_WORKSPACE_IDENTITY_ENV 已迁至 env.ts。
 export * from "./conversation-message-projection-policy.js";
 export * from "./conversation-share.js";
 export * from "./conversation-preview-artifacts.js";
@@ -116,7 +117,8 @@ export * from "./test-ids.js";
 export * from "./test-ids-workflow.js";
 export * from "./channels.js";
 export * from "./storage.js";
-export * from "./oauth.js";
+export * from "./user.js";
+export * from "./credential.js";
 export * from "./desktopMenu.js";
 // P2：内置反馈中心（packages/shared/src/feedback.ts）已删除，反馈改为外部 GitHub Issues 预填跳转。
 export * from "./githubIssueUrl.js";
@@ -126,7 +128,6 @@ export * from "./helpAppConfig.js";
 export * from "./remoteAssetInstallMode.js";
 export * from "./onboardingRecord.js";
 export * from "./remoteResourcePackages.js";
-export * from "./plan-identity.js";
 export {
   BROWSER_SCREENSHOT_SURFACE_PREPARE_TIMEOUT_MS,
   BROWSER_VIEW_RESTORE_BOOTSTRAP_URL,
@@ -200,6 +201,7 @@ export type { ZCodeTaskCreateResult } from "./zcode-task-types.js";
 export * from "./zcode-task-types.js";
 export * from "./automation-types.js";
 export * from "./off-peak-types.js";
+export * from "./off-peak-window.js";
 export * from "./background-task-control-merge.js";
 export * from "./background-task-controls.js";
 export * from "./background-task-notifications.js";
@@ -208,8 +210,8 @@ export * from "./zcode-agent-model-state.js";
 export * from "./task-realtime.js";
 export { formatTimestamp, formatLogPrefix } from "./log-format.js";
 export * from "./model-provider-types.js";
-export * from "./model-provider-family.js";
-export * from "./provider-family-connection-selection.js";
+// P3 C4 供应商 family/specs 删除：model-provider-family.ts（zai/bigmodel family 目录、
+// OAuth provider 身份与可见性 helper）已随账号套餐概念移除。
 export * from "./provider-provisioning.js";
 export * from "./custom-model-value.js";
 export * from "./model-selection-types.js";
@@ -243,8 +245,11 @@ export * from "./tool-plan-adapter.js";
 export * from "./permission-request-preview.js";
 export * from "./settings-sync.js";
 export * from "./uuid.js";
-export * from "./usage-stats.js";
-export * from "./coding-plan-subscription.js";
+// P3 供应商套餐/配额面删除：usage-stats.ts（vendor 半边）与 usage-quota.ts 已删除，
+// 仅保留通用 App Usage 形状（app-usage.ts）。
+export * from "./app-usage.js";
+// P3 C2 供应商套餐/计费面删除：coding-plan-subscription.ts（购买/企业订单协议类型）
+// 已整体删除；ForceUpdateConfig 已由 forceUpdate.ts 本地内联（S0）。
 export * from "./forceUpdate.js";
 export * from "./intranetProbe.js";
 export * from "./intranetDefaults.js";
@@ -254,7 +259,6 @@ export * from "./workspaceSessionRestore.js";
 export * from "./skill-scan-policy.js";
 export * from "./browser-use/index.js";
 
-export * from "./coding-plan-reset.js";
 export {
   parseSubagentMarkdownSelection,
   formatSubagentMarkdownModel,
@@ -266,8 +270,9 @@ export * from "./execution-state.js";
 export { bashOutputDisplaySchema } from "./bash-output-display.js";
 
 export * from "./localTtft.js";
+// P3 C5：clientConfig.ts（/api/v1/client/configs 快照解析）已随供应商配置拉取删除；
+// pluginStoreOrder 仅保留本地排序类型，供打包默认排序与 UI 使用。
 export * from "./pluginStoreOrder.js";
-export * from "./clientConfig.js";
 export * from "./pluginStoreOrdering.js";
 export * from "./session-debug.js";
 export { redactFeedbackText } from "./feedbackPrivacy.js";

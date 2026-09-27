@@ -26,7 +26,6 @@ export type SchedulerToMainMessage =
       modelSelection: ModelSelection;
       conversationId?: string;
       sessionId?: string;
-      serverTicketId?: string;
       workspacePath: string;
       workspaceIdentity?: string;
     }
@@ -40,6 +39,12 @@ export type SchedulerToMainMessage =
       // 决定是否开 powerSaveBlocker。每次 tick 后上报当前值（幂等）。
       type: "offpeak-active-count";
       count: number;
+    }
+  | {
+      // 闲时任务本地准入询问（P3）：scheduler 每 tick 认领前按 req/id 关联询问，
+      // main 用 settings.offPeakWindow 做 withinWindow 求值后必须回对应 response。
+      type: "offpeak-admission-request";
+      requestId: string;
     };
 
 /** main → scheduler */
@@ -71,4 +76,16 @@ export type MainToSchedulerMessage =
       // manual run 已提交，立即触发一次 tick；automationId 仅用于日志关联。
       type: "scheduler-wake";
       automationId: string;
+    }
+  | {
+      // offpeak-admission-request 的关联应答；allowed=false 时本轮 tick 跳过闲时认领。
+      type: "offpeak-admission-response";
+      requestId: string;
+      allowed: boolean;
+    }
+  | {
+      // Run-now 强制派发（UI→host→main→scheduler）：绕过窗口，只对 status='queued'
+      // 且 claim_running=0 的任务原子认领；其余情况幂等 no-op。
+      type: "offpeak-run-now";
+      offPeakTaskId: string;
     };

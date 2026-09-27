@@ -2,8 +2,8 @@ import { join } from "node:path";
 import {
   NodeProviderConfigRuntime,
   PERSONAL_PROVIDER_CONFIG_FILE_NAME,
-  type PersonalProviderConfigRecoveryEvent,
   type NodeProviderConfigRuntimeOptions,
+  type PersonalProviderConfigRecoveryEvent,
 } from "@zcode/provider-node";
 import type { ModelProviderConfig } from "./legacyModelProviderSerialized.js";
 import { getAppConfigDir } from "../paths.js";
@@ -12,9 +12,6 @@ import { importLegacyPersonalProviderConfig } from "./legacyPersonalProviderConf
 export interface ProviderConfigRuntimeOptions {
   readonly zcodeBuiltinFilePath: string;
   readonly zcodeBuiltinActiveFilePath?: string;
-  readonly zcodeBuiltinRemote?: NodeProviderConfigRuntimeOptions["zcodeBuiltinRemote"];
-  readonly zcodeBuiltinEnvironment?: NodeProviderConfigRuntimeOptions["zcodeBuiltinEnvironment"];
-  readonly onZCodeBuiltinRefreshError?: (error: unknown) => void;
   readonly onPersonalConfigRecovery?: (event: PersonalProviderConfigRecoveryEvent) => void;
   readonly onPersonalConfigPollingError?: (error: unknown) => void;
   readonly personalFilePath?: string;
@@ -27,6 +24,9 @@ export interface ProviderConfigRuntimeOptions {
  * Services 装配层：提供 App 配置目录和已发布旧配置的一次性迁移入口。
  * 配置迁移保留 ZCode 用户的供应商数据，文件运行时由 @zcode/provider-node 唯一实现。
  */
+// P3 C5 供应商目录远端下载删除：zcodeBuiltinRemote / zcodeBuiltinEnvironment /
+// onZCodeBuiltinRefreshError 透传选项已移除——远端刷新链路（client/configs →
+// builtin_provider_config_json → CDN）整体下线，Registry 只读打包/本地配置。
 export class ProviderConfigRuntime {
   readonly configService: NodeProviderConfigRuntime["configService"];
   readonly #runtime: NodeProviderConfigRuntime;
@@ -35,9 +35,6 @@ export class ProviderConfigRuntime {
     const runtimeOptions: NodeProviderConfigRuntimeOptions = {
       zcodeBuiltinFilePath: options.zcodeBuiltinFilePath,
       zcodeBuiltinActiveFilePath: options.zcodeBuiltinActiveFilePath,
-      zcodeBuiltinRemote: options.zcodeBuiltinRemote,
-      zcodeBuiltinEnvironment: options.zcodeBuiltinEnvironment,
-      onZCodeBuiltinRefreshError: options.onZCodeBuiltinRefreshError,
       onPersonalConfigRecovery: options.onPersonalConfigRecovery,
       onPersonalConfigPollingError: options.onPersonalConfigPollingError,
       personalFilePath:
@@ -69,12 +66,9 @@ export class ProviderConfigRuntime {
     return this.#runtime.resolveZCodeBuiltinActiveFilePath();
   }
 
-  refreshZCodeBuiltin(options?: { readonly force?: boolean }) {
-    return this.#runtime.refreshZCodeBuiltin(options);
-  }
-
-  onDidCheckZCodeBuiltin(listener: () => Promise<void>): () => void {
-    return this.#runtime.onDidCheckZCodeBuiltin(listener);
+  /** P3 C5：远端刷新已删除；仅同步重读 Built-in 文件源（本地磁盘事实）。 */
+  refreshZCodeBuiltin(): Promise<void> {
+    return this.#runtime.refreshZCodeBuiltin();
   }
 
   dispose(): void {
