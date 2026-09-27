@@ -772,7 +772,7 @@ const zhCN: Record<string, string> = {
   // P3 C1 供应商 OAuth 删除：原 login.oauth.regionTag.* 迁移为 bots.regionTag.*（botsUi 专用）。
   "bots.regionTag.zai": "全球",
   "bots.regionTag.bigmodel": "中国",
-  // P3 C1 供应商 OAuth 删除：login.expired.* 其余键已删；action 保留给 StatusCards（C4 随设置套餐簇清理）。
+  // P3 供应商 OAuth 与设置套餐簇已删除：login.expired.* 全部键随之移除。
   "login.useApiKey": "使用 API key",
   "login.wizard.keyStepDescription": "输入 {provider} 的 API Key，完成配置。",
   "login.wizard.keylessStepDescription": "连接 {provider} 并发现本地模型，无需 API Key。",
@@ -5058,7 +5058,7 @@ const zhCN: Record<string, string> = {
   "offPeak.window.enabled": "启用闲时时间窗",
   "offPeak.window.start": "时间窗开始",
   "offPeak.window.end": "时间窗结束",
-  "offPeak.sectionTitle": "闲时任务",
+  // P3 复核：sectionTitle/keepAwakeHint 消费方已随 S1 重写移除，键删除；thought.*/tabs.* 为动态键仍有消费方，保留。
   "offPeak.createButton": "创建闲时任务",
   "offPeak.templates.sectionTitle": "闲时任务模板",
   "offPeak.list.empty": "还没有闲时任务。创建一个，让它在闲时时间窗内自动执行。",
@@ -5110,7 +5110,6 @@ const zhCN: Record<string, string> = {
   "offPeak.thought.off": "关闭",
   "offPeak.thought.nothink": "不思考",
   "offPeak.form.keepAwakeLabel": "保持电脑运行",
-  "offPeak.form.keepAwakeHint": "阻止系统因空闲进入休眠（桌面端全局开关，设置 → 常规 中可改）。",
   "offPeak.tab.settings": "设置",
   "offPeak.tab.history": "历史",
   "offPeak.history.empty": "还没有历史记录。",

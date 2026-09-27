@@ -575,7 +575,7 @@ export const HostResponseTypes = {
   OffPeakRunResult: "off-peak-run-result",
   /** host → main：manual run 已落库，请立即唤醒 scheduler 认领派发 */
   CronSchedulerWakeRequest: "cron-scheduler-wake-request",
-  /** host → main：闲时任务翻 schedulable，请立即唤醒 scheduler 认领派发（与 cron 消息独立） */
+  /** host → main：闲时任务 Run-now 强制派发（绕过时间窗；与 cron 消息独立） */
   OffPeakSchedulerWakeRequest: "off-peak-scheduler-wake-request",
   /** host → main：闲时任务 Run-now 强制派发请求（main 转发 scheduler，绕过窗口） */
   OffPeakRunNowRequest: "off-peak-run-now-request",

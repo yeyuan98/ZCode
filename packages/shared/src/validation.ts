@@ -727,7 +727,7 @@ export const hostCronSchedulerWakeRequestResponseSchema = z.object({
   automationId: nonEmptyStringSchema,
 });
 
-// host → main：闲时任务 schedulable 翻转后的 scheduler 唤醒；业务数据仍由 scheduler 从 sqlite 读取。
+// host → main：闲时任务 Run-now 强制派发请求；业务数据仍由 scheduler 从 sqlite 读取。
 export const hostOffPeakSchedulerWakeRequestResponseSchema = z.object({
   type: z.literal("off-peak-scheduler-wake-request"),
   offPeakTaskId: z.string().optional(),
