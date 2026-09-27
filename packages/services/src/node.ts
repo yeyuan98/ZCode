@@ -1180,7 +1180,7 @@ export function createLocalServices(options: {
     automation: ZCodeAutomation;
     run: ZCodeAutomationRun;
   }) => Promise<void>;
-  /** 闲时任务翻 schedulable 后请求宿主立即唤醒 scheduler（desktop host 注入 parentPort 转发）。 */
+  /** 闲时任务 Run-now 立即派发请求（desktop host 注入 parentPort 转发）。 */
   onOffPeakSchedulerWakeRequested?: () => void;
   /** 闲时任务 Run-now 强制派发请求（desktop host → main → scheduler，P3 本地准入）。 */
   onOffPeakRunNowRequested?: (offPeakTaskId: string) => void;

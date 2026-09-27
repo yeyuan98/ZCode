@@ -27,8 +27,10 @@ timer); services host (dispatch + interaction auto-decline); scheduler utility p
 5. **Unattended runs are hands-off (binding policy, ruling 2).** While an off-peak task's turn
    is the session's active turn, every reverse-RPC interaction is automatically declined:
    permission requests → deny; `AskUserQuestion` → declined; exit-plan-mode approval →
-   declined. The run then completes with a "blocked by interaction" outcome recorded on the
-   task. Attribution is strictly turn-based; there is no presence/idle detection, and no
+   declined. A denial-driven ending settles through the standard task outcomes
+   (failed/cancelled with the run's own reason reporting) — there is deliberately NO separate
+   "blocked by interaction" status; the UI copy explains auto-declined questions up front.
+   Attribution is strictly turn-based; there is no presence/idle detection, and no
    exception for watched runs (including "Run now" — interactive needs are served by normal
    tasks). The `OffPeakCreate` agent tool's default permission mode changes `yolo` → `build`
    (same as the UI form default).
@@ -100,7 +102,10 @@ are auto-declined during unattended runs.
 
 `offPeakServerClient.ts`, `offPeakMockGateway.ts`, `offPeakModelSelectionView.ts`,
 CLI `offpeak-retry.ts`, JWT/plan-key/team-header machinery + mock origin resolver in
-`offPeakRuntimeModel.ts`, protocol `requestAuth` field + `ModelRequestAuth` contract + CLI
-freeze + header redaction, `OFF_PEAK_PROVIDER_IDS` / plan-support / take-number / ticket-state
-types, vendor errorCategory `3101/3103` handling, queue-position UI badges, gray-config
-eligibility gates.
+`offPeakRuntimeModel.ts`, protocol `requestAuth` field + CLI freeze + header redaction,
+`OFF_PEAK_PROVIDER_IDS` / plan-support / take-number / ticket-state types, vendor
+errorCategory `3101/3103` handling, queue-position UI badges, gray-config eligibility gates.
+Deferred with reason: the `ModelRequestAuth` contract + runtime-headers refresh chain is
+retained as inert generic plumbing (host fast-fails `headersApplied:false`; CLI strips the
+hook at runner assembly) — removal rides the P4/P5 runtime cleanup; the off-peak injection
+itself IS gone.

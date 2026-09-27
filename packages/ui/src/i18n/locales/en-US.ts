@@ -844,7 +844,7 @@ const enUS: Record<string, string> = {
   // P3 C1 供应商 OAuth 删除：原 login.oauth.regionTag.* 迁移为 bots.regionTag.*（botsUi 专用）。
   "bots.regionTag.zai": "Global",
   "bots.regionTag.bigmodel": "CN",
-  // P3 C1 供应商 OAuth 删除：login.expired.* 其余键已删；action 保留给 StatusCards（C4 随设置套餐簇清理）。
+  // P3 供应商 OAuth 与设置套餐簇已删除：login.expired.* 全部键随之移除。
   "login.useApiKey": "Use API key",
   "login.wizard.keyStepDescription": "Enter your {provider} API key to finish setup.",
   "login.wizard.keylessStepDescription":
@@ -5266,7 +5266,7 @@ const enUS: Record<string, string> = {
   "offPeak.window.enabled": "Enable off-peak window",
   "offPeak.window.start": "Window start",
   "offPeak.window.end": "Window end",
-  "offPeak.sectionTitle": "Idle-time tasks",
+  // P3 复核：sectionTitle/keepAwakeHint 消费方已随 S1 重写移除，键删除；thought.*/tabs.* 为动态键仍有消费方，保留。
   "offPeak.createButton": "Create idle-time task",
   "offPeak.templates.sectionTitle": "Idle-time task template",
   "offPeak.list.empty":
@@ -5331,8 +5331,6 @@ const enUS: Record<string, string> = {
   "offPeak.thought.off": "Off",
   "offPeak.thought.nothink": "No thinking",
   "offPeak.form.keepAwakeLabel": "Keep your computer running",
-  "offPeak.form.keepAwakeHint":
-    "Prevent idle sleep (desktop-wide switch; also available under Settings → General).",
   "offPeak.tab.settings": "Settings",
   "offPeak.tab.history": "History",
   "offPeak.history.empty": "No history yet.",
