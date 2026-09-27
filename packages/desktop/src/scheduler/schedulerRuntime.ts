@@ -26,14 +26,15 @@ export interface SchedulerPort {
   onMessage(listener: (message: MainToSchedulerMessage) => void): void;
 }
 
-export interface SchedulerRuntimeHandle {
+// 仅模块内使用：测试经 ReturnType<typeof createSchedulerRuntime> 推导，无需导出 handle/deps 类型。
+interface SchedulerRuntimeHandle {
   /** 立即触发一次 tick（外部唤醒/测试驱动）。 */
   requestTick(): void;
   /** 优雅收尾：释放认领、关库；exitOnDispose=false 时（测试）不退出进程。 */
   dispose(): Promise<void>;
 }
 
-export interface SchedulerRuntimeDeps {
+interface SchedulerRuntimeDeps {
   port: SchedulerPort;
   automationRepo: AutomationRepo;
   offPeakRepo: OffPeakTaskRepo;

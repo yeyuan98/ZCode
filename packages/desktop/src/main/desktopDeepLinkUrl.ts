@@ -13,7 +13,8 @@ function normalizeOAuthCallbackPath(pathname: string): string {
   return `/${normalized.replace(/^\/+/, "")}`;
 }
 
-export function isOAuthCallbackUrl(parsedUrl: URL): boolean {
+// 仅模块内使用（OAuth callback 判定在 handleDeepLink 内联消费），不导出。
+function isOAuthCallbackUrl(parsedUrl: URL): boolean {
   if (parsedUrl.protocol !== `${DEEP_LINK_SCHEME}:`) {
     return false;
   }
