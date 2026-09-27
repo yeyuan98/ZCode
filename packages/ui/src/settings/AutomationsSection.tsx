@@ -65,6 +65,7 @@ import {
   AutomationCreateDropdown,
   AutomationEditActionIcon,
   AutomationKeepAwakeNotice,
+  OffPeakWindowNotice,
   AutomationMoreHorizontalIcon,
   AutomationPauseActionIcon,
   AutomationPausedIcon,
@@ -533,6 +534,7 @@ export function AutomationsSection({
   const offPeakUpdate = useOffPeakTaskStore((state) => state.updateTask);
   const offPeakPause = useOffPeakTaskStore((state) => state.pauseTask);
   const offPeakContinue = useOffPeakTaskStore((state) => state.continueTask);
+  const offPeakRunNow = useOffPeakTaskStore((state) => state.runNow);
   const offPeakCancel = useOffPeakTaskStore((state) => state.cancelTask);
   const offPeakDelete = useOffPeakTaskStore((state) => state.deleteTask);
   const offPeakDeleteHistory = useOffPeakTaskStore((state) => state.deleteHistory);
@@ -1400,6 +1402,21 @@ export function AutomationsSection({
           <div className="flex w-full flex-col gap-4">
             {/* keep-awake 是全局开关（与设置页「常规」镜像），定时任务运行会话同样受益，
                在定时/闲时两个 tab 都展示。列表态放在任务卡之前，空态保持大空卡在前。 */}
+            {/* 闲时时间窗（P3 本地准入）：设置属主在 main，此处镜像读写共享 settings。
+                仅 idle tab 展示；queued 任务据此等待窗口或 Run-now。 */}
+            {tab === "idle" ? (
+              <OffPeakWindowNotice
+                enabled={sharedSettings?.offPeakWindow?.enabled ?? true}
+                start={sharedSettings?.offPeakWindow?.start ?? "00:00"}
+                end={sharedSettings?.offPeakWindow?.end ?? "07:00"}
+                onChange={(next) =>
+                  void updateSharedSettings({
+                    offPeakWindow: next,
+                  })
+                }
+              />
+            ) : null}
+
             {hasAnyTasks ? (
               <AutomationKeepAwakeNotice
                 checked={sharedSettings?.keepAwakeWhileRunning ?? false}
@@ -1425,6 +1442,9 @@ export function AutomationsSection({
                       onPause={(task) => void offPeakPause(task.offPeakTaskId, offPeakTaskService)}
                       onContinue={(task) =>
                         void offPeakContinue(task.offPeakTaskId, offPeakTaskService)
+                      }
+                      onRunNow={(task) =>
+                        void offPeakRunNow(task.offPeakTaskId, offPeakTaskService)
                       }
                       onCancel={(task) => void handleOffPeakCancel(task)}
                       onDelete={(task) => void handleOffPeakDelete(task)}

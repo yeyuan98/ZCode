@@ -15,6 +15,7 @@ import {
   TID_OFFPEAK_ACTION_CONTINUE,
   TID_OFFPEAK_ACTION_DELETE,
   TID_OFFPEAK_ACTION_PAUSE,
+  TID_OFFPEAK_ACTION_RUN_NOW,
   TID_OFFPEAK_CARD,
   TID_OFFPEAK_CARD_SESSION,
   TID_OFFPEAK_CARD_MENU,
@@ -53,6 +54,8 @@ interface OffPeakTaskListProps {
   onOpen: (task: ZCodeOffPeakTask) => void;
   onPause: (task: ZCodeOffPeakTask) => void;
   onContinue: (task: ZCodeOffPeakTask) => void;
+  /** Run-now（P3）：queued/paused 任务绕过时间窗立即派发；已在派发在途时幂等 no-op。 */
+  onRunNow: (task: ZCodeOffPeakTask) => void;
   onCancel: (task: ZCodeOffPeakTask) => void;
   onDelete: (task: ZCodeOffPeakTask) => void;
   onOpenSession: (task: ZCodeOffPeakTask) => void;
@@ -147,6 +150,7 @@ export function OffPeakTaskList({
   onOpen,
   onPause,
   onContinue,
+  onRunNow,
   onCancel,
   onDelete,
   onOpenSession,
@@ -294,6 +298,32 @@ export function OffPeakTaskList({
                   className="w-[190px]"
                   onClick={(event) => event.stopPropagation()}
                 >
+                  {task.status === "queued" || task.status === "paused" ? (
+                    <DropdownMenuItem
+                      className="gap-1"
+                      data-testid={TID_OFFPEAK_ACTION_RUN_NOW}
+                      onSelect={() => onRunNow(task)}
+                    >
+                      <span className="flex size-5 items-center justify-center">
+                        <AutomationIdleTimeIcon className="size-4" aria-hidden="true" />
+                      </span>
+                      <span className="flex-1">
+                        {intl.formatMessage({ id: "offPeak.action.runNow" })}
+                      </span>
+                      <OffPeakMenuHint
+                        title={intl.formatMessage({
+                          id: "offPeak.action.runNowHint",
+                        })}
+                      >
+                        <span className="inline-flex" onClick={(event) => event.stopPropagation()}>
+                          <AutomationInfoIcon
+                            className="size-3.5 shrink-0 text-foreground-subtle"
+                            aria-hidden="true"
+                          />
+                        </span>
+                      </OffPeakMenuHint>
+                    </DropdownMenuItem>
+                  ) : null}
                   {task.status === "queued" ? (
                     <DropdownMenuItem
                       className="gap-1"
