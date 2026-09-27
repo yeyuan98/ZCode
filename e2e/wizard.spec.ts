@@ -46,11 +46,17 @@ test.describe("welcome wizard", () => {
     await page.locator("#login-custom-provider-name").fill("Mock Custom");
     await page.locator("#login-custom-provider-base-url").fill(`${mockProvider.origin}/v1`);
     await page.getByTestId(API_KEY_INPUT).fill(E2E_API_KEY);
-    // 表单没有单独的发现按钮（发现仅在模板路径提供），保存即创建 personal provider。
+    // 自定义表单没有单独的发现按钮，但 P1.1 起保存会自动发现（openai-compat baseUrl）。
     await page.getByRole("button", { name: "Continue" }).click();
 
     await expect(page.getByTestId(TEMPLATE_PICKER)).toBeHidden();
     await expectAppShell(page);
+
+    // 自动发现把 mock 的模型持久化进 provider：重载后启动门禁保持关闭（与模板路径
+    // 同款锁定——mock 模板不注入 builtinModelIds，关闭只能来自发现的模型）。
+    await page.reload();
+    await expect(page.locator(APP_SHELL)).toBeVisible();
+    await expect(page.getByTestId(TEMPLATE_PICKER)).toHaveCount(0);
   });
 
   test("template test & discover succeeds then save closes the wizard", async ({

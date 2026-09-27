@@ -52,9 +52,14 @@ facade (`packages/services/src/model-provider/`), wizard key step
      currently return neither — no-op there); openai-compat `context_length` (>0) and
      `architecture.input_modalities` ∩ {image, video} (OpenRouter shape; unknown modalities
      like audio/file ignored; `0`/`null` treated as absent). Hints NEVER override catalog
-     rules — at persistence time a hint fills only fields the catalog resolution leaves empty;
-     a filled field persists as a personal manual value (it will shadow future catalog changes
-     for that field — accepted). Errors and empty lists degrade gracefully (the
+     rules — at persistence time a hint fills only fields the catalog resolution leaves empty
+     (the `.*` catch-all fallback does NOT count as catalog knowledge; endpoint-scoped site
+     overlays do). Because the manual schema requires complete rules, applying ANY hint
+     persists a complete manual rule: the hint field plus all other manual leaves frozen at
+     their creation-time effective values — the model then shadows future catalog changes
+     for **all manual leaves** (not just the hint field) until the user edits or removes it;
+     accepted trade-off, locked by a regression test. Models saved without hints keep
+     following catalog updates (no manual rule). Errors and empty lists degrade gracefully (the
      wizard shows the failure and still allows saving with manually added models). The UI must
      never promise that a listed model is callable by the key — endpoint listings are
      uncontracted external behavior; manual model add remains the fallback.
@@ -62,15 +67,17 @@ facade (`packages/services/src/model-provider/`), wizard key step
    becomes "test & discover": success = key accepted + discovered model list (count shown).
    **(P1.1) Saving auto-discovers when the user never ran it**: the save handler calls the
    discovery service directly (never a stale hook state) whenever discovery state is `idle`
-   and the template has an api config — template AND custom paths alike (custom = user-entered
-   openai-compat baseUrl; keyless ollama included). A previously FAILED discovery is not
+   and the template has an api config — template AND custom paths alike (custom =
+   user-entered openai-compat baseUrl + key — the custom form requires a key; keyless local
+   endpoints go through the ollama template path). The Continue action is disabled while a
+   discovery run is in flight. A previously FAILED discovery is not
    re-run on save (no double 15s waits); failure still saves with zero models and the
    documented escapes. Discovered model ids (+hints) are
    **persisted into the created provider in the same save**. Rationale/invariant: the startup gate requires
    `models.length > 0` and a template-based provider starts with no models of its own — a
    wizard that saves a zero-model provider dead-loops the gate. Locked by the e2e
-   wizard-complete⇒usable assertion. A template without an access block (ollama) skips the
-   key step entirely.
+   wizard-complete⇒usable assertion. A template without an access block (ollama) renders a
+   key-less variant of the key step (no key input; unauthenticated discovery).
 4. **Schema excision (hard-cut, no migration code).** Deleted in P1: the
    `providerFamilyDomain`/`providerFamilyDomainUpdatedAt`/`providerFamilyDomainMigrated` +
    `providerFamilyConnectionSelections` settings fields (validation, protocol, normalize,

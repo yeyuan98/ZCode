@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -697,5 +697,124 @@ test("createPersonalProvider persists discovery hints as manual values only wher
     runtime.dispose();
     setDataBaseDir(null);
     await rm(dir, { recursive: true, force: true });
+  }
+});
+
+// P1.1 评审补充：镜像返回 has_more=true 但缺 last_id 时（游标无法推进），客户端必须
+// 立即停止分页而不是报错或死循环（10 页上限只是兜底）。单请求即收敛。
+test("anthropic mirror with has_more but no last_id stops paging after the first request", async () => {
+  const { fetch, requests } = createRecordingFetch(() => ({
+    body: JSON.stringify({ data: [{ id: "claude-a" }], has_more: true }),
+  }));
+  const result = await discoverTemplateModels(
+    { templateId: "test-template", apiKey: "test-key" },
+    {
+      fetch,
+      template: templateView({
+        access: { type: "api-key" },
+        api: { type: "anthropic-messages", baseUrl: "https://api.anthropic.com" },
+      }),
+    },
+  );
+  assert.equal(requests.length, 1);
+  assert.deepEqual(result, { ok: true, modelIds: ["claude-a"] });
+});
+
+// P1.1 评审补充（spec §2 影子语义回归锁）：带 hints 保存的模型会落成完整手动规则
+// （手动 schema 要求全叶子），此后目录为该模型新增更优规则时，被冻结的手动值永久
+// 胜出——这是 spec 已接受并记录的边界，用两阶段目录证明。
+test("hint-persisted manual rule shadows a later catalog rule for the same model", async () => {
+  const builtinPath = fileURLToPath(
+    new URL("../../../config/provider/zcode-builtin.json", import.meta.url),
+  );
+  const baseCatalog = JSON.parse(await readFile(builtinPath, "utf8"));
+
+  async function startRuntime(
+    catalog: object,
+    personalFilePath: string,
+  ): Promise<{ dir: string; runtime: ReturnType<typeof createProviderConfigRuntime> }> {
+    const dir = await mkdtemp(join(tmpdir(), "zcode-hint-shadow-"));
+    setDataBaseDir(dir);
+    const configDir = getAppConfigDir();
+    await mkdir(configDir, { recursive: true });
+    const catalogPath = join(configDir, "builtin-test.json");
+    await writeFile(catalogPath, `${JSON.stringify(catalog)}\n`);
+    const runtime = createProviderConfigRuntime({
+      zcodeBuiltinFilePath: catalogPath,
+      personalFilePath,
+      personalPollingIntervalMs: false,
+      watch: false,
+    });
+    await runtime.start();
+    return { dir, runtime };
+  }
+
+  // 阶段一：目录无 future-model 特定规则，带 hint 创建（ctx 500_000）。
+  const phaseOnePersonalPath = join(getAppConfigDir(), "personal.json");
+  const phaseOne = await startRuntime(baseCatalog, phaseOnePersonalPath);
+  try {
+    const creation = await phaseOne.runtime.configService.createPersonalProvider({
+      templateId: "moonshot-kimi",
+      initialModels: [{ id: "future-model", hints: { contextWindow: 500_000 } }],
+    });
+    const snapshot = await phaseOne.runtime.configService.read();
+    const manual = snapshot.personalModels.getExactRule(creation.providerId, "future-model");
+    assert.equal(manual?.type, "manual-provider-model");
+    assert.equal(manual?.config.properties?.contextWindow, 500_000);
+  } finally {
+    phaseOne.runtime.dispose();
+  }
+  const phaseOnePersonal = await readFile(phaseOnePersonalPath, "utf8");
+
+  // 阶段二：目录为 future-model 加入 ctx 999_999 特定规则；复用阶段一 personal 配置，
+  // 解析结果仍应被冻结的手动值（500_000）覆盖。
+  const upgradedCatalog = structuredClone(baseCatalog);
+  upgradedCatalog.config.modelConfigRules.modelRules.push({
+    modelMatch: ".*future-model(?:[.\\-:/\\[].*)?",
+    config: { enabled: true, properties: { contextWindow: 999_999 } },
+  });
+  const phaseTwoDir = await mkdtemp(join(tmpdir(), "zcode-hint-shadow-p2-"));
+  setDataBaseDir(phaseTwoDir);
+  const phaseTwoConfigDir = getAppConfigDir();
+  await mkdir(phaseTwoConfigDir, { recursive: true });
+  const phaseTwoPersonalPath = join(phaseTwoConfigDir, "personal.json");
+  await writeFile(phaseTwoPersonalPath, phaseOnePersonal);
+  const phaseTwoCatalogPath = join(phaseTwoConfigDir, "builtin-test.json");
+  await writeFile(phaseTwoCatalogPath, `${JSON.stringify(upgradedCatalog)}\n`);
+  const phaseTwo = createProviderConfigRuntime({
+    zcodeBuiltinFilePath: phaseTwoCatalogPath,
+    personalFilePath: phaseTwoPersonalPath,
+    personalPollingIntervalMs: false,
+    watch: false,
+  });
+  try {
+    await phaseTwo.start();
+    const snapshot = await phaseTwo.configService.read();
+    const providerEntry = [...snapshot.personalProviders.keys()].find((providerId) =>
+      providerId.includes("moonshot"),
+    );
+    assert.ok(providerEntry, "personal provider 未迁移");
+    const resolution = new ProviderConfigResolver().resolve({
+      zcodeBuiltinProviders: snapshot.zcodeBuiltinProviders,
+      zcodeBuiltinProviderTemplates: snapshot.zcodeBuiltinProviderTemplates,
+      personalProviders: snapshot.personalProviders,
+      zcodeBuiltinModelRules: snapshot.zcodeBuiltinModelRules,
+      personalModels: snapshot.personalModels,
+      accountProviders: ProviderConfigMap.empty(),
+      personalProviderOrder: snapshot.personalProviderOrder,
+    });
+    const resolved = resolution.resolvedProviders.find(
+      (candidate) => candidate.providerId === providerEntry,
+    );
+    assert.ok(resolved);
+    const model = resolved.models.find((entry) => entry.modelId === "future-model");
+    assert.ok(model);
+    // 冻结的手动值胜过目录后来的更优规则（spec 已接受的影子语义）。
+    assert.equal(model.config.properties.contextWindow, 500_000);
+  } finally {
+    phaseTwo.dispose();
+    setDataBaseDir(null);
+    await rm(phaseTwoDir, { recursive: true, force: true });
+    await rm(phaseOne.dir, { recursive: true, force: true });
   }
 });

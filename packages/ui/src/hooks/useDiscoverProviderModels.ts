@@ -1,7 +1,8 @@
 import { useCallback, useState } from "react";
 import { useServices } from "@/hooks/useServices.js";
 
-export type ProviderModelDiscoveryState =
+// P1.1 评审：仅本文件使用，不导出（knip 零新增基线）。
+type ProviderModelDiscoveryState =
   | { status: "idle" }
   | { status: "testing" }
   | { status: "success"; addedCount: number }
