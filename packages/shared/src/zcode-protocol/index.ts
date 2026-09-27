@@ -3482,14 +3482,12 @@ export const zcodeOffPeakCreateParamsSchema = z
   .strict();
 export type ZCodeOffPeakCreateProtocolParams = z.infer<typeof zcodeOffPeakCreateParamsSchema>;
 
-// 协议侧任务快照：轮尾卡片与 OffPeakList 的最小字段面。
-// 不暴露 serverTicketId（跨边界禁带）。
+// 协议侧任务快照：轮尾卡片与 OffPeakList 的最小字段面（P3：无位次/票据字段）。
 export const zcodeOffPeakTaskSnapshotSchema = z
   .object({
     offPeakTaskId: nonEmptyString,
     title: z.string(),
     status: z.enum(["queued", "paused", "running", "completed", "failed", "cancelled"]),
-    queuePosition: z.number().int().positive().optional(),
     sessionId: nonEmptyString.optional(),
     createdAt: z.number().int().nonnegative(),
   })
@@ -3497,22 +3495,14 @@ export const zcodeOffPeakTaskSnapshotSchema = z
 export type ZCodeOffPeakTaskProtocolSnapshot = z.infer<typeof zcodeOffPeakTaskSnapshotSchema>;
 
 // 失败分类跨协议保真（镜像 shared OffPeakTaskCreateResult 的判别联合，错误不降级为字符串）。
-// model 白名单预校失败复用 client_validation 分类 + errorCode "model_not_allowed"，不扩分类枚举。
+// P3：创建是纯本地校验+落库——无取号阶段与套餐/额度分类。
 export const zcodeOffPeakCreateResultSchema = z.discriminatedUnion("ok", [
   z.object({ ok: z.literal(true), task: zcodeOffPeakTaskSnapshotSchema }).strict(),
   z
     .object({
       ok: z.literal(false),
-      failureStage: z.enum(["client_validation", "ticket_request", "local_persist"]),
-      errorCategory: z.enum([
-        "client_validation",
-        "eligibility_3101",
-        "quota_3103",
-        "network",
-        "invalid_response",
-        "local_persist",
-        "unknown",
-      ]),
+      failureStage: z.enum(["client_validation", "local_persist"]),
+      errorCategory: z.enum(["client_validation", "network", "local_persist", "unknown"]),
       errorCode: z.string(),
     })
     .strict(),

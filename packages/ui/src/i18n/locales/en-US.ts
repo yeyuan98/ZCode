@@ -5923,6 +5923,9 @@ const enUS: Record<string, string> = {
   "offPeak.discard.description": "Your changes to the current idle-time task will be lost.",
   "offPeak.discard.confirm": "Discard",
   "offPeak.create.codingPlanOnly": "Coding plan users only",
+  "offPeak.create.noModel":
+    "Configure at least one model provider in Settings before creating idle-time tasks.",
+  "offPeak.create.remoteUnavailable": "Idle-time tasks are unavailable for remote workspaces.",
   "offPeak.create.availabilityUnavailable": "Could not verify availability. Refresh and try again.",
   "offPeak.create.limitReachedAt":
     "Free tier limit reached. You can create another task in {time}.",

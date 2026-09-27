@@ -28,7 +28,8 @@ const OFF_PEAK_TERMINAL_STATUSES = new Set(["completed", "failed", "cancelled"])
  *   与 cron 的一会话一任务永久拒绝不同。判定复用 offPeak/list 最小快照（含 sessionId/status），
  *   查询失败 fail-closed。放大防护的权威仍是服务端取号额度（POST /ticket 3103）。
  * - 不注入 runtimeModel/mode/thoughtLevel：缺省在 host 端解析
- *   （yolo / allowed_models 末位 / 最高推理档），会话运行态与闲时白名单无关。
+ *   （build / 用户默认模型 / 最高推理档），会话运行态与闲时模型选择无关。
+ * - 放大防护的权威是本地绑定守卫（同会话一任务）+ 免打扰策略（P3：无服务端额度）。
  * - 不冻结会话标题：绑定的是用户的工作会话，标题不该被任务改写。
  */
 export function createProtocolOffPeakPort(
@@ -109,7 +110,6 @@ function toOffPeakTaskSummary(input: ZCodeOffPeakTaskProtocolSnapshot): OffPeakT
     offPeakTaskId: input.offPeakTaskId,
     title: input.title,
     status: input.status,
-    queuePosition: input.queuePosition,
     sessionId: input.sessionId,
     createdAt: input.createdAt,
   };

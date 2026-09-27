@@ -193,7 +193,6 @@ export function spawnCronScheduler(deps: CronSchedulerDeps): CronSchedulerHandle
           modelSelection: msg.modelSelection,
           conversationId: msg.conversationId,
           sessionId: msg.sessionId,
-          serverTicketId: msg.serverTicketId,
           workspacePath: msg.workspacePath,
           workspaceIdentity: msg.workspaceIdentity,
         });

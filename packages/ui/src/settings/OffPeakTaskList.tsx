@@ -1,7 +1,6 @@
 /* 闲时任务列表：
    2 列卡片网格，卡片结构与定时任务卡同源：标题 + 指令描述 +
-   底部（moon + #N in queue 位次徽章）。按创建时间倒序；hover 菜单按状态收敛。
-   位次无 Est.。 */
+   底部状态脚注（P3：无服务端位次徽章，queued 表达等待时间窗）。按创建时间倒序。 */
 import {
   useCallback,
   useEffect,
@@ -43,7 +42,6 @@ import {
   AutomationTrashIcon,
 } from "@/settings/AutomationDesignPrimitives.js";
 import {
-  resolveFailedOffPeakQueueFooter,
   resolveOffPeakStatusFooter,
   shouldShowOffPeakModelSelectionIssue,
   type OffPeakStatusIconKind,
@@ -183,8 +181,6 @@ export function OffPeakTaskList({
               }
             : resolveOffPeakStatusFooter(task);
         const FooterIcon = STATUS_ICON[footer.icon];
-        const failedQueueFooter = resolveFailedOffPeakQueueFooter(task);
-        const FailedQueueIcon = failedQueueFooter ? STATUS_ICON[failedQueueFooter.icon] : null;
         const busy = busyOperationId?.endsWith(task.offPeakTaskId) ?? false;
         const hasPrimaryMenuAction =
           task.status === "queued" || task.status === "paused" || task.status === "running";
@@ -239,23 +235,6 @@ export function OffPeakTaskList({
                     {intl.formatMessage({ id: footer.labelId }, footer.labelValues)}
                   </span>
                 </div>
-                {failedQueueFooter && FailedQueueIcon ? (
-                  <div className="flex w-fit shrink-0 items-center gap-0.5 rounded-[6px] bg-idle-task-surface py-0.5 pl-1 pr-2 text-idle-task opacity-40">
-                    <span className="flex size-5 shrink-0 items-center justify-center">
-                      <FailedQueueIcon
-                        className="size-4 shrink-0"
-                        strokeWidth={1.33}
-                        aria-hidden="true"
-                      />
-                    </span>
-                    <span className="truncate">
-                      {intl.formatMessage(
-                        { id: failedQueueFooter.labelId },
-                        failedQueueFooter.labelValues,
-                      )}
-                    </span>
-                  </div>
-                ) : null}
                 {task.sessionTitle ? (
                   // 会话内创建的任务绑定并运行在创建它的会话里，脚注露出会话标题。
                   <span

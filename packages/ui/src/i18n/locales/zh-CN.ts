@@ -5654,6 +5654,8 @@ const zhCN: Record<string, string> = {
   "offPeak.discard.description": "你对当前闲时任务的更改将会丢失。",
   "offPeak.discard.confirm": "丢弃",
   "offPeak.create.codingPlanOnly": "仅限 coding plan 用户使用",
+  "offPeak.create.noModel": "请先在设置中配置至少一个模型 Provider，再创建闲时任务。",
+  "offPeak.create.remoteUnavailable": "远程工作区暂不支持闲时任务。",
   "offPeak.create.availabilityUnavailable": "暂时无法确认创建资格，请刷新后重试。",
   "offPeak.create.limitReachedAt": "闲时任务额度已用完，可在 {time}后再次创建。",
   "offPeak.create.remaining.hoursMinutes": "{hours} 小时 {minutes} 分钟",

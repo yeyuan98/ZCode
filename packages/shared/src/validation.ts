@@ -350,8 +350,8 @@ export const hostCronRunMessageSchema = z.object({
 });
 
 // main → host：闲时任务派发（仿 cron-run，字段独立不复用）。首跑不带 conversationId/sessionId，
-// host createTask 新建 session；3h 续跑 / 中断恢复带上两者 resume 同一会话。
-// serverTicketId 供 idle plan 适配层注入 X-Off-Peak-Ticket-ID 请求头（run 作用域）。
+// host createTask 新建 session；中断恢复带上两者 resume 同一会话。
+// P3：serverTicketId 已随供应商票据模型删除；执行用任务持久化的模型选择。
 export const hostOffPeakRunMessageSchema = z.object({
   type: z.literal("off-peak-run"),
   offPeakTaskId: nonEmptyStringSchema,
@@ -363,7 +363,6 @@ export const hostOffPeakRunMessageSchema = z.object({
   modelSelection: modelSelectionSchema,
   conversationId: z.string().optional(),
   sessionId: z.string().optional(),
-  serverTicketId: z.string().optional(),
 });
 
 // main → host：browser-use 命令执行结果（按 requestId 关联到 host 的 pending）。
