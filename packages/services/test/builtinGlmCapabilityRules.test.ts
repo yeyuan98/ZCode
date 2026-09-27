@@ -199,3 +199,55 @@ test("P1.2: openai-compat flavor unchanged except flashx gains vision cross-flav
   //（原先 overlay 正则不匹配 flashx，false 是缺口而非事实）。
   assert.equal(byId.get("glm-5.3-flashx")?.config.properties.inputFormat?.supportsImage, true);
 });
+
+// P1.2 评审加固：把当前 bigmodel 在售 11 个模型（probe 实测清单）全部钉进提交内断言，
+// 防止未来目录漂移悄悄翻转视觉/窗口值。ctx 分层：4.5/4.5-air=131072，
+// 4.6/4.7/5/5-turbo/5.1=200000，5.2/5.3/flash 系=1M。
+test("P1.2: full bigmodel lineup sweep — only the flash family is vision", async () => {
+  const models = await withResolvedModelsOnTemplate("bigmodel-api", [
+    "glm-4.5",
+    "glm-4.5-air",
+    "glm-4.6",
+    "glm-4.7",
+    "glm-5",
+    "glm-5-turbo",
+    "glm-5.1",
+    "glm-5.2",
+    "glm-5.3",
+    "glm-5.3-flash",
+    "glm-5.3-flashx",
+  ]);
+  const byId = new Map(models.map((entry) => [entry.modelId, entry]));
+  const expectVision: Record<string, boolean> = {
+    "glm-4.5": false,
+    "glm-4.5-air": false,
+    "glm-4.6": false,
+    "glm-4.7": false,
+    "glm-5": false,
+    "glm-5-turbo": false,
+    "glm-5.1": false,
+    "glm-5.2": false,
+    "glm-5.3": false,
+    "glm-5.3-flash": true,
+    "glm-5.3-flashx": true,
+  };
+  const expectCtx: Record<string, number> = {
+    "glm-4.5": 131_072,
+    "glm-4.5-air": 131_072,
+    "glm-4.6": 200_000,
+    "glm-4.7": 200_000,
+    "glm-5": 200_000,
+    "glm-5-turbo": 200_000,
+    "glm-5.1": 200_000,
+    "glm-5.2": 1_000_000,
+    "glm-5.3": 1_000_000,
+    "glm-5.3-flash": 1_000_000,
+    "glm-5.3-flashx": 1_000_000,
+  };
+  for (const [modelId, vision] of Object.entries(expectVision)) {
+    const model = byId.get(modelId);
+    assert.ok(model, `缺失模型: ${modelId}`);
+    assert.equal(model.config.properties.inputFormat?.supportsImage, vision, modelId);
+    assert.equal(model.config.properties.contextWindow, expectCtx[modelId], modelId);
+  }
+});
