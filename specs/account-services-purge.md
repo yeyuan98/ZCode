@@ -1,6 +1,6 @@
 # Spec: Vendor Account Services Purge (libre-zcode P3)
 
-Status: planned (P3). Owners: services assembly (`packages/services/src/node.ts` + per-service
+Status: implemented-by P3 (alpha.7). Owners: services assembly (`packages/services/src/node.ts` + per-service
 modules); UI store/settings surfaces; desktop main (deep-link/webview/env); web shell
 (`packages/web/src/main.tsx`).
 

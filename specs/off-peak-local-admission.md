@@ -1,6 +1,6 @@
 # Spec: Off-Peak Local Admission & Unattended Execution (libre-zcode P3)
 
-Status: planned (P3). Owners: desktop main process (admission evaluation + settings + wake
+Status: implemented-by P3 (alpha.7). Owners: desktop main process (admission evaluation + settings + wake
 timer); services host (dispatch + interaction auto-decline); scheduler utility process
 (claim loop); task database (`off_peak_tasks`) owned by `packages/services` repos.
 
