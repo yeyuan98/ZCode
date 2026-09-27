@@ -13,11 +13,6 @@ import {
 } from "@zcode/shared";
 import { resolveMcpQuotaLimit } from "@/lib/codingPlanQuotaPresentation.js";
 import { resolveUsageEntitlementOutcome } from "@/lib/codingPlanProvider.js";
-import { formatTeamPlanDisplayName } from "@/lib/teamPlanDisplayName.js";
-import {
-  resolveEnterpriseCodingPlanProductFamily,
-  type EnterpriseCodingPlanProductDisplay,
-} from "@/settings/model-provider-section/enterpriseCodingPlanProducts.js";
 import {
   type CodingPlanEntitlementState,
   type CodingPlanStatus,
@@ -199,39 +194,32 @@ export function resolveCodingPlanEntitlementState({
 export function buildVisibleFamilyConnectionItems({
   items,
   codingPlanEntitlements = {},
-  subscribedTeamProducts,
 }: {
   items: Array<Extract<ModelProviderNavGroup["items"][number], { type: "codingPlan" }>>;
   codingPlanEntitlements?: Partial<Record<string, CodingPlanEntitlementState>>;
-  subscribedTeamProducts: EnterpriseCodingPlanProductDisplay[];
 }): ModelProviderNavGroup["items"] {
   // P1：连接选择（providerFamilyConnectionSelections）已删除，可见性不再参考已保存选择（P3 重建）。
+  // P3 C2 供应商套餐/计费面删除：subscribedTeamProducts（企业定价目录驱动的 team 入口）
+  // 已删除，团队入口只由 entitlement 快照派生。
   return appendSubscribedTeamPlanItems({
     items: filterStartPlanItemsByEntitlement({
       items,
       codingPlanEntitlements,
-      subscribedTeamProducts,
     }),
     codingPlanEntitlements,
-    subscribedTeamProducts,
   });
 }
 
 function filterStartPlanItemsByEntitlement({
   items,
   codingPlanEntitlements,
-  subscribedTeamProducts,
 }: {
   items: Array<Extract<ModelProviderNavGroup["items"][number], { type: "codingPlan" }>>;
   codingPlanEntitlements: Partial<Record<string, CodingPlanEntitlementState>>;
-  subscribedTeamProducts: EnterpriseCodingPlanProductDisplay[];
 }): Array<Extract<ModelProviderNavGroup["items"][number], { type: "codingPlan" }>> {
-  // 原变量名 hasBigModelTeamPlan 暗示只服务 bigmodel，但逻辑
-  // （entitlement 或 subscribedTeamProducts）本身是 family 无关的。
-  // 重命名为中性名称，并在下方 filter 去掉 familySpec.id === "bigmodel" 守卫，
-  // 让 zai family 也能因 team plan 过滤 Start Plan 入口。
-  const hasAnyTeamPlan =
-    hasEntitlementTeamPlan(codingPlanEntitlements) || subscribedTeamProducts.length > 0;
+  // 原变量名 hasBigModelTeamPlan 暗示只服务 bigmodel，但逻辑本身是 family 无关的。
+  // P3 C2：企业定价目录来源已删除，team 判定只剩 entitlement 快照。
+  const hasAnyTeamPlan = hasEntitlementTeamPlan(codingPlanEntitlements);
   return items.filter((item) => {
     if (!isStartPlanModelProviderId(item.presetId)) {
       return true;
@@ -279,23 +267,19 @@ function resolveCodingPlanItemForFamily(
 function appendSubscribedTeamPlanItems({
   items,
   codingPlanEntitlements,
-  subscribedTeamProducts,
 }: {
   items: Array<Extract<ModelProviderNavGroup["items"][number], { type: "codingPlan" }>>;
   codingPlanEntitlements: Partial<Record<string, CodingPlanEntitlementState>>;
-  subscribedTeamProducts: EnterpriseCodingPlanProductDisplay[];
 }): ModelProviderNavGroup["items"] {
   // 原实现先 items.find(bigmodelCodingPlan)，不存在时直接 return items。
   // 当设置页只展示 zai family（providerFamilyDomain === "zai"）时，codingPlanItems 里
   // 没有 bigmodelCodingPlan，这个守卫会让 appendSubscribedTeamPlanItems 整体短路，
   // zai teamPlan item 永远不生成 → pickFamilyModeNavigationItem 找不到 saved team item
   // → selectedNavItem=null → 右侧 Plan Card 永远卡在 "加载中"。
-  // 对称化：去掉 bigmodel 硬编码前置守卫，entitlement/fallback/product 三个 builder
-  // 各自按 family 解析对应 codingPlanItem，不存在就跳过该 family。
-
-  // entitlement + fallback 两个 builder 原来只对 bigmodelCodingPlanItem 调用，
-  // zai 的 entitlement snapshot 和 fallback selectedKey 永远不生成 team item（断裂）。
-  // 遍历两个 family，各用对应 codingPlanItem 派生 entitlement team items + fallback。
+  // 对称化：去掉 bigmodel 硬编码前置守卫，entitlement builder 按 family 解析对应
+  // codingPlanItem，不存在就跳过该 family。
+  // P3 C2 供应商套餐/计费面删除：企业定价目录（subscribedTeamProducts）驱动的
+  // product team items 与名称/状态校正已移除，team 入口只由 entitlement 快照派生。
   const entitlementTeamItems: TeamPlanNavItem[] = MODEL_PROVIDER_FAMILY_SPECS.flatMap(
     ({ id: family }) => {
       const codingPlanItem = resolveCodingPlanItemForFamily(items, family);
@@ -305,130 +289,8 @@ function appendSubscribedTeamPlanItems({
       return buildEntitlementTeamPlanItems(codingPlanItem, codingPlanEntitlements, family);
     },
   );
-  if (entitlementTeamItems.length === 0 && subscribedTeamProducts.length === 0) {
-    return items;
-  }
 
-  const seenTeamKeys = new Set<string>();
-  const productTeamItems: TeamPlanNavItem[] = subscribedTeamProducts.flatMap((product) => {
-    // 按 product.family 找对应 family 的 codingPlanItem 作为 team item 的展示基线。
-    // 缺省 bigmodel，向后兼容未标记 family 的旧数据。
-    const productFamily = resolveEnterpriseCodingPlanProductFamily(product);
-    const codingPlanItemForProduct = resolveCodingPlanItemForFamily(items, productFamily);
-    if (!codingPlanItemForProduct) {
-      return [];
-    }
-    const projectContexts =
-      product.teamProjects && product.teamProjects.length > 0
-        ? product.teamProjects
-        : [
-            {
-              organizationId: product.organizationId ?? null,
-              organizationName: product.organizationName ?? null,
-              projectId: product.projectId ?? null,
-              projectName: product.projectName ?? null,
-              apiKeyStatus: product.apiKeyStatus,
-              apiKeyUnavailableReason: product.apiKeyUnavailableReason,
-              apiKeyUnavailableMessage: product.apiKeyUnavailableMessage,
-            },
-          ];
-
-    return projectContexts.flatMap((projectContext) => {
-      const organizationId = projectContext.organizationId?.trim() ?? "";
-      const projectKey = projectContext.projectId?.trim() ?? "";
-      if (!organizationId || !projectKey) {
-        return [];
-      }
-      // 去重 key 必须包含 family 维度，否则 zai/bigmodel 相同 productId+org+project 会互相覆盖。
-      const teamKey = `${productFamily}:${product.productId}:${organizationId}:${projectKey}`;
-      if (seenTeamKeys.has(teamKey)) {
-        return [];
-      }
-      seenTeamKeys.add(teamKey);
-      const teamPlanName = resolveTeamPlanDisplayName({
-        ...product,
-        organizationName: projectContext.organizationName ?? product.organizationName,
-        projectName: projectContext.projectName ?? product.projectName,
-      });
-      if (!teamPlanName) {
-        // Team Plan 可见文案只允许使用组织名；缺失时不能渲染空白连接项。
-        return [];
-      }
-      const teamProjectApiKeyUnavailable = projectContext.apiKeyStatus === "unavailable";
-      const teamQuotaUnavailable = isTeamPlanQuotaUnavailable({
-        codingPlanEntitlements,
-        family: productFamily,
-        organizationId,
-        projectId: projectKey,
-      });
-      const teamPlanUnavailable = teamProjectApiKeyUnavailable || teamQuotaUnavailable;
-      const availabilityReason = teamProjectApiKeyUnavailable
-        ? ("credential-unavailable" as const)
-        : teamQuotaUnavailable
-          ? ("not-allocated" as const)
-          : undefined;
-      return [
-        {
-          ...codingPlanItemForProduct,
-          // 展示 key 按 family 和完整团队项目生成，不复用请求鉴权身份。
-          key: createTeamPlanNavigationKey(productFamily, {
-            productId: product.productId,
-            organizationId,
-            projectId: projectKey,
-          }),
-          presetId: getModelProviderFamilySpec(productFamily).teamCodingPlanProviderId,
-          type: "teamPlan" as const,
-          label: `${codingPlanItemForProduct.providerName} - ${teamPlanName}`,
-          teamPlanName,
-          organizationId,
-          projectId: projectKey,
-          // Team Plan 状态卡应和连接方式使用同一个团队显示名。
-          // 直接展示 productName/tier 会在中文环境退回“标准版/高级版”，丢失项目或组织名称。
-          planLevel: teamPlanName,
-          inactivePlanTitle: teamPlanName,
-          currentProductId: product.productId,
-          // Team Plan 复用对应 family 的 Coding Plan provider，但管理入口必须进入团队套餐页；
-          // 继续继承个人 Coding Plan 的 personal/overview 会把用户带到错误的套餐上下文。
-          purchaseUrl: getModelProviderFamilySpec(productFamily).teamCodingPlanManageUrl,
-          // Team Plan 入口存在、项目 API Key 可复制，都不能证明团队套餐有效。
-          // 有效性必须由团队 quota snapshot 决定，避免继续显示个人套餐的已启用状态。
-          status: teamPlanUnavailable ? ("unavailable" as const) : ("purchased" as const),
-          // Project Key 不可用和 Team quota 未分配是不同事实。
-          // 只有服务端明确没有团队额度时才展示“团队套餐未分配”。
-          statusLabelId:
-            availabilityReason === "not-allocated"
-              ? "settings.modelProvider.codingPlan.status.teamUnavailable"
-              : undefined,
-          availabilityReason,
-          statusMessage: teamProjectApiKeyUnavailable
-            ? (projectContext.apiKeyUnavailableMessage?.trim() ?? null)
-            : null,
-          subscriptionBillingCycle: null,
-          subscriptionRenewTime: null,
-          subscriptionExpireTime: null,
-          // Team Plan 项目没有可用 zcode-team-api-key 时，不能继续当作已启用连接方式。
-          // 服务端会按组织/项目返回 apiKeyStatus；UI 需要在连接项和状态卡中明确标成不可用。
-          statusActive: !teamPlanUnavailable,
-        },
-      ];
-    });
-  });
-
-  const productTeamItemsByProjectKey = new Map(
-    productTeamItems.map((item) => [resolveTeamPlanProjectKey(item), item] as const),
-  );
-  const correctedEntitlementTeamItems = entitlementTeamItems.map(
-    (item) => productTeamItemsByProjectKey.get(resolveTeamPlanProjectKey(item)) ?? item,
-  );
-  const correctedProjectKeys = new Set(
-    correctedEntitlementTeamItems.map(resolveTeamPlanProjectKey),
-  );
-  const teamItems: ModelProviderNavGroup["items"] = [
-    ...correctedEntitlementTeamItems,
-    ...productTeamItems.filter(
-      (item) => !correctedProjectKeys.has(resolveTeamPlanProjectKey(item)),
-    ),
-  ];
+  const teamItems: ModelProviderNavGroup["items"] = entitlementTeamItems;
 
   if (teamItems.length === 0) {
     return items;
@@ -455,10 +317,6 @@ function appendSubscribedTeamPlanItems({
     ...teamItems,
     ...items.slice(codingPlanIndex + 1),
   ];
-}
-
-function resolveTeamPlanDisplayName(product: EnterpriseCodingPlanProductDisplay): string | null {
-  return formatTeamPlanDisplayName(product);
 }
 
 function hasEntitlementTeamPlan(
@@ -533,45 +391,8 @@ function buildEntitlementTeamPlanItems(
   ];
 }
 
-function isTeamPlanQuotaUnavailable({
-  codingPlanEntitlements,
-  family,
-  organizationId,
-  projectId,
-}: {
-  codingPlanEntitlements: Partial<Record<string, CodingPlanEntitlementState>>;
-  family: ProviderFamilyDomain;
-  organizationId: string;
-  projectId: string;
-}): boolean {
-  const codingPlanProviderId = getModelProviderFamilySpec(family).teamCodingPlanProviderId;
-  const entitlement = codingPlanEntitlements[codingPlanProviderId];
-  // loading/error 都表示额度事实尚未确定，不能把暂时没有 quota
-  // 当成服务端明确返回的“团队套餐未分配”。详情页仍会主动刷新这条连接。
-  if (!entitlement || entitlement.loading || entitlement.error) {
-    return false;
-  }
-  const snapshot = entitlement.snapshot ?? null;
-  if (snapshot?.context?.scope !== "team") {
-    return false;
-  }
-  if (
-    snapshot.context.organizationId?.trim() !== organizationId ||
-    snapshot.context.projectId?.trim() !== projectId
-  ) {
-    return false;
-  }
-  return !snapshot.quota;
-}
-
-function resolveTeamPlanProjectKey(item: TeamPlanNavItem): string {
-  const organizationId = item.organizationId?.trim() || "";
-  const projectId = item.projectId?.trim() || "";
-  if (organizationId && projectId) {
-    return `${organizationId}:${projectId}`;
-  }
-  return item.key;
-}
+// P3 C2：isTeamPlanQuotaUnavailable / resolveTeamPlanProjectKey 仅服务企业定价目录
+// 驱动的 product team items 校正，已随该分支移除。
 
 function isResolvedEntitlementStatus(status: CodingPlanStatus): boolean {
   return status !== "checking" && status !== "disconnected";

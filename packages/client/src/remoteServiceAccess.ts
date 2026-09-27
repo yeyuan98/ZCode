@@ -21,7 +21,6 @@ import {
   IProviderSettingsService,
   IProviderProvisioningTargetService,
   IUsageStatsService,
-  ICodingPlanSubscriptionService,
   IClientConfigService,
   IClientScenesService,
   IOffPeakTaskService,
@@ -72,7 +71,6 @@ export class RemoteServiceAccess implements IServiceAccessor {
   /** Host-only target proxy；不属于 IServiceAccessor，避免向 Renderer 暴露 Secret 写入接口。 */
   readonly providerProvisioningTargetService!: IProviderProvisioningTargetService;
   readonly usageStatsService: IUsageStatsService;
-  readonly codingPlanSubscriptionService: ICodingPlanSubscriptionService;
   readonly clientConfigService: IClientConfigService;
   readonly clientScenesService: IClientScenesService;
   readonly offPeakTaskService: IOffPeakTaskService;
@@ -160,9 +158,6 @@ export class RemoteServiceAccess implements IServiceAccessor {
     });
     this.usageStatsService = ProxyChannel.toService<IUsageStatsService>(
       channelClient.getChannel(IUsageStatsService.channelName),
-    );
-    this.codingPlanSubscriptionService = ProxyChannel.toService<ICodingPlanSubscriptionService>(
-      channelClient.getChannel(ICodingPlanSubscriptionService.channelName),
     );
     this.clientConfigService = ProxyChannel.toService<IClientConfigService>(
       channelClient.getChannel(IClientConfigService.channelName),

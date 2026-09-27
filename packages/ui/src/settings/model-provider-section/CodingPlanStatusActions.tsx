@@ -1,4 +1,5 @@
-import { CodingPlanEntryButton } from "@/settings/CodingPlanEntryButton.js";
+// P3 C2 供应商套餐/计费面删除：CodingPlanEntryButton（购买入口 gate 包装，S2 起已
+// 退化为恒 ready）已删除，此处直接使用 Button。
 import { ArrowLeftIcon, Loader2Icon, RocketIcon } from "lucide-react";
 import { Button } from "@/components/ui/button.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
@@ -72,8 +73,7 @@ export function CodingPlanUpgradeAction({
 
   // 开源版不享受额度活动权益，升级入口只展示操作，不附带优惠徽标或规则说明。
   return (
-    <CodingPlanEntryButton
-      bypassGate={upgradePlansVisible}
+    <Button
       type="button"
       size="lg"
       onClick={() => {
@@ -95,6 +95,6 @@ export function CodingPlanUpgradeAction({
       {intl.formatMessage({
         id: upgradePlansVisible ? "settings.modelProvider.codingPlan.cancelUpgrade" : actionLabelId,
       })}
-    </CodingPlanEntryButton>
+    </Button>
   );
 }

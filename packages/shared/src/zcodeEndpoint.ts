@@ -3,7 +3,6 @@ import type { ZCodeEnv } from "./env.js";
 export const DEFAULT_ZCODE_ENDPOINT_ORIGIN = "https://zcode.z.ai";
 export const DEFAULT_BIGMODEL_API_ORIGIN = "https://bigmodel.cn";
 export const DEFAULT_ZAI_OAUTH_ORIGIN = "https://chat.z.ai";
-export const DEFAULT_ZAI_BUSINESS_BASE_URL = "https://api.z.ai";
 export const DEFAULT_ZAI_OAUTH_CLIENT_ID = "client_P8X5CMWmlaRO9gyO-KSqtg";
 
 // 构建仅注入公开链接；Node 调用方仍可显式传 env，避免读取另一进程的配置。
@@ -11,12 +10,13 @@ declare const __ZCODE_ENDPOINT_ENV__: Record<string, string | undefined> | undef
 export function pickProductEndpointEnv(
   env: Record<string, string | undefined>,
 ): Record<string, string> {
+  // P3 C2 供应商套餐/计费面删除：ZAI_BUSINESS_BASE_URL（官网购买 webview / 业务端点）
+  // 已随购买链路移除，不再参与端点 env 挑选。
   const keys = [
     "ZCODE_BASE_URL",
     "ZCODE_ENDPOINT_ORIGIN",
     "BIGMODEL_API_BASE_URL",
     "ZAI_OAUTH_ORIGIN",
-    "ZAI_BUSINESS_BASE_URL",
     "ZAI_OAUTH_CLIENT_ID",
     "ZAI_OAUTH_APP_ID",
   ];
@@ -58,7 +58,6 @@ export interface RuntimeZaiEndpointEnv {
   [key: string]: string | undefined;
   ZCODE_ENV?: string;
   ZAI_OAUTH_ORIGIN?: string;
-  ZAI_BUSINESS_BASE_URL?: string;
   ZAI_OAUTH_CLIENT_ID?: string;
   ZAI_OAUTH_APP_ID?: string;
 }
@@ -87,32 +86,8 @@ export function normalizeZCodeEndpointOrigin(value: string): string {
   return parsed.origin;
 }
 
-function isLoopbackHostname(hostname: string): boolean {
-  return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1";
-}
-
-export function isTrustedCodingPlanWebviewOrigin(
-  value: string | null | undefined,
-  options?: {
-    e2eStoreBridgeEnabled?: boolean;
-  },
-): boolean {
-  if (!value) return false;
-  try {
-    const origin = normalizeZCodeEndpointOrigin(value);
-    if (
-      origin === DEFAULT_ZCODE_ENDPOINT_ORIGIN ||
-      origin === resolveRuntimeZCodeEndpointOrigin()
-    ) {
-      return true;
-    }
-    const parsed = new URL(origin);
-    return options?.e2eStoreBridgeEnabled === true && isLoopbackHostname(parsed.hostname);
-  } catch {
-    return false;
-  }
-}
-
+// P3 C2 供应商套餐/计费面删除：isTrustedCodingPlanWebviewOrigin（官网购买 webview 的
+// origin 白名单）与 isLoopbackHostname（仅其 e2e 分支使用）已随购买链路移除。
 export function resolveZCodeEndpointOrigin(options?: {
   env?: ZCodeEnv;
   envBaseOrigin?: string | null;
@@ -192,13 +167,8 @@ export function resolveZaiOAuthOrigin(
   );
 }
 
-export function resolveZaiBusinessBaseUrl(
-  env: RuntimeZaiEndpointEnv = readProductEndpointEnv(),
-): string {
-  return normalizeZCodeEndpointOrigin(
-    readRuntimeEnvValue(env, "ZAI_BUSINESS_BASE_URL") ?? DEFAULT_ZAI_BUSINESS_BASE_URL,
-  );
-}
+// P3 C2 供应商套餐/计费面删除：resolveZaiBusinessBaseUrl / buildRuntimeZaiBusinessUrl
+// （Z.AI 业务端点解析，购买 webview 与 team-plan API key 链路消费）已移除。
 
 export function resolveZaiOAuthClientId(
   env: RuntimeZaiEndpointEnv = readProductEndpointEnv(),
@@ -220,14 +190,6 @@ export function buildRuntimeZaiOAuthUrl(
   path: string,
 ): string {
   return buildZaiOAuthUrl(resolveZaiOAuthOrigin(env), path);
-}
-
-export function buildRuntimeZaiBusinessUrl(
-  env: RuntimeZaiEndpointEnv = readProductEndpointEnv(),
-  path: string,
-): string {
-  const normalizedPath = path.startsWith("/") ? path : `/${path}`;
-  return `${resolveZaiBusinessBaseUrl(env)}${normalizedPath}`;
 }
 
 export function buildZCodeEndpointUrls(origin: string): ZCodeEndpointUrls {

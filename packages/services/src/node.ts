@@ -115,12 +115,9 @@ export { createBotsService } from "./bots/botsService.js";
 export { createFileWatcherService } from "./fileWatcher/fileWatcherService.js";
 export { ensureDeviceMid } from "./device/deviceMid.js";
 export type { EnsureDeviceMidOptions } from "./device/deviceMid.js";
-export type { AccountRequestAuthResolver } from "./model-provider/accountProviderRequestAuthService.js";
-export { createAccountProviderCredentialStore } from "./model-provider/accountProviderCredentialStore.js";
-export type {
-  AccountProviderCredentialStore,
-  AccountProviderCredentialStoreOptions,
-} from "./model-provider/accountProviderCredentialStore.js";
+// P3 C2 供应商套餐/计费面删除：accountProvider 请求鉴权链（OAuth token/个人套餐 key/
+// 团队 API key 解析）与 accountProviderCredential* 兄弟文件已删除；中性的
+// IAccountRequestAuthService 及其类型改由 accountRequestAuthService.ts 就地导出。
 export { importLegacyPersonalProviderConfig } from "./model-provider/legacyPersonalProviderConfigImporter.js";
 export {
   createProviderConfigRuntime,
@@ -154,10 +151,13 @@ export {
   IProviderSettingsService,
 } from "./model-provider/providerFacadeServices.js";
 export { createAccountRequestAuthService } from "./model-provider/accountRequestAuthService.js";
-export type { IAccountRequestAuthService } from "./model-provider/accountRequestAuthService.js";
-export { createAccountProviderRequestAuthService } from "./model-provider/accountProviderRequestAuthService.js";
-export { resolveAccountTeamPlanRuntimeApiKey } from "./model-provider/accountProviderTeamPlanRequestKey.js";
-export { createAccountProviderCredentialService } from "./model-provider/accountProviderCredentialService.js";
+export type {
+  AccountAccessIdentityInput,
+  AccountRequestAuthInput,
+  AccountRequestAuthMaterial,
+  AccountRequestAuthResolver,
+  IAccountRequestAuthService,
+} from "./model-provider/accountRequestAuthService.js";
 export { createUsageStatsService } from "./usage-stats/usageStatsService.js";
 // Storage：service 与 adapters 工厂；desktop host 负责组装（Worker runner 在 desktop 包内）
 export { createStorageService } from "./storage/app/storageService.js";
@@ -175,7 +175,6 @@ export {
 } from "./storage/adapters/rootsResolver.js";
 export { createFsVolumeProbe } from "./storage/adapters/volumeProbe.js";
 export { runStorageScan } from "./storage/adapters/inProcessScanRunner.js";
-export { createCodingPlanSubscriptionService } from "./coding-plan-subscription/codingPlanSubscriptionService.js";
 export { createClientConfigService } from "./client-config/clientConfigService.js";
 export { createClientScenesService } from "./client-scenes/clientScenesService.js";
 export { createSkillsService } from "./skills/skillsService.js";
@@ -271,7 +270,6 @@ import { ConversationShareHttpClient } from "./conversation-share/conversationSh
 import { IBotsService } from "./bots/bots.js";
 import { IFileWatcherService } from "./fileWatcher/fileWatcher.js";
 import { IUsageStatsService } from "./usage-stats/usageStats.js";
-import { ICodingPlanSubscriptionService } from "./coding-plan-subscription/codingPlanSubscription.js";
 import { IClientScenesService } from "./client-scenes/clientScenes.js";
 import { ISkillsService } from "./skills/skills.js";
 import { ISkillSyncService } from "./skill-sync/skillSync.js";
@@ -311,8 +309,6 @@ import { createBotRemoteWorkspaceService } from "./bots/botRemoteWorkspaceBridge
 import type { SessionMessageSendRequested } from "#src/session/sessionMailbox.js";
 import { createFileWatcherService } from "./fileWatcher/fileWatcherService.js";
 import { readLegacyZCodeConfigProviders } from "./model-provider/legacyZCodeConfigProviderReader.js";
-import { resolveAccountTeamPlanRuntimeApiKey } from "./model-provider/accountProviderTeamPlanRequestKey.js";
-import { createAccountProviderRequestAuthService } from "./model-provider/accountProviderRequestAuthService.js";
 import { createProviderConfigRuntime } from "./model-provider/providerConfigRuntime.js";
 import { fetchZCodeBuiltinRemoteRelease } from "./model-provider/zcodeBuiltinRemoteConfig.js";
 import {
@@ -334,11 +330,11 @@ import { createProviderProvisioningTarget } from "./model-provider/providerProvi
 import { IProviderProvisioningTargetService } from "./model-provider/providerProvisioning.js";
 import { resolveClientConfigPlatform } from "./runtime-tools/clientPlatform.js";
 import {
+  AccountRequestCredentialUnavailableError,
   createAccountRequestAuthService,
   type IAccountRequestAuthService,
 } from "./model-provider/accountRequestAuthService.js";
 import { createUsageStatsService } from "./usage-stats/usageStatsService.js";
-import { createCodingPlanSubscriptionService } from "./coding-plan-subscription/codingPlanSubscriptionService.js";
 import { createClientConfigService } from "./client-config/clientConfigService.js";
 import { IClientConfigService } from "./client-config/clientConfig.js";
 import { createClientScenesService } from "./client-scenes/clientScenesService.js";
@@ -431,6 +427,7 @@ import {
   formatLogPrefix,
   type ServiceAuthorityMode,
   resolveRuntimeZCodeEndpointOrigin,
+  resolveDynamicWorkflowClientConfig,
   type BrowserBackendDescriptor,
   type BrowserClientMode,
   type BrowserCommand,
@@ -1339,18 +1336,20 @@ export function createLocalServices(options: {
     hasExistingLocalTask: async () => (await taskIndexRepo.listTaskMetas({})).length > 0,
   });
   // P3 C1 供应商 OAuth 删除：oauthCredentialRepo / handleOAuthProviderLogout /
-  // accountProvider 派生 key 清理链路已移除；账号 provider 远端解析属 C2 范围，
-  // 当前所有 OAuth 凭据装载回调收敛为 null（与 P2 起账号连接恒为空的事实一致）。
-  const accountRequestAuthService = createAccountRequestAuthService(
-    createAccountProviderRequestAuthService({
-      // P2：Registry 不再发布账号 Access；当前账号连接解析恒为空，待 P3 重建连接选择。
-      resolveCurrentAccountAccess: async () => null,
-      loadOAuthTokenSet: async () => null,
-      loadIndividualPlanApiKey: async () => null,
-      resolveTeamPlanApiKey: (access) =>
-        resolveAccountTeamPlanRuntimeApiKey({ apiClient, credentialService, access }),
-    }),
-  );
+  // accountProvider 派生 key 清理链路已移除。
+  // P3 C2 供应商套餐/计费面删除：accountProvider 请求鉴权实现（OAuth token / 个人套餐
+  // key / 团队 API key 解析）已删除。Registry 自 P2 起不再发布账号 Access，这里改为
+  // 内联空 resolver：resolveAccessCurrent 恒 null、resolve/assert 恒抛凭据不可用，
+  // 与删除前所有装载回调为 null 的运行时行为一致（消费方的最终删除属 C3/C4）。
+  const accountRequestAuthService = createAccountRequestAuthService({
+    resolveAccessCurrent: async () => null,
+    resolveCurrent: async (input) => {
+      throw new AccountRequestCredentialUnavailableError(input.providerId);
+    },
+    assertCurrent: async (input) => {
+      throw new AccountRequestCredentialUnavailableError(input.providerId);
+    },
+  });
   const providerConfigLog = createServiceLogger("provider-config");
   const clientConfigPlatform = resolveClientConfigPlatform();
   const providerConfigRuntime = createProviderConfigRuntime({
@@ -1839,12 +1838,10 @@ export function createLocalServices(options: {
       }
     },
   };
-  // P3：闲时任务改为本地时间窗准入，不再向 coding-plan 订阅服务查询闲时灰度/模型视图；
-  // 服务本身保留（后续 slice 处理），仅停止 resolveOffPeakModelSelectionView 注入。
-  const codingPlanSubscriptionService = createCodingPlanSubscriptionService({
-    apiClient,
-    credentialService,
-  });
+  // P3 C2 供应商套餐/计费面删除：coding-plan 订阅服务（购买/企业订单/静态目录/
+  // 闲时与动态工作流灰度快照）已删除。动态工作流灰度不再有远端来源，agent 工具面
+  // 门禁改用本地折叠（仅 ZCODE_DYNAMIC_WORKFLOW_MODE env 覆盖，缺省 disabled，
+  // 与 A9 的 local constant OFF 裁决一致；clientConfigService 侧属 C5）。
   // OffPeakTaskService 单例在下方 DI register IIFE 中创建（晚于 agent service）；
   // 用前向引用 holder 惰性绑定——offPeak/create 协议请求只会发生在服务集合装配完成后。
   let offPeakTaskServiceForAgent: OffPeakTaskService | undefined;
@@ -1864,8 +1861,10 @@ export function createLocalServices(options: {
     // 动态工作流灰度：与 Off-Peak 不同，
     // 这里不按 serviceAuthorityMode 裁剪——SSH/WSL/Docker 的 desktop-attached-remote Host
     // 是它自己那些 workspace 的唯一裁决者，灰度开启时远程 workspace 同样提供工作流。
-    resolveDynamicWorkflowClientConfig: () =>
-      codingPlanSubscriptionService.getDynamicWorkflowClientConfig(),
+    // P3 C2：远端快照来源（coding-plan 订阅服务）已删除，改为本地折叠
+    // （env 覆盖 > 缺省 disabled，dev/preview 档位由 desktop main 注入 host env）。
+    resolveDynamicWorkflowClientConfig: async () =>
+      resolveDynamicWorkflowClientConfig({ remote: undefined, env: process.env }),
     commandResolver: options?.zcodeAgentCommandResolver,
     presentationSurface: resolveZCodeAgentPresentationSurface({
       runtimeSurface: options?.agentRuntimeContext?.runtimeSurface,
@@ -2186,7 +2185,6 @@ export function createLocalServices(options: {
         zcodeAgentService,
       }),
     )
-    .register(ICodingPlanSubscriptionService, codingPlanSubscriptionService)
     .register(
       IClientConfigService,
       createClientConfigService({

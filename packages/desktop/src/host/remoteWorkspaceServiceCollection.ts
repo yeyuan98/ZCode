@@ -18,7 +18,6 @@ import {
   IModelSelectionService,
   IProviderSettingsService,
   IUsageStatsService,
-  ICodingPlanSubscriptionService,
   IClientConfigService,
   IClientScenesService,
   ISkillsService,
@@ -47,7 +46,6 @@ import {
   createSettingsSyncService,
   createBotsService,
   createUsageStatsService,
-  createCodingPlanSubscriptionService,
   createClientScenesService,
   createServiceLogger,
   createSubagentsService,
@@ -101,10 +99,8 @@ export function createRemoteWorkspaceServiceCollection(params: {
   // P3 C1 供应商 OAuth 删除：本集合的 OAuth 服务重实例化（createOAuthService）与
   // OAuth 登出清理（createOAuthProviderLogoutHandler + accountProviderCredentialStore）
   // 已随登录会话机制删除；凭据 store 仅保留分享 zcodejwttoken 纯字符串读取。
-  const localCodingPlanSubscriptionService = createCodingPlanSubscriptionService({
-    apiClient: localApiClient,
-    credentialService: localCredentialService,
-  });
+  // P3 C2 供应商套餐/计费面删除：本集合的 coding-plan 订阅服务重实例化
+  // （localCodingPlanSubscriptionService）已删除；手机远控不再暴露购买/灰度面。
   const conversationShareClient = new ConversationShareHttpClient({
     // 远端 workspace 的分享也必须使用真实 API；本地 Mock 仅用于单测，不生成无法跨进程访问的链接。
     apiClient: localApiClient,
@@ -276,7 +272,6 @@ export function createRemoteWorkspaceServiceCollection(params: {
         zcodeAgentService: params.connectionServices.zcodeAgentService,
       }),
     )
-    .register(ICodingPlanSubscriptionService, localCodingPlanSubscriptionService)
     .register(IClientConfigService, params.clientConfigService)
     .register(IClientScenesService, createClientScenesService({ apiClient: localApiClient }))
     // 远端 workspace 的项目级 skills/plugins/commands 位于 SSH/Docker 文件系统。

@@ -27,7 +27,6 @@ import {
   sortModelProvidersForDisplay,
   type ProviderOrderView,
 } from "@/lib/modelProviderOrdering.js";
-import type { EnterpriseCodingPlanProductDisplay } from "@/settings/model-provider-section/enterpriseCodingPlanProducts.js";
 import {
   buildVisibleFamilyConnectionItems,
   resolveCodingPlanEntitlementState,
@@ -49,7 +48,6 @@ interface UseModelProviderNavigationOptions {
   codingPlanEntitlements?: Partial<Record<string, CodingPlanEntitlementState>>;
   /** OAuth active provider 推导的 family；P1 起不再读取 providerFamilyDomain 设置字段。 */
   providerFamilyDomain?: ProviderFamilyDomain | null;
-  subscribedTeamProducts?: EnterpriseCodingPlanProductDisplay[];
   selectedNodeKey: string | null;
   setSelectedNodeKey: (key: string | null) => void;
   intl: ReturnType<typeof useZCodeIntl>["intl"];
@@ -63,7 +61,6 @@ export function useModelProviderNavigation({
   displayOrder,
   codingPlanEntitlements = {},
   providerFamilyDomain = null,
-  subscribedTeamProducts = [],
   selectedNodeKey,
   setSelectedNodeKey,
   intl,
@@ -140,9 +137,8 @@ export function useModelProviderNavigation({
       buildVisibleFamilyConnectionItems({
         items: codingPlanItems.filter((item) => !isStartPlanModelProviderId(item.presetId)),
         codingPlanEntitlements,
-        subscribedTeamProducts,
       }),
-    [codingPlanEntitlements, codingPlanItems, subscribedTeamProducts],
+    [codingPlanEntitlements, codingPlanItems],
   );
 
   const navigationGroups = useMemo<ModelProviderNavGroup[]>(() => {
