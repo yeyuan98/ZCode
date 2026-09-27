@@ -104,3 +104,98 @@ test("glm-4v-flash pins the exact restored capability data", async () => {
   assert.equal(model.config.properties.inputFormat.supportsImage, true);
   assert.equal(model.config.properties.contextWindow, 16_384);
 });
+
+// P1.2 回归：上游目录的两条 vendor anthropic 端点级 inputFormat 站点规则（modelMatch .*）
+// 曾把端点上所有模型的 image/video 覆盖为 true（"端点接受图片块"被误当成"每个模型都有
+// 视觉"），叠加顺序上 providerSiteRules 在 modelRules 之后、后定义者胜出，故 glm-5.3 的
+// 显式 image:false 被翻转。P1.2 删除这两条规则后，逐模型规则成为唯一视觉来源；同时
+// flash 覆盖规则扩展 (?:x)? 以覆盖 glm-5.3-flashx（原先被站点规则遮蔽的正则缺口）。
+async function withResolvedModelsOnTemplate(
+  templateId: "bigmodel-api" | "bigmodel-standard-api",
+  initialModelIds: readonly string[],
+): Promise<readonly ProviderModel[]> {
+  const dir = await mkdtemp(join(tmpdir(), "zcode-glm-capability-p12-"));
+  setDataBaseDir(dir);
+  const configDir = getAppConfigDir();
+  await mkdir(configDir, { recursive: true });
+  const runtime = createProviderConfigRuntime({
+    zcodeBuiltinFilePath: fileURLToPath(
+      new URL("../../../config/provider/zcode-builtin.json", import.meta.url),
+    ),
+    personalFilePath: join(configDir, "personal.json"),
+    personalPollingIntervalMs: false,
+    watch: false,
+  });
+  try {
+    await runtime.start();
+    await runtime.configService.createPersonalProvider({
+      templateId,
+      initialModels: [...initialModelIds],
+    });
+    const next = await runtime.configService.read();
+    const resolution = new ProviderConfigResolver().resolve({
+      zcodeBuiltinProviders: next.zcodeBuiltinProviders,
+      zcodeBuiltinProviderTemplates: next.zcodeBuiltinProviderTemplates,
+      personalProviders: next.personalProviders,
+      zcodeBuiltinModelRules: next.zcodeBuiltinModelRules,
+      personalModels: next.personalModels,
+      accountProviders: ProviderConfigMap.empty(),
+      personalProviderOrder: next.personalProviderOrder,
+    });
+    const created = resolution.resolvedProviders.find(
+      (provider) => provider.templateId === templateId,
+    );
+    assert.ok(created, `模板 ${templateId} 的 personal provider 必须出现在解析结果中`);
+    return created.models;
+  } finally {
+    runtime.dispose();
+    setDataBaseDir(null);
+    await rm(dir, { recursive: true, force: true });
+  }
+}
+
+test("P1.2: anthropic flavor — glm-5.3 is NOT vision, flash family is, unrated defaults off", async () => {
+  const models = await withResolvedModelsOnTemplate("bigmodel-api", [
+    "glm-5.3",
+    "glm-5.3-flash",
+    "glm-5.3-flashx",
+    "glm-4.6v",
+    "totally-unknown-model",
+  ]);
+  const byId = new Map(models.map((entry) => [entry.modelId, entry]));
+  const glm53 = byId.get("glm-5.3");
+  assert.ok(glm53);
+  assert.equal(glm53.config.properties.inputFormat?.supportsImage, false);
+  assert.equal(glm53.config.properties.contextWindow, 1_000_000);
+  const flash = byId.get("glm-5.3-flash");
+  assert.ok(flash);
+  assert.equal(flash.config.properties.inputFormat?.supportsImage, true);
+  assert.equal(flash.config.properties.inputFormat?.supportsVideo, true);
+  assert.equal(flash.config.properties.inputFormat?.supportsPdf, true);
+  const flashx = byId.get("glm-5.3-flashx");
+  assert.ok(flashx);
+  // (?:x)? 扩展：flashx 属 flash 家族（用户裁定视觉），ctx 走家族基础规则 1M。
+  assert.equal(flashx.config.properties.inputFormat?.supportsImage, true);
+  assert.equal(flashx.config.properties.contextWindow, 1_000_000);
+  const glm46v = byId.get("glm-4.6v");
+  assert.ok(glm46v);
+  assert.equal(glm46v.config.properties.inputFormat?.supportsImage, true);
+  const unrated = byId.get("totally-unknown-model");
+  assert.ok(unrated);
+  // 站点级 inputFormat 已删除：未被规则覆盖的模型不再被端点 blanket 成视觉。
+  assert.equal(unrated.config.properties.inputFormat?.supportsImage, false);
+});
+
+test("P1.2: openai-compat flavor unchanged except flashx gains vision cross-flavor", async () => {
+  const models = await withResolvedModelsOnTemplate("bigmodel-standard-api", [
+    "glm-5.3",
+    "glm-5.3-flash",
+    "glm-5.3-flashx",
+  ]);
+  const byId = new Map(models.map((entry) => [entry.modelId, entry]));
+  assert.equal(byId.get("glm-5.3")?.config.properties.inputFormat?.supportsImage, false);
+  assert.equal(byId.get("glm-5.3-flash")?.config.properties.inputFormat?.supportsImage, true);
+  // 模型规则与 flavor 无关：paas 端点上 flashx 的视觉是本次有意的跨 flavor 修正
+  //（原先 overlay 正则不匹配 flashx，false 是缺口而非事实）。
+  assert.equal(byId.get("glm-5.3-flashx")?.config.properties.inputFormat?.supportsImage, true);
+});

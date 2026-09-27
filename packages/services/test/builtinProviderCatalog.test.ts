@@ -95,3 +95,24 @@ test("ollama template runs unauthenticated openai-compatible local inference", a
   assert.equal(ollama.config.api?.baseUrl, "http://localhost:11434/v1");
   assert.equal(ollama.config.builtinModelIds, undefined);
 });
+
+// P1.2 守卫：vendor anthropic 端点级 providerSiteRules 不得再携带 inputFormat——
+// 上游目录曾用它表达"端点接受图片/视频块"（wire 层事实），叠加顺序在 modelRules 之后
+// 导致端点上所有模型被 blanket 成视觉。逐模型规则是唯一视觉来源；midConversationSystem
+// 等其它端点级属性不受影响。
+test("vendor anthropic site rules never carry inputFormat (P1.2 guard)", async () => {
+  const content = await readFile(catalogPath, "utf8");
+  const release = decodeZCodeBuiltinRelease(JSON.parse(content));
+  // 解码后的 modelConfigRules 是展平的 ModelConfigRules（typed 规则流），按 type 过滤。
+  for (const rule of release.config.modelConfigRules.rules()) {
+    if (rule.type !== "provider-site") continue;
+    const baseUrl = rule.baseUrlMatch ?? "";
+    if (/api\.z\.ai\/api\/anthropic|open\.bigmodel\.cn\/api\/anthropic/.test(baseUrl)) {
+      assert.equal(
+        rule.config.toJSON().properties?.inputFormat,
+        undefined,
+        `站点规则不得携带 inputFormat: ${baseUrl}`,
+      );
+    }
+  }
+});
