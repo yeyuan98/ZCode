@@ -34,7 +34,8 @@ export interface OffPeakSchedulerController {
   settleAdmissionWaiters(): void;
 }
 
-export interface OffPeakSchedulerControllerDeps {
+// 仅模块内使用的依赖形状，不导出（外部消费方经 createOffPeakSchedulerController 参数推导）。
+interface OffPeakSchedulerControllerDeps {
   port: Pick<SchedulerPortShape, "postMessage">;
   repo: OffPeakTaskRepo;
   log: (level: "info" | "warn" | "error", message: string) => void;
@@ -42,7 +43,7 @@ export interface OffPeakSchedulerControllerDeps {
 }
 
 /** schedulerRuntime 的端口面在此处只需要 postMessage（收包仍由 runtime 分发）。 */
-export interface SchedulerPortShape {
+interface SchedulerPortShape {
   postMessage(message: SchedulerToMainMessage): void;
 }
 

@@ -3,7 +3,8 @@
 // zcodeAgentService 在 permission/AskUserQuestion/plan-approval 反向请求处询问。
 // 归因严格按「该 session 的活跃 turn 属于闲时派发」——无在场检测，
 // Run-now 也不豁免（交互需求由普通任务承载）。
-export interface OffPeakInteractionPolicy {
+// 仅模块内使用的策略形状（消费方经 createOffPeakInteractionPolicy 返回值推导），不导出。
+interface OffPeakInteractionPolicy {
   /** sendPrompt 已接受：本次闲时 turn 成为该会话的活跃 turn，登记免打扰归因。 */
   track(sessionId: string): void;
   /** 终态回写完成/订阅释放/会话关闭：摘除归因，恢复普通交互语义。 */

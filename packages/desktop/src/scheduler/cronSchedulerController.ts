@@ -40,7 +40,8 @@ export interface CronSchedulerController {
   releaseInFlight(): Promise<void>;
 }
 
-export interface CronSchedulerControllerDeps {
+// 仅模块内使用的依赖形状，不导出（外部消费方经 createCronSchedulerController 参数推导）。
+interface CronSchedulerControllerDeps {
   repo: AutomationRepo;
   postMessage: (message: SchedulerToMainMessage) => void;
   log: (level: "info" | "warn" | "error", message: string) => void;
