@@ -299,7 +299,7 @@ function resolvePermissionBlockKind(
   }
 
   if (identity.family === "search") {
-    // WebFetch/WebSearch 权限请求以前落到 fallback，会把整包 toolCall JSON 打出来。
+    // WebFetch 权限请求以前落到 fallback，会把整包 toolCall JSON 打出来。
     // 这里和聊天区一样走 search renderer，只展示用户关心的 URL/query 摘要。
     return "search";
   }

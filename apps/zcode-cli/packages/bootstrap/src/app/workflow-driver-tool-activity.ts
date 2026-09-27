@@ -58,7 +58,7 @@ interface ActorToolActivity {
   counts(): ActorToolCounts;
   /**
    * 此刻**还在跑**的工具调用数（started 减去 result / error，按 toolCallId 去重，所以一轮里并行
-   * 发出的四次 WebSearch 数出来就是 4）。
+   * 发出的四次工具调用数出来就是 4）。
    *
    * 唯一的读者是座位闸门（workflow-seat-gate.ts）：准入调用上只有 `{model}`，分不出一次模型请求
    * 是这个子代理的下一个 turn step 还是它某个工具内部发的，而**工具侧的请求永不停驻**。有工具在

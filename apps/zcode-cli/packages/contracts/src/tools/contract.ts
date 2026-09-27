@@ -68,17 +68,6 @@ export type ToolPermissionPatternSource =
 
 export type ToolResultBudgetStrategy = "inline" | "truncate" | "artifact";
 
-export type ToolExecutionMode = "client" | "providerNative";
-
-export interface ProviderNativeToolSpec {
-  kind: "provider_native";
-  logicalName: string;
-  providerToolName: string;
-  providerIds?: string[];
-  args?: Record<string, unknown>;
-  fallback: "disabled";
-}
-
 export interface ToolPermissionSpec {
   permission: string;
   reason: string;
@@ -162,8 +151,6 @@ export interface ToolTracePolicy {
 
 export interface ToolContractDeclaration {
   capability: string;
-  executionMode?: ToolExecutionMode;
-  providerNative?: ProviderNativeToolSpec;
   inputSchema: Record<string, unknown>;
   outputSchema: Record<string, unknown>;
   /**

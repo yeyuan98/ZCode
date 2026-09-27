@@ -27,7 +27,6 @@ const SORTED_PROVIDER_TOOL_NAMES = new Set([
   "TodoRead",
   "TodoWrite",
   "WebFetch",
-  "WebSearch",
   "Workflow",
   "Write",
 ]);

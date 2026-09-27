@@ -108,8 +108,6 @@ export class ToolRegistryImpl implements ToolRegistry {
         name: entry.metadata.name,
         description: toolDescriptionForProvider(entry.metadata),
         capability: entry.capability,
-        executionMode: entry.executionMode,
-        providerNative: entry.providerNative,
         inputSchema: entry.inputSchema,
         outputSchema: entry.outputSchema,
         ...(entry.strict === undefined ? {} : { strict: entry.strict }),

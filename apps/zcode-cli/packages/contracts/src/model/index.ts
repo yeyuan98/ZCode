@@ -3,12 +3,7 @@
 // ============================================================
 
 import type { QueryId, SessionId, TraceId, TurnId } from "../interfaces/shared.js";
-import type {
-  ProviderNativeToolSpec,
-  ToolExecutionMode,
-  ToolPermissionSpec,
-  ToolResultBudget,
-} from "../tools/contract.js";
+import type { ToolPermissionSpec, ToolResultBudget } from "../tools/contract.js";
 import type { TraceContext } from "../tracing/tracer.js";
 import type {
   ModelApiCallObservation,
@@ -463,8 +458,6 @@ export interface ModelToolContract {
   name: string;
   description?: string;
   capability?: string;
-  executionMode?: ToolExecutionMode;
-  providerNative?: ProviderNativeToolSpec;
   inputSchema: JsonSchema;
   outputSchema?: JsonSchema;
   /** 见 ToolContractDeclaration.strict：严格模式的资格声明，adapter 按 provider/model 落地。 */

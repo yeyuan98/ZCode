@@ -2611,7 +2611,7 @@ const zhCN: Record<string, string> = {
   "settings.modelProvider.help.outputModalities":
     "模型生成回复的内容类型。目前不支持文本以外的其他选项。",
   "settings.modelProvider.help.capabilities":
-    "- **结构化输出**：支持通过 JSON Schema 约束模型输出的字段、类型和结构。\n- **原生联网搜索**：支持使用模型接口内置的联网搜索能力。\n- **对话中系统消息**：支持在对话中途插入系统指令。\n\n请勿勾选模型不支持的能力。",
+    "- **结构化输出**：支持通过 JSON Schema 约束模型输出的字段、类型和结构。\n- **对话中系统消息**：支持在对话中途插入系统指令。\n\n请勿勾选模型不支持的能力。",
   "settings.modelProvider.help.reasoningLevelsOrdered":
     "设置聊天时可选择的推理等级，**必须按推理强度从低到高排列**。\n请勿配置模型不支持的推理等级。",
   "settings.modelProvider.help.reasoningLevelMapping":
@@ -2637,7 +2637,6 @@ const zhCN: Record<string, string> = {
   "settings.modelProvider.capabilities": "模型能力",
   "settings.modelProvider.supportsToolCall": "工具调用",
   "settings.modelProvider.supportsJsonSchemaOutput": "结构化输出",
-  "settings.modelProvider.supportsNativeWebSearch": "原生联网搜索",
   "settings.modelProvider.supportsMidConversationSystem": "对话中系统消息",
   "settings.modelProvider.requiresMfjsToolSchema": "MFJS 工具 Schema",
   "settings.modelProvider.otherSettings": "其他设置",

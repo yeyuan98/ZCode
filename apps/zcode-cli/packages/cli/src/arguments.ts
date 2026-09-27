@@ -223,8 +223,7 @@ const splitCliToolRules = (value: string): readonly string[] => {
 };
 
 const normalizeCliToolRule = (rule: string): string => {
+  // P4 WebSearch 工具删除后 `web_search` 别名改写不再存在，仅保留空规则归一。
   if (!rule) return "";
-  if (rule === "web_search") return "WebSearch";
-  if (rule.startsWith("web_search(")) return `WebSearch${rule.slice("web_search".length)}`;
   return rule;
 };

@@ -33,8 +33,8 @@ export function createRuntimeModel(
  * runtime 层调用上下文。
  *
  * 准入端口与重试预算回答的是「谁在调」（这个 runtime 归哪个治理器管、允许多少次重试），不是
- * 「为什么调」（agent step / web_search / compact / title）。设计缺口：它们若只在 turn step
- * 的调用上下文里注入，WebSearch / WebFetch 处理 / 压缩 / 标题 sidecar 等九处只设「为什么调」的
+ * 「为什么调」（agent step / 工具内部请求 / compact / title）。设计缺口：它们若只在 turn step
+ * 的调用上下文里注入，WebFetch 处理 / 压缩 / 标题 sidecar 等只设「为什么调」的
  * 调用点全部绕过了闸门——实测场景下治理器看不见三分之二的 429。现在这两个字段在句柄
  * 工厂绑定一次；`withModelInvocationContext` 的合并顺序让本层压过调用层，没有逐调用退出口：
  * 想不受闸门约束的 runtime 本来就不带准入端口。

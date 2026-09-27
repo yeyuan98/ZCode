@@ -76,7 +76,6 @@ export function serializeRegistryModelConfig(
       outputFormat: { supportsText: config.properties.outputFormat.supportsText },
       supportsToolCall: config.properties.supportsToolCall,
       supportsJsonSchemaOutput: config.properties.supportsJsonSchemaOutput,
-      supportsNativeWebSearch: config.properties.supportsNativeWebSearch,
       supportsMidConversationSystem: config.properties.supportsMidConversationSystem,
     },
     optionSpecs: {

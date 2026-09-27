@@ -11,7 +11,7 @@ import { isRecord } from "./utils.js";
  * 可暂停的工具 deadline。
  *
  * 工具内部的模型请求在进程级准入闸门前排队时暂停计时，拿到票再续，剩余时长守恒。超时守的是
- * 「provider 挂了」，不是「我们自己的队列长」：否则闸门把 cap 压低时会把 WebSearch / WebFetch 逐个
+ * 「provider 挂了」，不是「我们自己的队列长」：否则闸门把 cap 压低时会把工具内部模型请求逐个
  * 逼成 60 s 超时，模型再补搜，越限流越吵（deep-research 实例里 7 次这样的 cancel）。
  * 多个请求并存取并集（计数器）；退避 sleep 不暂停（那是 provider 慢）；`timeoutMs` 缺席时只累计
  * 排队时长、不计时。

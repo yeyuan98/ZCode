@@ -22,7 +22,6 @@ export const DEFAULT_MICROCOMPACT_COMPACTABLE_TOOLS = [
   "Grep",
   "Glob",
   "WebFetch",
-  "WebSearch",
   "Edit",
   "Write",
   "ApplyPatch",

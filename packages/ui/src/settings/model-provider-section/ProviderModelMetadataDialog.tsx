@@ -330,27 +330,23 @@ export function ProviderModelMetadataDialog({
                   <ModelConfigHelp field="capabilities" />
                 </div>
                 <div className="flex flex-wrap gap-2" data-model-capabilities-options="true">
-                  {(
-                    [
-                      "supportsJsonSchemaOutput",
-                      "supportsNativeWebSearch",
-                      "supportsMidConversationSystem",
-                    ] as const
-                  ).map((property) => {
-                    const field = `${property}Value` as const;
-                    return (
-                      <BooleanModelOption
-                        key={property}
-                        label={intl.formatMessage({ id: `settings.modelProvider.${property}` })}
-                        selected={draft[field] ?? false}
-                        onToggle={() => onDraftChange({ [field]: !(draft[field] ?? false) })}
-                        overridden={overridden(
-                          field,
-                          personalConfig?.properties?.[property] !== undefined,
-                        )}
-                      />
-                    );
-                  })}
+                  {(["supportsJsonSchemaOutput", "supportsMidConversationSystem"] as const).map(
+                    (property) => {
+                      const field = `${property}Value` as const;
+                      return (
+                        <BooleanModelOption
+                          key={property}
+                          label={intl.formatMessage({ id: `settings.modelProvider.${property}` })}
+                          selected={draft[field] ?? false}
+                          onToggle={() => onDraftChange({ [field]: !(draft[field] ?? false) })}
+                          overridden={overridden(
+                            field,
+                            personalConfig?.properties?.[property] !== undefined,
+                          )}
+                        />
+                      );
+                    },
+                  )}
                 </div>
               </div>
             </ModelSettingsGroup>

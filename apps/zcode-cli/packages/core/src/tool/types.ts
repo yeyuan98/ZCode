@@ -45,8 +45,6 @@ import type {
   PermissionRuleBehavior,
   PermissionRuleValue,
   PermissionUpdate,
-  ProviderNativeToolSpec,
-  ToolExecutionMode,
   ToolCancellationPolicy,
   ToolContractDeclaration,
   ToolResultBudgetStrategy,
@@ -297,8 +295,6 @@ export interface ToolEntry extends ToolContractDeclaration {
    * 只由宿主验证后的可信来源写入；不能从模型可见的 MCP 名称或 descriptor 推导。
    */
   permissionCapabilityGroup?: PermissionCapabilityGroup;
-  executionMode?: ToolExecutionMode;
-  providerNative?: ProviderNativeToolSpec;
   handler: ToolHandler;
   /** 当前 turn 模型能力对 provider descriptor 与 executor schema 的同源投影。 */
   resolveModelContract?: (context: ToolExecutionModelContext) => {
