@@ -3,6 +3,7 @@ import test from "node:test";
 import { appSettingsPatchSchema } from "../../shared/src/validationAppSettings.ts";
 import { normalizeSettingsPatch } from "../../services/src/setting/normalizeSettingsPatch.ts";
 import {
+  buildInitialModels,
   buildWizardSkipSettings,
   shouldShowLoginApiKeyLink,
 } from "../src/login/LoginApiKeyForm.helpers.ts";
@@ -43,4 +44,19 @@ test("get-key link only shows while the key input is empty", () => {
   assert.equal(shouldShowLoginApiKeyLink("  ", "https://example.com/keys"), true);
   assert.equal(shouldShowLoginApiKeyLink("sk-123", "https://example.com/keys"), false);
   assert.equal(shouldShowLoginApiKeyLink("", undefined), false);
+});
+
+test("buildInitialModels keeps plain ids as strings and attaches hints per id", () => {
+  // 无 hints（端点不提供元数据）：全部保持字符串形态，与旧 initialModelIds 行为一致。
+  assert.deepEqual(buildInitialModels(["model-a", "model-b"]), ["model-a", "model-b"]);
+  assert.deepEqual(buildInitialModels(["model-a"], undefined), ["model-a"]);
+  // 有 hints 的模型用对象形态携带；无关 id 的 hints 条目被忽略。
+  assert.deepEqual(
+    buildInitialModels(["model-a", "model-b"], {
+      "model-b": { contextWindow: 250000, supportsImage: true },
+    }),
+    ["model-a", { id: "model-b", hints: { contextWindow: 250000, supportsImage: true } }],
+  );
+  // 空 hints 对象不产生对象形态（provider 层会把无字段 hints 归一为纯 id）。
+  assert.deepEqual(buildInitialModels(["model-a"], { "model-a": {} }), ["model-a"]);
 });

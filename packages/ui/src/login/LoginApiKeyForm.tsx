@@ -19,6 +19,7 @@ import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import { logger } from "@/logger.js";
 import {
   buildWizardSkipSettings,
+  resolveWizardInitialModels,
   shouldShowLoginApiKeyLink,
 } from "@/login/LoginApiKeyForm.helpers.js";
 
@@ -85,9 +86,18 @@ export function LoginApiKeyForm({
       await providerSettingsService.createPersonalProvider({
         templateId,
         locale,
-        // 发现失败或未运行时不阻塞保存：initialModelIds 传空，模型仍可稍后手动添加。
-        // 发现成功则把模型 id 随同一次保存持久化，保证 provider 创建即有可用模型。
-        initialModelIds: discoveryState.status === "success" ? [...discoveryState.modelIds] : [],
+        // P1.1（spec §3）保存必须自动发现：从未点过“测试并发现”（idle）且模板带 api 配置时，
+        // 直接调用服务做静默自动发现并采用本地结果；已失败（failure）不重跑，避免二次长等待。
+        // 发现结果（ids + hints）在同一次保存里持久化，保证 provider 创建即有可用模型。
+        initialModels: await resolveWizardInitialModels(providerSettingsService, {
+          templateId,
+          apiKey,
+          discoveryState,
+          resolvedTemplate,
+          onAutoDiscoverError: (error) => {
+            logger.warn("[Wizard] 保存时自动发现模型失败", { templateId, error });
+          },
+        }),
         initialConfig: isApiKeyAccess(resolvedTemplate.config.access)
           ? {
               access: {
@@ -249,7 +259,13 @@ export function LoginApiKeyForm({
           className="h-10 w-full text-ui-base"
           size="lg"
           data-testid={TID_LOGIN_API_KEY_CONTINUE_BUTTON}
-          disabled={(requiresApiKey && !apiKeyValue.trim()) || busy}
+          disabled={
+            (requiresApiKey && !apiKeyValue.trim()) ||
+            busy ||
+            // 发现进行中禁止保存：此刻既非 idle 也非 success，自动发现不会补跑，
+            // 直接保存会落成零模型 provider（spec §3：testing 期间 Continue 禁用）。
+            discoveryState.status === "testing"
+          }
           onClick={() => void saveApiKeyProvider()}
         >
           {saving ? <Loader2Icon className="size-4 animate-spin" /> : null}

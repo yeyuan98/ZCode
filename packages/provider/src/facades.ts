@@ -1,6 +1,6 @@
 /* oxlint-disable eslint(max-lines) -- Settings/Selection Facade 共享同一套 Registry 投影与写入边界。 */
 import type { ConfigValidationIssue } from "./config-overlay.js";
-import type { ProviderModelMembership } from "./config-service.js";
+import type { InitialModelEntry, ProviderModelMembership } from "./config-service.js";
 import type {
   ModelConfig,
   ModelConfigObject,
@@ -51,7 +51,7 @@ export interface ProviderSettingsMutationTarget {
     readonly providerName?: string;
     readonly locale?: ProviderTemplateLocale;
     readonly initialConfig?: ProviderConfig;
-    readonly initialModelIds?: readonly ModelId[];
+    readonly initialModels?: ReadonlyArray<InitialModelEntry>;
   }): Promise<{ readonly providerId: ProviderId }>;
   savePersonalProviderOverlay(
     providerId: ProviderId,
@@ -73,6 +73,12 @@ export interface ProviderSettingsMutationTarget {
     membership?: ProviderModelMembership,
     useRecommendedConfig?: boolean,
   ): Promise<unknown>;
+  /** 批量合并发现到的模型：单事务、personal/builtin 去重静默跳过，返回实际新增数量。 */
+  addPersonalModels(
+    providerId: ProviderId,
+    models: ReadonlyArray<InitialModelEntry>,
+    membership?: ProviderModelMembership,
+  ): Promise<number>;
   renamePersonalModel(
     providerId: ProviderId,
     currentModelId: ModelId,
@@ -305,7 +311,7 @@ export class ProviderSettingsFacade {
     readonly providerName?: string;
     readonly locale?: ProviderTemplateLocale;
     readonly initialConfig?: ProviderConfigObject;
-    readonly initialModelIds?: readonly ModelId[];
+    readonly initialModels?: ReadonlyArray<InitialModelEntry>;
   }): Promise<ProviderSettingsCreationResult> {
     return this.#mutateWithResult("create-provider", (target) =>
       target.createPersonalProvider({
@@ -315,7 +321,7 @@ export class ProviderSettingsFacade {
         ...(input?.initialConfig
           ? { initialConfig: parseProviderConfig(input.initialConfig) }
           : {}),
-        ...(input?.initialModelIds ? { initialModelIds: input.initialModelIds } : {}),
+        ...(input?.initialModels ? { initialModels: input.initialModels } : {}),
       }),
     ).then(({ result, view }) => ({ providerId: result.providerId, view }));
   }
@@ -371,6 +377,15 @@ export class ProviderSettingsFacade {
         useRecommendedConfig,
       ),
     );
+  }
+
+  addPersonalModels(
+    providerId: ProviderId,
+    models: ReadonlyArray<InitialModelEntry>,
+  ): Promise<number> {
+    return this.#mutateProviderWithResult(providerId, "add-models", (target) =>
+      target.addPersonalModels(providerId, models, this.#modelMembership(providerId)),
+    ).then(({ result }) => result);
   }
 
   renamePersonalModel(
@@ -468,9 +483,18 @@ export class ProviderSettingsFacade {
     reason: string,
     operation: (target: ProviderSettingsMutationTarget) => Promise<unknown>,
   ): Promise<ProviderSettingsView> {
+    return this.#mutateProviderWithResult(providerId, reason, operation).then(({ view }) => view);
+  }
+
+  /** 与 #mutateProvider 相同的 per-provider 串行边界，但把写入操作的返回值带回调用方。 */
+  #mutateProviderWithResult<TResult>(
+    providerId: ProviderId,
+    reason: string,
+    operation: (target: ProviderSettingsMutationTarget) => Promise<TResult>,
+  ): Promise<{ readonly result: TResult; readonly view: ProviderSettingsView }> {
     const previous = this.#providerMutationTails.get(providerId) ?? Promise.resolve();
     const waitForPrevious = previous.catch(() => undefined);
-    const result = waitForPrevious.then(() => this.#mutate(reason, operation));
+    const result = waitForPrevious.then(() => this.#mutateWithResult(reason, operation));
     this.#providerMutationTails.set(providerId, result);
     const cleanup = () => {
       if (this.#providerMutationTails.get(providerId) === result) {
