@@ -184,13 +184,13 @@ export const runPrompt = async (
     }
     providerRegistryRuntime = await startProviderRegistryRuntime(
       appEnv,
+      // P3 C5：远端内置目录刷新 reporter 已随供应商 client/configs 下载链路删除。
       deps.skipUserConfig
         ? {}
         : {
-            standalone: {
-              ...createCliProviderRefreshReporter(ctx.stderr),
-              ...(deps.userConfigPath ? { legacyCliUserConfigFilePath: deps.userConfigPath } : {}),
-            },
+            standalone: deps.userConfigPath
+              ? { legacyCliUserConfigFilePath: deps.userConfigPath }
+              : {},
           },
     );
     browserRuntime = createCliHeadlessBrowserRuntime(options, deps);
@@ -619,4 +619,4 @@ function writeHeadlessWorkspaceHookTrustDiagnostic(
     ].join("\n") + "\n",
   );
 }
-import { createCliProviderRefreshReporter } from "./provider-runtime-env.js";
+// P3 C5：createCliProviderRefreshReporter import 已随远端内置目录刷新链路删除。

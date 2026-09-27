@@ -301,7 +301,8 @@ import type { SessionMessageSendRequested } from "#src/session/sessionMailbox.js
 import { createFileWatcherService } from "./fileWatcher/fileWatcherService.js";
 import { readLegacyZCodeConfigProviders } from "./model-provider/legacyZCodeConfigProviderReader.js";
 import { createProviderConfigRuntime } from "./model-provider/providerConfigRuntime.js";
-import { fetchZCodeBuiltinRemoteRelease } from "./model-provider/zcodeBuiltinRemoteConfig.js";
+// P3 C5：fetchZCodeBuiltinRemoteRelease（供应商 client/configs → CDN 目录下载）已随
+// 远端内置目录删除；Registry 只读打包/本地 zcode-builtin.json。
 import {
   createProviderRuntimeFromConfigRuntime,
   type ProviderRuntime,
@@ -319,7 +320,6 @@ import {
 } from "./model-provider/providerProvisioningSource.js";
 import { createProviderProvisioningTarget } from "./model-provider/providerProvisioningTarget.js";
 import { IProviderProvisioningTargetService } from "./model-provider/providerProvisioning.js";
-import { resolveClientConfigPlatform } from "./runtime-tools/clientPlatform.js";
 import { createUsageStatsService } from "./usage-stats/usageStatsService.js";
 // P3 C5 供应商 client/configs 拉取删除：IClientConfigService 注册随配置面移除。
 import { createClientScenesService } from "./client-scenes/clientScenesService.js";
@@ -420,7 +420,7 @@ import {
   type ZCodeAutomationRun,
   getCapturedZCodeAgentTelemetryEnv,
   ZCODE_DESKTOP_CONTEXT_PROMPT_ENABLED_ENV,
-  ZCODE_VERSION,
+  // P3 C5：ZCODE_VERSION 仅剩的 client/configs 请求上下文用途已随配置拉取删除。
   buildRuntimeZCodeApiUrl,
 } from "@zcode/shared";
 
@@ -1313,31 +1313,12 @@ export function createLocalServices(options: {
   // P3 C4 供应商账号删除：accountRequestAuthService（runtime-headers 请求期鉴权，
   // 自 P2 起仅剩恒失败的空实现）已随 accountAccess 分支整体移除，不再装配。
   const providerConfigLog = createServiceLogger("provider-config");
-  const clientConfigPlatform = resolveClientConfigPlatform();
+  // P3 C5 供应商目录远端下载删除：zcodeBuiltinEnvironment（按 Endpoint 隔离的
+  // Active/LKG 缓存 + CDN 刷新）与 fetchZCodeBuiltinRemoteRelease（client/configs →
+  // builtin_provider_config_json 下载边界）不再装配；Registry 只读打包/本地
+  // zcode-builtin.json（zcodeBuiltinProviderConfigFilePath），离线可用。
   const providerConfigRuntime = createProviderConfigRuntime({
     zcodeBuiltinFilePath: options.zcodeBuiltinProviderConfigFilePath,
-    zcodeBuiltinEnvironment: {
-      environmentConfigRoot: resolveAppConfigDir(),
-      platform: clientConfigPlatform,
-      appVersion: ZCODE_VERSION,
-      resolveEndpointOrigin: resolveCurrentZCodeEndpointOrigin,
-      onRefreshResult: (event) => {
-        if (event.result === "updated")
-          providerConfigLog.info(undefined, "ZCode Built-in CDN 配置已更新", event);
-        else providerConfigLog.debug(undefined, "ZCode Built-in 刷新检查", event);
-      },
-      fetchRelease: (endpointOrigin, signal) =>
-        fetchZCodeBuiltinRemoteRelease({
-          apiClient,
-          endpointOrigin,
-          signal,
-          appVersion: ZCODE_VERSION,
-          platform: clientConfigPlatform,
-        }),
-    },
-    onZCodeBuiltinRefreshError: (error) => {
-      providerConfigLog.warn(undefined, "ZCode Built-in Config 远端刷新失败", { error });
-    },
     onPersonalConfigRecovery: (event) => {
       providerConfigLog.warn(
         undefined,
@@ -1946,8 +1927,8 @@ export function createLocalServices(options: {
           telemetryEnv,
         }),
         ...createNodeProviderRuntimePathEnv({
-          // Built-in Active 路径按当前 Endpoint 隔离，不能通过同步的固定路径
-          // getter 读取；Agent spawn 必须等待本轮 Endpoint Source 完成解析和物化。
+          // P3 C5：远端内置目录删除后 Source 是纯本地文件，Active 路径不再按 Endpoint
+          // 隔离物化；保留异步 getter 形状以维持 Agent spawn env 组装结构不变。
           zcodeBuiltinFilePath: await providerConfigRuntime.resolveZCodeBuiltinActiveFilePath(),
           personalFilePath: join(resolveAppConfigDir(), PERSONAL_PROVIDER_CONFIG_FILE_NAME),
         }),

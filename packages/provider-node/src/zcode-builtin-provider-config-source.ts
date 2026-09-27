@@ -17,9 +17,9 @@ export interface NodeZCodeBuiltinProviderConfigSourceOptions {
   readonly watch?: boolean;
 }
 
-export type ApplyZCodeBuiltinReleaseResult = "updated" | "unchanged" | "stale";
-
-/** Bundled、Active/LKG 与 Remote 共用同一 Release，并最终发布为现有 Config Snapshot。 */
+/** Bundled、Active/LKG 共用同一 Release，并最终发布为现有 Config Snapshot。 */
+// P3 C5：applyRemoteRelease（远端 Release 应用入口）已随供应商 client/configs + CDN
+// 目录下载删除；本 Source 只读 Bundled 与本地 Active 缓存，不再接受远端写入。
 export class NodeZCodeBuiltinProviderConfigSource implements ProviderSource<ProviderConfigLayerSnapshot> {
   readonly #bundledFilePath: string;
   readonly #activeFilePath: string;
@@ -59,28 +59,6 @@ export class NodeZCodeBuiltinProviderConfigSource implements ProviderSource<Prov
     }
     this.#observedSignature ??= signatureOf(release);
     return snapshotFromRelease(release, this.#sourceKey);
-  }
-
-  async applyRemoteRelease(release: ZCodeBuiltinRelease): Promise<ApplyZCodeBuiltinReleaseResult> {
-    this.#assertNotDisposed();
-    await this.#ensureWatcher();
-    const result = await withFileLock(this.#activeFilePath, async () => {
-      this.#assertNotDisposed();
-      const current = await this.#readAndMaterializeLocked();
-      this.#assertNotDisposed();
-      if (release.revision < current.revision) return "stale" as const;
-      if (release.revision === current.revision) {
-        if (serializeZCodeBuiltinRelease(release) === serializeZCodeBuiltinRelease(current)) {
-          return "unchanged" as const;
-        }
-        throw new Error(`ZCode Built-in 相同 revision ${release.revision} 对应不同内容`);
-      }
-      await this.#writeActiveLocked(release);
-      this.#observedSignature = signatureOf(release);
-      return "updated" as const;
-    });
-    if (result === "updated" && !this.#disposed) this.#emit("remote-updated");
-    return result;
   }
 
   onDidChange(listener: (reason: string) => void): () => void {
