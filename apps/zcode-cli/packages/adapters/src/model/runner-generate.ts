@@ -360,12 +360,12 @@ export async function runGenerateText(input: {
       }
       const canRetryWithFailurePolicy =
         retryBudgetAllows(retryBudget, retryBudgetAttempt, input.retry.maxAttempts) &&
-            // workflow 流量（无上限预算）读策略表而不是分类器的 retryable；有界预算逐字不变。
-            retryAllowedByFailurePolicy(
-              failure,
-              retryBudget,
-              inspectProviderFailure(error).providerErrorCode,
-            );
+        // workflow 流量（无上限预算）读策略表而不是分类器的 retryable；有界预算逐字不变。
+        retryAllowedByFailurePolicy(
+          failure,
+          retryBudget,
+          inspectProviderFailure(error).providerErrorCode,
+        );
       const canRetry = retryWithRepairedHistory || canRetryWithFailurePolicy;
 
       if (options) {
