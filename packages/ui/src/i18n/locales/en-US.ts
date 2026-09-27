@@ -146,7 +146,6 @@ const enUS: Record<string, string> = {
   "chat.permission.feedback.placeholder": "Tell the model what to do instead...",
   "offPeak.chatCreated.defaultTitle": "Idle-time task",
   "offPeak.chatCreated.queued": "Queued for idle-time compute",
-  "offPeak.chatCreated.queuedAt": "#{position} in queue",
   "offPeak.chatCreated.open": "Go to idle-time tasks",
   "settings.computerUse.disabledToast":
     "Computer Use is disabled. Existing conversations require a ZCode restart to take effect.",
@@ -5827,11 +5826,6 @@ const enUS: Record<string, string> = {
   "offPeak.notify.failed.title": "Idle-time task failed",
   "offPeak.notify.failed.body": '"{title}" stopped with an error.',
   "offPeak.sidebar.groupTitle": "Idle-time tasks",
-  "offPeak.newTask.bannerText":
-    'New feature for subscribers: Create "Idle-time task" , We will complete your assigned task for free during periods of surplus computing power.',
-  "offPeak.newTask.bannerTipText":
-    "This feature does not consume your subscription plan quota and is available exclusively to subscribers.",
-  "offPeak.newTask.carousel.goToSlide": "Go to idle-time task template {index}",
   "offPeak.newTask.template.customize.title": "Customize",
   "offPeak.newTask.template.customize.description":
     "Skip the template and tell it directly what you want to do.",
@@ -5843,18 +5837,21 @@ const enUS: Record<string, string> = {
   "automations.statusFilter.failed": "Failed",
   "automations.statusFilter.empty": "No tasks match this filter",
   "offPeak.keepAwakeBanner": "Keep your computer awake while ZCode is running a chat.",
+  "offPeak.window.notice":
+    "Idle-time tasks run automatically inside the window; turn it off to run at any time.",
+  "offPeak.window.enabled": "Enable off-peak window",
+  "offPeak.window.start": "Window start",
+  "offPeak.window.end": "Window end",
   "offPeak.sectionTitle": "Idle-time tasks",
   "offPeak.createButton": "Create idle-time task",
   "offPeak.templates.sectionTitle": "Idle-time task template",
   "offPeak.list.empty":
-    "No idle-time tasks yet. Create one to run it during off-peak hours at no extra cost.",
-  "offPeak.badge.pausedPosition": "#{position} Paused",
+    "No idle-time tasks yet. Create one and it runs automatically inside the off-peak window.",
   "offPeak.action.pauseHint":
-    "Tasks paused beyond the queue wait time will be placed back in the queue",
+    "Paused tasks are not dispatched; Continue returns them to the window queue",
   "offPeak.action.continueHint":
-    "If the queue ticket has expired, Continue re-queues the task at the back.",
-  "offPeak.badge.queuePosition": "#{position} in queue",
-  "offPeak.status.queued": "Waiting for idle compute",
+    "Continue restores dispatch eligibility; the task runs in the next window",
+  "offPeak.status.queued": "Waiting for off-peak window",
   "offPeak.status.paused": "Paused",
   "offPeak.status.running": "Running",
   "offPeak.status.completed": "Succeeded",
@@ -5867,6 +5864,9 @@ const enUS: Record<string, string> = {
     "Runs in that session; stopping the session while the task runs cancels it.",
   "offPeak.chatCreated.boundHint": "Runs in this session",
   "offPeak.action.pause": "Pause",
+  "offPeak.action.runNow": "Run now",
+  "offPeak.action.runNowHint":
+    "Dispatch immediately, bypassing the window; tasks already dispatching ignore the request.",
   "offPeak.action.continue": "Continue",
   "offPeak.action.cancel": "Cancel task",
   "offPeak.cancel.title": "Cancel idle-time task?",
@@ -5875,7 +5875,6 @@ const enUS: Record<string, string> = {
   "offPeak.delete.description":
     "This action can't be undone. If the task is currently queued or running, it will stop immediately.",
   "offPeak.delete.confirm": "Delete idle-time task",
-  "offPeak.error.quota": "Free tier limit reached. Try again later.",
   "offPeak.error.unavailable":
     "Idle-time task service is temporarily unavailable. Try again later.",
   "offPeak.error.generic": "Idle-time task operation failed.",
@@ -5892,16 +5891,14 @@ const enUS: Record<string, string> = {
     "The previous model selection is no longer available. Choose a model again.",
   "offPeak.create.submit": "Create Idle-time task",
   "offPeak.edit.save": "Save",
-  "offPeak.edit.peakHoursWarning":
-    "This task runs during peak hours, which may cause errors to occur.",
-  "offPeak.form.soonestAvailable": "Soonest available",
+  "offPeak.form.soonestAvailable": "Runs automatically inside the off-peak window",
   "offPeak.form.titleLabel": "Task title",
   "offPeak.form.titlePlaceholder": "e.g. Nightly refactor",
   "offPeak.form.instructionsLabel": "Instructions",
   "offPeak.form.instructionsPlaceholder":
     "Describe a task ZCode can work on in the background, including the expected result and any constraints…",
   "offPeak.form.permissionWarning":
-    "Idle-time runs are unattended. Actions that need confirmation will pause the task until you respond.",
+    "Idle-time runs are unattended: permission requests and questions are auto-declined and the task finishes with that outcome. Write self-contained instructions.",
   "offPeak.form.modelLabel": "Model",
   "offPeak.thought.max": "Max",
   "offPeak.thought.high": "High",
@@ -5922,19 +5919,9 @@ const enUS: Record<string, string> = {
   "offPeak.discard.title": "Discard Idle-time task draft?",
   "offPeak.discard.description": "Your changes to the current idle-time task will be lost.",
   "offPeak.discard.confirm": "Discard",
-  "offPeak.create.codingPlanOnly": "Coding plan users only",
   "offPeak.create.noModel":
     "Configure at least one model provider in Settings before creating idle-time tasks.",
   "offPeak.create.remoteUnavailable": "Idle-time tasks are unavailable for remote workspaces.",
-  "offPeak.create.availabilityUnavailable": "Could not verify availability. Refresh and try again.",
-  "offPeak.create.limitReachedAt":
-    "Free tier limit reached. You can create another task in {time}.",
-  "offPeak.create.remaining.hoursMinutes": "{hours} hr {minutes} min",
-  "offPeak.create.remaining.hours": "{hours} hr",
-  "offPeak.create.remaining.minutes": "{minutes} min",
-  "offPeak.create.remaining.lessThanMinute": "less than 1 min",
-  "offPeak.create.codingPlanToast":
-    "Idle-time tasks are available for Coding Plan subscribers only.",
   "automations.moreIdeas": "Scheduled task template",
   "automations.templates.unavailable": "No templates available",
   "automations.runNow": "Run now",
