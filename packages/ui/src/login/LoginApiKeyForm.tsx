@@ -259,7 +259,13 @@ export function LoginApiKeyForm({
           className="h-10 w-full text-ui-base"
           size="lg"
           data-testid={TID_LOGIN_API_KEY_CONTINUE_BUTTON}
-          disabled={(requiresApiKey && !apiKeyValue.trim()) || busy}
+          disabled={
+            (requiresApiKey && !apiKeyValue.trim()) ||
+            busy ||
+            // 发现进行中禁止保存：此刻既非 idle 也非 success，自动发现不会补跑，
+            // 直接保存会落成零模型 provider（spec §3：testing 期间 Continue 禁用）。
+            discoveryState.status === "testing"
+          }
           onClick={() => void saveApiKeyProvider()}
         >
           {saving ? <Loader2Icon className="size-4 animate-spin" /> : null}
