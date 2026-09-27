@@ -587,8 +587,8 @@ test("createPersonalProvider seeds discovered ids and the resolver publishes exe
 // “目录留空”按排除 .* 兜底 modelRule 后的特定解析判定——兜底为所有未知模型提供
 // 200k/无视觉默认值，它不是目录对该模型的认知，否则 hints 在任何模型上都无法生效。
 // 用 moonshot-kimi 模板钉死上下文：该 baseUrl 无 providerSite .* 覆盖、无 api 类型
-// 覆盖介入 ctx/inputFormat（zai/bigmodel anthropic 端点的站点级 image/video 覆盖会让
-// 断言依赖目录顺序），四个模型的能力取值均已按当前目录实测钉死。
+// 覆盖介入 ctx/inputFormat（P1.2 已删除 zai/bigmodel anthropic 端点的站点级
+// image/video 覆盖；本测试不依赖端点级规则），四个模型的能力取值均已按当前目录实测钉死。
 test("createPersonalProvider persists discovery hints as manual values only where the catalog leaves fields empty", async () => {
   const dir = await mkdtemp(join(tmpdir(), "zcode-model-discovery-hints-"));
   setDataBaseDir(dir);
