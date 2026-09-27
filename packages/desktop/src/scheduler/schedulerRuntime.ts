@@ -204,6 +204,8 @@ export function createSchedulerRuntime(deps: SchedulerRuntimeDeps): SchedulerRun
     log("info", "cron scheduler started");
     requestTick();
     pollTimer = setInterval(requestTick, pollIntervalMs);
+    // 与 services 侧定时器同一约定：不阻止进程退出（utility process 生命周期由宿主管）。
+    pollTimer.unref?.();
   })().catch((error) => {
     log(
       "error",

@@ -39,6 +39,7 @@ import {
   IZCodeSessionService,
   ICuaPipSessionService,
   createZCodeAgentConnectionScope,
+  createOffPeakInteractionPolicy,
   type ZCodeAgentV4ClientMode,
   collectServiceMemoryDiagnostics,
 } from "@zcode/services";
@@ -349,22 +350,17 @@ function disposeOffPeakRuntime(): void {
 }
 
 /**
- * 闲时免打扰（P3 binding policy）的 turn 级归因注册表：
+ * 闲时免打扰（P3 binding policy）的 turn 级归因注册表（实现见 services，
+ * services/test 有归因生命周期单测）：
  * 派发成功（sendPrompt 已接受）登记 sessionId；run 终态（onDynamicTaskTerminalOutcome）
  * 或订阅释放时摘除。注册表存在期间，该 session 的 permission/AskUserQuestion/
  * plan-approval 反向请求在 zcodeAgentService 层被自动拒绝（shouldDeclineInteractionForSession）。
  * 普通（非闲时）turn 不登记，交互语义不变；Run-now 也不豁免（交互需求由普通任务承载）。
  */
-const offPeakActiveTurnSessions = new Set<string>();
-function trackOffPeakActiveTurnSession(sessionId: string): void {
-  offPeakActiveTurnSessions.add(sessionId);
-}
-function untrackOffPeakActiveTurnSession(sessionId: string): void {
-  offPeakActiveTurnSessions.delete(sessionId);
-}
-function isOffPeakActiveTurnSession(sessionId: string): boolean {
-  return offPeakActiveTurnSessions.has(sessionId);
-}
+const offPeakInteractionPolicy = createOffPeakInteractionPolicy();
+const trackOffPeakActiveTurnSession = offPeakInteractionPolicy.track;
+const untrackOffPeakActiveTurnSession = offPeakInteractionPolicy.untrack;
+const isOffPeakActiveTurnSession = offPeakInteractionPolicy.shouldDecline;
 
 interface OffPeakRunDispatchRequest {
   offPeakTaskId: string;
