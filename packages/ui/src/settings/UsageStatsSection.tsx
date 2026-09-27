@@ -1,34 +1,7 @@
 import { AppUsagePanel } from "@/settings/usage-stats/AppUsagePanel.js";
-import {
-  CodingPlanUsagePanel,
-  type CodingPlanUsageSource,
-} from "@/settings/usage-stats/CodingPlanUsagePanel.js";
 
-export type UsageStatsSectionTab = "app" | "codingPlan" | `codingPlan:${string}`;
-
-export function UsageStatsSection({
-  activeTab,
-  providerSourcesLoading,
-  workspaceIdentity,
-  workspacePath,
-  selectedCodingPlanSource,
-}: {
-  activeTab: UsageStatsSectionTab;
-  providerSourcesLoading: boolean;
-  workspaceIdentity?: string;
-  workspacePath?: string;
-  selectedCodingPlanSource?: CodingPlanUsageSource | null;
-}) {
-  if (activeTab === "app") {
-    return <AppUsagePanel />;
-  }
-
-  return (
-    <CodingPlanUsagePanel
-      loadingSources={providerSourcesLoading}
-      workspaceIdentity={workspaceIdentity}
-      workspacePath={workspacePath}
-      selectedSource={selectedCodingPlanSource}
-    />
-  );
+// P3 供应商套餐/配额面删除：使用统计只剩通用 App Usage 单页，
+// Coding Plan 多来源 tab 与面板已随 entitlement/monitor 服务面一并删除。
+export function UsageStatsSection() {
+  return <AppUsagePanel />;
 }

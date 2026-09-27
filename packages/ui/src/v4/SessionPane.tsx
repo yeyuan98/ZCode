@@ -1,5 +1,3 @@
-import { resolveSelectionSideInheritedModel } from "@/lib/selectionSideInheritedModel.js";
-import { useStartPlanRecommendation } from "@/hooks/useStartPlanRecommendation.js";
 import type { SessionCreateSource } from "@zcode/shared";
 import { getLocalTtftObserver } from "@/v4/telemetry/localTtftObserver.js";
 /* oxlint-disable eslint(max-lines) -- SessionPane 是单 pane 竖切的命令编排收口（订阅/发送/停止/fork/edit/retry/queue/slash 全集），与旧 ChatView 同粒度；HEAD 已超限（693 行计数），拆散命令组会打散 dispatchCommand/snapshotRef 的闭包纪律。 */
@@ -16,7 +14,6 @@ import {
 } from "react";
 import { Hand } from "lucide-react";
 import {
-  BUILTIN_MODEL_PROVIDER_IDS,
   buildCustomSupplierKey,
   TID_CHAT_EMPTY,
   TID_V4_SESSION_PANE,
@@ -70,7 +67,6 @@ import {
   type WorkflowRunSettingsChange,
 } from "@/components/workflow-timeline/workflowRunSettings.js";
 import { useWorkflowRunJournalSummaries } from "@/hooks/useWorkflowRunJournalSummaries.js";
-import { useBaseWorkspaceServices } from "@/hooks/useWorkspaceServices.js";
 import { useWorkspaceHomePath } from "@/hooks/useWorkspaceHomePath.js";
 import { prepareWorkspaceWithZCodeSessionService } from "@/hooks/useWorkspacePrepare.js";
 import { decodeCustomModelValue, encodeCustomModelValue } from "@/lib/zcodeCustomModelValue.js";
@@ -118,7 +114,6 @@ import { ConversationDraftSuggestedPromptsContainer } from "@/v4/ConversationDra
 import { ConversationHeader, type PaneWorkspaceBadge } from "@/v4/ConversationHeader.js";
 import { ConversationQueuePanel } from "@/v4/ConversationQueuePanel.js";
 import { projectPendingGuideQueue } from "@/v4/pendingGuideProjection.js";
-import { ConversationQuotaBanner } from "@/v4/ConversationQuotaBanner.js";
 import { PendingCommandRecoveryBanner } from "@/v4/PendingCommandRecoveryBanner.js";
 import { WorkspaceHookPendingBanner } from "@/v4/WorkspaceHookPendingBanner.js";
 import { ConversationStatusPanel } from "@/v4/ConversationStatusPanel.js";
@@ -215,8 +210,6 @@ import { useSlashCommands } from "@/hooks/useSlashCommands.js";
 import { useV4Conversation } from "@/v4/V4ConversationContext.js";
 import { useConversationProjection } from "@/v4/useConversationProjection.js";
 import { usePendingCommandRecovery } from "@/v4/usePendingCommandRecovery.js";
-import { useV4SessionQuotaBanner } from "@/v4/useV4SessionQuotaBanner.js";
-import { resolveMcpUnavailableNotice } from "@/v4/mcpUnavailableBannerNotice.js";
 import { shouldFocusTimelineAfterComposerSend } from "@/v4/promptScrollFocusPolicy.js";
 import {
   hasChatLoadingBlockingActiveWork,
@@ -224,7 +217,6 @@ import {
 } from "@/v4/chatLoadingVisibility.js";
 import type { ZCodeUiError } from "@/lib/zcodeUiError.js";
 import { isProviderNotReadyError } from "@/lib/chatPrepareError.js";
-import { useOptionalCodingPlanUpgradeDialog } from "@/settings/CodingPlanUpgradeDialogProvider.js";
 import { setPendingSettingsSectionIntent } from "@/lib/settingsNavigation.js";
 import { useOptionalTabStore } from "@/store/TabStoreProvider.js";
 import type {
@@ -537,7 +529,6 @@ export function SessionPane({
     useServices();
   const { intl, locale } = useZCodeIntl();
   const slashCommands = useSlashCommands(workspacePath, workspaceIdentity);
-  const baseWorkspaceServices = useBaseWorkspaceServices();
   const workspaceHomePath = useWorkspaceHomePath({
     workspacePath,
     workspaceIdentity,
@@ -1206,7 +1197,8 @@ export function SessionPane({
     // 回收并按最新选择事实重建，已显式选择和正式会话仍保持冻结。
     useZCodeSessionStore.getState().invalidateDraftRuntime(workspacePath, workspaceIdentity);
   }, [draftConfigRef, modelSelectionView?.revision, sessionId, workspaceIdentity, workspacePath]);
-  const recommendStartPlan = useStartPlanRecommendation(modelSelectionView);
+  // P3 供应商套餐/配额面删除：发送前的 Start Plan 推荐改选（useStartPlanRecommendation）
+  // 与升级弹窗入口随 entitlement 服务面删除，提交直接使用当前选择。
   const createSubmissionFromComposer = useCallback(
     () => createComposerSubmissionConfig(draftConfigRef.current, modelSelectionView),
     [draftConfigRef, modelSelectionView],
@@ -1215,7 +1207,6 @@ export function SessionPane({
     () => createComposerSubmissionConfig(draftConfig, modelSelectionView) !== null,
     [draftConfig, modelSelectionView],
   );
-  const codingPlanUpgradeDialog = useOptionalCodingPlanUpgradeDialog();
   const openSettingsTab = useOptionalTabStore((state) => state.openSettingsTab);
   const promoteGroupedDraftTask = useZCodeSessionStore((state) => state.promoteGroupedDraftTask);
   const handleDraftSessionCreated = useCallback(
@@ -1801,13 +1792,9 @@ export function SessionPane({
       if (!sessionId || !selectionSideChatKey || !onOpenSelectionSideChat) {
         throw new Error("selection side chat is unavailable");
       }
-      const inherited = resolveSelectionSideInheritedModel(
-        snapshotRef.current?.config,
-        modelSelectionView,
-      );
-      const chosen = inherited ? await recommendStartPlan(inherited) : undefined;
-      if (chosen === null) return false;
-      const modelSelection = chosen && chosen !== inherited ? chosen : undefined;
+      // P3：Start Plan 推荐改选已删除；无推荐时旧行为是不显式传 modelSelection，
+      // selection side 会话由服务端按当前会话默认解析。
+      const modelSelection = undefined;
       // 参数命令每次都是新 child；同一条文本在 ACK 未回时重试仍复用 pending，
       // 不同文本则不能与 bare `/side` 或另一条 prompt 合并。
       const pendingKey = `${selectionSideChatKey}\u0000prompt\u0000${text}`;
@@ -1840,7 +1827,6 @@ export function SessionPane({
     [
       dispatchCommand,
       modelSelectionView,
-      recommendStartPlan,
       onOpenSelectionSideChat,
       remoteSessionId,
       selectionSideChatKey,
@@ -2352,12 +2338,9 @@ export function SessionPane({
       options: ConversationComposerSendOptions | undefined,
       createSourceAtSend: SessionCreateSource,
     ) => {
-      let onAcceptedSelection: (() => void) | undefined;
       const dispatchSubmissionCommand = async (...args: Parameters<typeof dispatchCommand>) => {
         const ack = await dispatchCommand(...args);
-        // 在原 accepted 边界写回推荐选择，早于新 Session 的草稿转移；失败不改用户意图。
-        if (ack.status === "accepted" && submissionConfigFromCommand(args[0], args[1]))
-          onAcceptedSelection?.();
+        // P3：Start Plan 推荐改选删除后不再有 accepted-selection 回写钩子。
         return ack;
       };
       // 进入 barrier 前已经冻结；等待配置/附件期间不再回读 Composer 或 Session。
@@ -2444,15 +2427,7 @@ export function SessionPane({
         // resumeGoal 等控制命令也不应被发送消息确认框截获。
         return "confirmationRequired" as const;
       }
-      if (slashCommand === null || slashCommand.kind === "sendGoalCommand") {
-        const original = submission.modelSelection;
-        const chosen = await recommendStartPlan(original);
-        if (!chosen) return "blocked" as const;
-        if (chosen !== original) {
-          onAcceptedSelection = captureAcceptedModelSelection(chosen, original);
-          submission = { ...submission, modelSelection: chosen };
-        }
-      }
+      // P3：发送前 Start Plan 推荐改选（recommendStartPlan）已删除，直接使用提交时的当前模型选择。
       const prewarmTargetBeforeSend =
         sessionId === null ? prewarmBindingRef.current?.sessionId : null;
       if (prewarmTargetBeforeSend) {
@@ -2474,7 +2449,6 @@ export function SessionPane({
         );
         if (consumed === "confirmationRequired") return consumed;
         if (consumed) {
-          onAcceptedSelection?.();
           return;
         }
       }
@@ -2513,7 +2487,6 @@ export function SessionPane({
             );
             if (consumed === "confirmationRequired") return consumed;
             if (consumed) {
-              onAcceptedSelection?.();
               prewarm.promote();
               handleDraftSessionCreated(prewarm.sessionId, groupedDraftTaskAtSend);
               return;
@@ -2703,7 +2676,6 @@ export function SessionPane({
     },
     [
       dispatchCommand,
-      recommendStartPlan,
       captureAcceptedModelSelection,
       dispatchSlashCommand,
       ensureDraftModelReadyForSend,
@@ -3738,26 +3710,10 @@ export function SessionPane({
     controlLastError && controlLastErrorKey && !dismissedErrorKeys.includes(controlLastErrorKey)
       ? toComposerUiError(snapshot?.sessionId ?? sessionId, controlLastError)
       : null;
-  // 官方 Server MCP 不可用（额度耗尽 / 无 Coding Plan）：事实来自 tool row 上的结构化标识，
-  // 与模型额度是两条独立信息通道，这里只做投影。
-  const mcpUnavailableNotice = useMemo(
-    () => resolveMcpUnavailableNotice(snapshot?.rows.window),
-    [snapshot?.rows.window],
-  );
-  const quotaBanner = useV4SessionQuotaBanner({
-    sessionId: snapshot?.sessionId ?? sessionId,
-    error: controlLastError,
-    errorKey: controlLastErrorKey,
-    phase: snapshot?.control.phase ?? null,
-    providerId: snapshot?.config.provider ?? null,
-    modelId: snapshot?.config.model ?? null,
-    usageStatsService: baseWorkspaceServices.usageStatsService,
-    mcpUnavailableNotice,
-  });
-  const composerError =
-    draftModelReadinessError ??
-    sendSubmissionError ??
-    (quotaBanner.takesOverError ? null : projectedComposerError);
+  // P3 供应商套餐/配额面删除：会话级额度横幅（useV4SessionQuotaBanner /
+  // ConversationQuotaBanner，含官方 Server MCP 额度耗尽投影）随 entitlement 服务面删除；
+  // 业务错误统一走普通 composer 错误横幅。
+  const composerError = draftModelReadinessError ?? sendSubmissionError ?? projectedComposerError;
   useEffect(() => {
     setSendSubmissionError(null);
   }, [sessionId]);
@@ -3786,18 +3742,6 @@ export function SessionPane({
     setPendingSettingsSectionIntent("modelProvider");
     openSettingsTab();
   }, [openSettingsTab]);
-  const handleOpenModelUpgrade = useCallback(() => {
-    if (!codingPlanUpgradeDialog) return;
-    // P1：providerFamilyDomain 已删除，无运行域可判断品牌时默认 Z.ai 入口。
-    codingPlanUpgradeDialog.openCodingPlanUpgrade({
-      providerId: BUILTIN_MODEL_PROVIDER_IDS.zaiIndividualCodingPlan,
-    });
-  }, [codingPlanUpgradeDialog]);
-  const handleOpenQuotaUpgrade = useCallback(() => {
-    const providerId = quotaBanner.upgradeProviderId;
-    if (!providerId || !codingPlanUpgradeDialog) return;
-    codingPlanUpgradeDialog.openCodingPlanUpgrade({ providerId });
-  }, [codingPlanUpgradeDialog, quotaBanner.upgradeProviderId]);
 
   const handleConfirmShareDisclosure = useCallback(async () => {
     if (!sessionId || !shareDraft || sharePublishing) return;
@@ -4158,12 +4102,7 @@ export function SessionPane({
       externalTextInsertRequest={focused && sessionId === null ? composerTextInsertRequest : null}
       onExternalTextInsertApplied={handleExternalTextInsertApplied}
       autoFocusEnabled={focused}
-      disabled={
-        connecting ||
-        draftRuntimeRebuilding ||
-        queueEditActiveForCurrentComposer ||
-        quotaBanner.state.blocksSubmit
-      }
+      disabled={connecting || draftRuntimeRebuilding || queueEditActiveForCurrentComposer}
       workspacePath={workspacePath}
       workspaceIdentity={workspaceIdentity}
       remoteSessionId={remoteSessionId ?? undefined}
@@ -4196,7 +4135,6 @@ export function SessionPane({
       error={composerError}
       onDismissError={handleDismissComposerError}
       onOpenModelSettings={handleOpenModelSettings}
-      onOpenModelUpgrade={handleOpenModelUpgrade}
       onOpenCodeViewer={onOpenCodeViewer}
       suppressGoalCommands={selectionSideChat}
       appSlashCommands={appSlashCommands}
@@ -4261,21 +4199,6 @@ export function SessionPane({
     )
   ) : (
     <>
-      {quotaBanner.state.visible &&
-      !quotaBanner.dismissed &&
-      (!projectedComposerError || quotaBanner.takesOverError || quotaBanner.state.blocksSubmit) ? (
-        <ConversationQuotaBanner
-          state={quotaBanner.state}
-          onShown={quotaBanner.markShown}
-          upgradeActionLabelId={quotaBanner.upgradeActionLabelId}
-          onUpgrade={
-            quotaBanner.upgradeProviderId && codingPlanUpgradeDialog
-              ? handleOpenQuotaUpgrade
-              : undefined
-          }
-          onDismiss={quotaBanner.dismiss}
-        />
-      ) : null}
       {recoverableCommand ? (
         <PendingCommandRecoveryBanner
           entry={recoverableCommand}
