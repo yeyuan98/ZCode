@@ -1,5 +1,4 @@
 import documentsIconUrl from "@/assets/plugin-icons/documents.png";
-import imageSearchIconUrl from "@/assets/plugin-icons/image-search.png";
 import pdfIconUrl from "@/assets/plugin-icons/pdf.png";
 import pluginCreatorIconUrl from "@/assets/plugin-icons/plugin-creator.png";
 import presentationsIconUrl from "@/assets/plugin-icons/presentations.png";
@@ -8,7 +7,8 @@ import { isTrustedImageUrl } from "@/lib/trustedImageUrl.js";
 
 const OFFICIAL_PLUGIN_ICON_BY_ID: Readonly<Record<string, string>> = {
   "documents@zcode-plugins-official": documentsIconUrl,
-  "image-search@zcode-plugins-official": imageSearchIconUrl,
+  // P3 C3（ruling 5）：image-search（官方 Server MCP 后端）已从默认启用名单摘除，
+  // 其内置图标映射一并移除；插件条目本身待 P5 市场清理。
   "pdf@zcode-plugins-official": pdfIconUrl,
   "plugin-creator@zcode-plugins-official": pluginCreatorIconUrl,
   "presentations@zcode-plugins-official": presentationsIconUrl,
