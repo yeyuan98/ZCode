@@ -1,4 +1,4 @@
-// P3：供应商套餐共享文件（coding-plan-subscription.ts）将在本阶段删除；
+// P3 C2：供应商套餐共享文件（coding-plan-subscription.ts）已删除；
 // 此处内联 gate 所需的最小类型，保证 forceUpdate 独立编译（gate 本体 P5 一并处置）。
 interface ForceUpdateConfig {
   minimalVersion: string;
