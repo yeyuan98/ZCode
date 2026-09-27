@@ -1,5 +1,220 @@
 # Changelog
 
+## [3.14.3-alpha.7](https://github.com/yeyuan98/ZCode/compare/v3.14.3-alpha.6...v3.14.3-alpha.7) (2026-09-27)
+
+### ⚠ BREAKING CHANGES
+
+* replace remote builtin-provider catalog download with bundled-only source (P3 C5)
+* **desktop:** delete context-prompt rollout + shared client/configs fetcher (P3 C5)
+* remove vendor client/configs service + channel; plugin-store order falls back to bundled (P3 C5)
+* remove vendor family/specs + de-plan settings provider page (P3 C4)
+* **shared,ui:** unpin image-search from default-enabled official plugins (P3 C3, ruling 5)
+* remove official MCP service + auth protocol + CLI adapter chain (P3 C3)
+* **desktop,shared,web:** remove coding-plan webview/paypal/payment deep-link chain (P3 C2)
+* **web:** remove web OAuth auth dir + share landing owner-login (P3 C1)
+
+### Features
+
+* **desktop,shared,web:** remove coding-plan webview/paypal/payment deep-link chain (P3 C2) ([6ea3bb5](https://github.com/yeyuan98/ZCode/commit/6ea3bb503f959e9ca58e472b04da3423fc36a677))
+  * desktopWindowChrome: 删除 isPaypalHostname / isCodingPlanPaypalNavigationUrl /
+  * desktopMainIpcRemote: 删除重复的 paypal/webview 判定块与 openExternal 的
+  * preload/codingPlanWebview.ts + tsup 入口：删除（官网 zcodeBridge 购买完成信号链）
+  * deep link: 删除 zcode://payment/callback 路由、pending 缓存与
+  * 命令面: 删除 DesktopCommandIds.ClearCodingPlanWebviewStorage 与
+  * env: 删除 desktopRuntimeEnv 的 ZAI_BUSINESS_BASE_URL 注入、tsup 的
+
+* **desktop:** delete context-prompt rollout + shared client/configs fetcher (P3 C5) ([e21ceec](https://github.com/yeyuan98/ZCode/commit/e21ceec09c2349d19097663828358548d7d82f16))
+  * delete desktopContextPromptRollout.ts (vendor /api/v1/client/configs fetcher + rollout): context-prompt pins its local default OFF (A9), still injected as ZCODE_DESKTOP_CONTEXT_PROMPT_ENABLED=0 so host presentation-surface folding is unchanged
+  * delete singleFeatureRollout.ts mechanism (both consumers gone)
+  * rendererActionTraceRollout: local disabled constant (env overrides ZCODE_RENDERER_ACTION_TRACE_ENABLED / ZCODE_LOCAL_TTFT_ENABLED and OTLP exporter chain stay live)
+  * remove first-host-spawn bounded rollout decision gate (createWindow option + main wiring)
+
+* remove official MCP service + auth protocol + CLI adapter chain (P3 C3) ([7b98a54](https://github.com/yeyuan98/ZCode/commit/7b98a54b961d1a5f678f3ff9363b1e33c9e49941))
+  * shared: delete official-mcp-auth.ts (auth-type/header/meta consts, failure-reason
+  * shared protocol: drop interaction/requestOfficialMcpAuthHeaders method const +
+  * shared v4/contracts: drop mcp_tool display 'unavailable' schema field and
+  * services: delete official-mcp/ (credential resolver + issuance audit); remove
+  * CLI: delete official-mcp-auth-port.ts + entrypoint/server wiring,
+  * UI: delete orphaned mcpUnavailableBannerNotice; drop serverRequestId mapping
+
+* remove vendor client/configs service + channel; plugin-store order falls back to bundled (P3 C5) ([019a4e5](https://github.com/yeyuan98/ZCode/commit/019a4e518af5a38c03833221faf44e38eabc2e75))
+  * services: delete client-config service (IClientConfigService + createClientConfigService) and its registration in node.ts; drop accessor field and index export
+  * shared: delete clientConfig snapshot parser + ServiceChannels.ClientConfig; pluginStoreOrder keeps local types only (parsePluginStoreOrder dies with the vendor envelope)
+  * client/desktop host: remove ClientConfig proxy and remote-workspace passthrough registration
+  * ui: usePluginStoreOrder resolves to null order (bundled default ordering from pluginStoreOrdering), refresh becomes no-op
+  * spec: record C5 delivery notes (rendererActionTrace shares the dying fetcher; force-update gate read stays until P5)
+
+* remove vendor family/specs + de-plan settings provider page (P3 C4) ([8fc4edd](https://github.com/yeyuan98/ZCode/commit/8fc4eddaec58610dc7a96c665f264709e3558c21))
+  * shared: delete model-provider-family.ts (zai/bigmodel family 目录、OAuthProviderId、
+  * shared: 删除协议账号契约（zcodeAccountAccessSchema / zcodeProviderAccountAccessSchema）
+  * shared: zcodeEndpoint 按 keep-list 收口——删除 ZAI OAuth/bigmodel builder、
+  * shared: AppSettings 删除 startPlanRecommendationDismissed（zod strip 兼容旧配置）
+  * cli: 删除零调用方的 cli-oauth.ts / bigmodel-oauth.ts / coding-plan-api-key.ts；
+  * services: 删除 accountRequestAuthService（自 P2 起仅剩恒失败空实现）与孤儿
+  * ui: 设置页 de-plan——删除套餐状态卡/Start Plan 卡/连接方式导航/entitlement 过渡
+  * ui: 模型菜单/切换文案/list-models 分组改为中性按 provider 名称聚合；
+  * provider-node: ModelSelectionFacade 分类器恒为 ordinary；provider rule-data-schema
+
+* replace remote builtin-provider catalog download with bundled-only source (P3 C5) ([acd8488](https://github.com/yeyuan98/ZCode/commit/acd8488e006bd9889f3f3117d18099d3e726519d))
+  * provider-node: delete zcode-builtin-download (client/configs → builtin_provider_config_json → CDN), zcode-builtin-remote-synchronizer (TTL/lease refresh control), endpoint-scoped-zcode-builtin-source, zcode-builtin-cache-paths; NodeProviderConfigRuntime reads the bundled config only (offline-capable), refreshZCodeBuiltin becomes a local source re-read, applyRemoteRelease dies with the remote write path
+  * services: drop zcodeBuiltinEnvironment/fetchZCodeBuiltinRemoteRelease wiring in node.ts + providerConfigRuntime options; delete zcodeBuiltinRemoteConfig.ts and runtime-tools/clientPlatform.ts (platform segment only served vendor catalog requests)
+  * cli: process-provider-registry-runtime drops the remote download wiring + refresh reporter; prepareCliProviderRuntimeEnv points ZCODE_BUILTIN_PROVIDER_CONFIG_FILE straight at the bundled file (no endpoint-scoped active cache); ZCODE_BUILTIN_PROVIDER_BUNDLED_CONFIG_FILE_ENV removed (last reader died)
+
+* **shared,desktop,services:** off-peak local admission window + settings + Run-now plumbing (P3 S1) ([2f4a8c9](https://github.com/yeyuan98/ZCode/commit/2f4a8c9adb40473b09b2a116a69c01a438f6c2e9))
+  * shared/off-peak-window.ts: withinWindow/msUntilWindowOpen 纯函数（跨午夜回绕、[start,end) 边界钉死）与 offPeakWindow zod schema
+  * AppSettings 新增 offPeakWindow {enabled,start,end}（默认 00:00-07:00）：zod、protocol transport、patch schema
+  * schedulerProtocol: 新增 correlated offpeak-admission-request/response 与 offpeak-run-now 消息
+  * scheduler runtime 端口注入 seam 重构（index.ts 仅 Electron 装配；cron/offPeak controller 拆分），每 tick 认领前先询问 main 准入，超时 fail-closed
+  * repo 新增 claimOneForRunNow（status='queued' AND claim_running=0 原子认领）；OffPeakTaskService.runNow（paused 先回 queued）
+  * desktop main 是 settings 唯一属主：resolveOffPeakAdmission + window-open 定时器唤醒 scheduler；Run-now host→main→scheduler 转发链
+
+* **shared,ui:** unpin image-search from default-enabled official plugins (P3 C3, ruling 5) ([9e98de7](https://github.com/yeyuan98/ZCode/commit/9e98de7d19470928094825b2ff50b517ec557cd5))
+  * image-search 的 MCP 后端是官方 Server MCP，已随 C3 主体删除，默认启用只会带来
+  * 移除 UI 内置图标映射与打包资源 image-search.png；插件 definition 与市场条目
+
+* **ui,i18n:** off-peak window settings UI + Run-now action + auto-decline copy (P3 S1) ([ce20396](https://github.com/yeyuan98/ZCode/commit/ce20396aadd2e962c2f970b25444a9415a48937b))
+  * Automations idle tab 新增时间窗设置条（enabled + start/end 本地时钟输入，写共享 settings offPeakWindow；属主在 desktop main）
+  * 闲时卡片菜单新增「立即运行」（queued/paused；scheduler 端 claim 原子 no-op）；TID_OFFPEAK_ACTION_RUN_NOW/TID_OFFPEAK_WINDOW_* test-ids
+  * 创建资格本地化：无灰度/套餐/额度门，= Registry 存在可选模型（fail-closed）；远程 workspace 提示不可用
+  * OffPeakCreate 轮尾卡删除位次快照
+  * i18n（双语 89→81 键）：删除票据/额度/codingPlanOnly/newTask-banner/位次键；新增 window-setting + runNow 键；permissionWarning/空态/操作提示改为本地时间窗与自动拒绝语义
+
+* **web:** remove web OAuth auth dir + share landing owner-login (P3 C1) ([7590490](https://github.com/yeyuan98/ZCode/commit/7590490874a3e93a6cede0345dfb39e541fe79d8))
+  * 删除 packages/web/src/auth/**（7 文件）：WebCallbackPage、webAuthService、
+  * main.tsx：移除 /cn/share/callback OAuth 回调路由渲染与分享页 owner 登录
+  * ConversationShareLandingPage：移除 WebOAuthProviderId 类型、双 provider
+  * vite.config.ts：移除 VITE_ZAI_OAUTH_* define 注入与 /api/v1/oauth/token
+
+
+### Bug Fixes
+
+* **p3:** review round fixes — stale model-facing copy, comment rot, dead i18n keys, spec amendments ([e92848b](https://github.com/yeyuan98/ZCode/commit/e92848bad81d80701b3293cae93c6c391747e4d4))
+  * OffPeakCreate tool metadata rewritten for local semantics (own provider, idle window, build default, auto-decline noted); vendor ticket/quota language removed
+  * /login & /logout slash-help entries deleted (documented commands deleted in P1; pulled forward from P4 as dead help text)
+  * run-now channel comments reworded in node.ts/validation.ts/channels.ts; provider-runtime-headers stale account comment fixed; provider-selection-v2 gets P3 tombstone note
+  * i18n: drop offPeak.sectionTitle + offPeak.form.keepAwakeHint (zero consumers; thought.*/tabs.* verified as live dynamic keys and kept); stale login.expired comments updated
+  * specs/off-peak-local-admission.md: blocked-outcome wording matches implementation (standard outcomes, no separate status); ModelRequestAuth deferral recorded
+
+
+### Chores
+
+* dynamic-workflow + help-config comment refresh after C5 vendor config-fetch removal (P3 C5) ([ddb35c2](https://github.com/yeyuan98/ZCode/commit/ddb35c271d483cd14b2f8485c36cd25cc6504692))
+  * CLI dynamic-workflow-policy: gate reads host-pushed local state only (no vendor fetch since C2); stale /client/configs comment corrected
+  * shared dynamic-workflow-feature: header documents local-only resolution (env override > default disabled, A9 local constant OFF)
+  * helpAppConfig: cross-reference now records all client/configs consumers dead except the P5 force-update gate
+  * residue sweep clean: zero live client/configs / builtin_provider_config_json / clientConfigService / desktopContextPromptRollout / zcodeBuiltinRemoteConfig references outside P5 updater path and P3-deletion comments; dist/ artifacts regenerate on build
+
+* **i18n:** drop dead vendor usage keys (P3 S2) ([5719fba](https://github.com/yeyuan98/ZCode/commit/5719fba27eec651f77c51b855a8ca1ff28f5ec9b))
+  * 删除 en-US/zh-CN 各 200 个无消费方的用量键（逐键 grep 消费方后删除，动态模板键保留）：
+  * 模板字面量消费的 settings.usage.range.* 与 heatmap.range.* 保留；
+
+* knip sweep — drop 12 newly-orphaned exports (P3 review leftovers) ([63a0fff](https://github.com/yeyuan98/ZCode/commit/63a0fffb05aa13e30a3d3eef10635dec67cfa937))
+  * 类型收窄为模块内（不再 export）：desktop scheduler 的 CronSchedulerControllerDeps / OffPeakSchedulerControllerDeps / SchedulerPortShape / SchedulerRuntimeHandle / SchedulerRuntimeDeps（测试经 ReturnType<typeof createSchedulerRuntime> 推导，无需导出 handle/deps 类型）、services OffPeakInteractionPolicy、desktopDeepLinkUrl isOAuthCallbackUrl（模块内消费）、ui resolveModelProviderNavLogo / SegmentPill / formatAppUsageDuration
+  * 删除零消费者：ui setPendingSettingsUsageIntent（Usage 入口改为直接 setPendingSettingsSection("usage") 后遗留）
+  * AlertDialogRequest 保持导出并在 useAlertDialog 显式引用（导出函数签名需要可命名的返回类型，同时构成真实跨模块消费）
+
+* **p3:** S4 sweep — remove dead account:* logo registry entries, start-plan asset + orphaned test-ids ([90970f0](https://github.com/yeyuan98/ZCode/commit/90970f043b1b4bc8bde9981bc47eca07cb2cde1c))
+  * logo-sources.json: drop Start Plan entry and account:* providerIds (dead since P1); map zai/bigmodel standard template ids to their family logos (equal-vendor icon coverage)
+  * ProviderLogo: remove start-plan asset key (no config references it); delete the png
+  * test-ids: remove start-plan and connection-mode TIDs (UI deleted in C4, zero consumers)
+
+* **shared:** fix stale forceUpdate comment after C2 purge (P3 C2) ([6032aed](https://github.com/yeyuan98/ZCode/commit/6032aed5c0a612f00f38e0c0cd291e939accef74))
+
+* **ui:** drop newly-orphaned codingPlanPurchaseAuth (P3 C2) ([f94c946](https://github.com/yeyuan98/ZCode/commit/f94c946fd77ac319f5b67d8801f4890807134a63))
+
+
+### Documentation
+
+* **p3:** S5 — flip spec status, record P3 delivered state + effort in master plan ([2e42944](https://github.com/yeyuan98/ZCode/commit/2e4294442aa12838561441b16e495999922958e3))
+  * specs: Status → implemented-by P3 (alpha.7)
+  * VENDOR-PURGE-PLAN.md: §4 P3 delivered-state prose, §1 status → next P4, §7 effort refresh
+  * handoff (ZCode-handoff.md, outside repo) rewritten separately
+
+* **p3:** specs + amendments for services purge & off-peak local admission ([02e8f0e](https://github.com/yeyuan98/ZCode/commit/02e8f0e04aa44d0dd1ca9b585cdfb8d356aa47fa))
+  * add specs/off-peak-local-admission.md: window-only admission (ruling 1) + Run-now, hands-off interaction policy with rationale (ruling 2), owners/event order, settings schema, ticket-column hard-cut, test scenarios, expected-death list
+  * add specs/account-services-purge.md: C1-C5 domain commits, dormant user framework design (ruling 6), invariants/keep-traps, migration boundary
+  * record amendments A6-A14 (P3) in VENDOR-PURGE-PLAN.md §4 P3
+
+* **plan:** record P1.2 merge/release hashes ([d89e4ca](https://github.com/yeyuan98/ZCode/commit/d89e4ca6629ff3702cf7128dd381b832c498c520))
+
+
+### Refactorings
+
+* **p3:** S0 free deletions + ForceUpdateConfig inline ([b670e6c](https://github.com/yeyuan98/ZCode/commit/b670e6c46e0383a824cfe43b2c7d5c8879168eda))
+  * delete shared plan-identity.ts / provider-family-connection-selection.ts / account-provider-state.ts (verified zero importers; barrel re-exports and package.json subpath removed with them)
+  * delete dead provider/updateAccountConfig wire: params/result schemas + method id (zero handlers repo-wide)
+  * delete resolveRuntimeProductEndpointConfig + RuntimeProductEndpointConfig (zero importers)
+  * inline ForceUpdateConfig into forceUpdate.ts ahead of the coding-plan-subscription.ts deletion in C2 (gate itself is disposed of in P5)
+
+* **services,shared:** purge vendor usage quota surface (P3 S2) ([6c72801](https://github.com/yeyuan98/ZCode/commit/6c728012c19d638817f5f5fb0d90cdfb74802015))
+  * 删除 shared/src/usage-stats.ts（vendor 半边：UsageStatsRequest/Snapshot、CodingPlanUsage*、UsageEntitlement*、PlanIdentity*、monitor 聚合类型）与 usage-quota.ts 全部额度类型；barrel 只保留 app-usage.ts
+  * IUsageStatsService 仅保留 getAppUsageSnapshot；删除 getCodingPlanUsageSnapshot、getCodingPlanReset*、markCodingPlanResetHistoryRead、getSnapshot(monitor)、getEntitlementSnapshot
+  * usageStatsService 甩掉全部三个跨 slice import（isCodingPlanModelProviderId / IAccountRequestAuthService / OfficialMcpCredentialSource），只依赖 zcodeAgentService
+  * 删除 7 个 vendor provider：bigmodelUsageQuotaProvider/MonitorMapper/MonitorRange/QuotaMapper、bigmodelSubscriptionProvider、zcodeMcpQuotaProvider（providers/ 目录清空）
+  * node.ts：usage 注册仅注入 zcodeAgentService；officialMcpCredentialSource 常量与 resolveOfficialMcpCredentials 导入随额度查询面删除（MCP 身份头 resolver 保留，属 C3）
+  * desktop remoteWorkspaceServiceCollection：usage 注册同步精简；localAccountRequestAuthService/OAuthCredentialRepo/accountProviderCredentialService 等 vendor 查询链随之移除
+  * UI 过渡：新增 lib/usageQuotaShapes.ts（C4 de-plan 时移除），model-provider-section 存活文件与 codingPlanProvider/codingPlanQuotaPresentation/codingPlanOwnedEntryPlans 的 entitlement/quota 类型改从过渡模块导入
+
+* **shared,services,desktop,ui,cli:** rebuild off-peak as local window-admission feature (P3 S1) ([8c5b8a6](https://github.com/yeyuan98/ZCode/commit/8c5b8a6fb5c055bee9feebe2cc210357cfdb4e6e))
+  * off_peak_tasks 删除 6 个供应商票据列（server_ticket_id/registered_at/schedulable/queue_position/next_poll_at/settled_at），索引 0 变更
+  * repo 行映射/create/markRunning/markTerminal/invalidateModelSelection/claimDue 同步裁剪；claimDue = status='queued' AND claim_running=0（认领前由 scheduler→main 时间窗准入）
+  * 删除 updateSchedulingSnapshot/markSettled/listUnsettledTerminal/requeueForContinuation（票据快照/核销 outbox/3102 续跑语义）
+  * offPeakTaskService 重写：创建即落库（无取号/额度/灰度门），资格=存在可解析的模型选择；删除 offPeakTaskSync 轮询与 settle outbox；保留重启恢复语义
+  * 删除 offPeakServerClient/offPeakMockGateway/offPeakModelSelectionView；offPeakRuntimeModel 只保留确定性错误类型
+  * zcode-protocol off-peak create/snapshot 删票据字段与 3101/3103 分类；modelExecutionSchema 删除 requestAuth 字段
+  * host dispatchOffPeakRun 删 requestAuth 注入与无票 guard；执行用任务持久化 Selection
+  * 闲时免打扰（binding policy）：off-peak turn 为会话活跃 turn 期间（host 派发注册表，终态/订阅释放摘除），permission/AskUserQuestion/plan-approval 在 agent service 层自动拒绝；普通 turn 不受影响
+  * OffPeakCreate 工具缺省权限档 yolo→build
+  * 删除 offpeak-retry.ts（429 排队豁免/3102 标记）；runner-generate/runner-stream offPeak 分支与 ticket 头脱敏删除
+  * bootstrap model-execution 删 requestAuth freeze；requestDependencies/ModelRequestAuthSource 注入链删除（ModelRequestAuth 保留给账号 runtime headers 刷新路径）
+  * contracts off-peak 工具/端口删票据字段与额度/资格分类
+  * providerBusinessError 3102 分支、ChatErrorBanner 标记兜底、offPeakTaskStore quota_3103/灰度/额度面删除
+  * 'account-offpeak' Provider 身份类删除（effective-model-selection/model-selection-facade）
+
+* **shared:** rehome AppUsage schemas to app-usage.ts (P3 S2) ([6a69485](https://github.com/yeyuan98/ZCode/commit/6a694859ecfa3964b7c52517f7309a68d1abb7c5))
+  * 新增 packages/shared/src/app-usage.ts：ESTIMATED_TOKEN_CHAR_DIVISOR、APP_USAGE_RANGES、全部 appUsage*Schema 与 AppUsage* 类型、AppUsageRequest（P3 供应商套餐/配额面删除的通用半边迁移）
+  * usage-stats.ts 顶部 re-export app-usage.js，删除文件内重复定义；协议 import 暂不切换行为
+  * zcode-protocol/index.ts 与 zcode-protocol-v4/transport.ts 的 usage stats 方法 schema 改从 ../app-usage.js 导入（方法本身保留，AppUsage-only）
+  * shared barrel 增加 app-usage 导出
+
+* **ui:** delete vendor plan/quota usage UI cluster (P3 S2) ([dd430a2](https://github.com/yeyuan98/ZCode/commit/dd430a2c86219d5ea84cf81c9622ecd0d63256ea))
+  * 删除 Coding Plan 用量面板族：CodingPlanUsagePanel/BarChart/LineChart、codingPlanUsageChartSeries、codingPlanUsageSources、来源偏好 sidebarUsageCodingPlanProviderPreference
+  * 删除 entitlement UI 链：hooks/useUsageEntitlement、usageEntitlementCache、usageEntitlementRefreshPolicy、CodingPlanUsageRemainingPanel、WorkspaceSidebarFooterUsageSummary(+PlanBadgeHelpers)、footer 用量摘要/套餐徽标/升级入口接线
+  * 删除额度重置簇：components/coding-plan-quota-reset/*（5 文件）、codingPlanQuotaResetUi/Coordinator/Confetti、useCodingPlanQuotaResetUi、store/codingPlanQuotaResetState（含 store 字段与跨窗口广播）、chat-input-toolbar 重置自动播放/机会提醒/徽标、contextQuotaMeterGrid、contextPanelAction（孤儿）
+  * 删除 v4 会话额度横幅族：useV4SessionQuotaBanner、ConversationQuotaBanner、sessionQuotaBannerState/DismissalStore、startPlanQuotaBuckets/ReminderStore；SessionPane 移除 quotaBanner/handleOpenModelUpgrade/mcpUnavailableNotice 接线
+  * 删除 Start Plan 推荐改选：useStartPlanRecommendation、startPlanRecommendation、startPlanEntitlementOptions、selectionSideInheritedModel（孤儿），SessionPane/AutomationEditView/SubagentsSection 调用点改为直接使用当前选择
+  * contextUsage.tsx 收敛为 context-only（仅 Context windows 统计），V4ComposerToolbar 移除 entitlement/余额/升级组装
+  * SettingsPage Usage 分区改单一 App Usage 面板；settingsNavigation 移除 usageTab 意图管道；ChatErrorBanner/ConversationComposer 移除升级入口
+  * providerBusinessError 移除额度横幅专用业务码解析；useCodingPlanEntitlements 退化为空权益 stub（C4 de-plan 时移除）；StatusCards 剥离额度重置 UI；CodingPlanEntryButton gate 退化为恒 ready
+  * useUsageStats 仅保留 useAppUsageStats（agent 数据库统计）
+
+
+### Other Changes
+
+* feat! remove coding-plan subscription service + shared purchase protocol + UI cluster (P3 C2) ([e41f6a3](https://github.com/yeyuan98/ZCode/commit/e41f6a3bd8a49559f3edc3c70bc0a5b2d288e4b6))
+  * services: 删除 coding-plan-subscription/**（4 文件，购买/企业订单/静态目录/
+  * node.ts: 账号请求鉴权改内联空 resolver（Registry 自 P2 不发布账号 Access，
+  * accountRequestAuthService.ts: AccountRequestAuth* 类型与
+  * wiring: accessor / services index / client remoteServiceAccess /
+  * shared: 删除 coding-plan-subscription.ts（519L 购买/企业订单协议类型；
+  * ui: 删除购买入口链（CodingPlanEmbeddedWebviewDialog + codingPlanEmbeddedWebview +
+
+* feat! remove vendor OAuth services + adopt dormant user framework (P3 C1) ([37e9545](https://github.com/yeyuan98/ZCode/commit/37e9545cb1caaa700a1f41c3556196bedd94d6b2))
+  * 删除 packages/services/src/oauth/**（16 文件，含 providers/ 与 repo/oauthCredentialRepo.ts）；
+  * node.ts：移除 apiClient 401 分类钩子、corrupt-session 登出广播、onboarding loadUserId
+  * shared：新增 user.ts（UserInfo 迁入，ruling 6）与 credential.ts（通用凭据解密错误码迁入）；
+  * channels/platform：删除 ServiceChannels.OAuth 与 OAuthRegisterState/OAuthCallback/
+  * providerProvisioningSource/Target：OAuth 凭据键 allowlist 清空，同步机制保留。
+  * desktopOAuthDeepLink.ts 拆分为通用 desktopDeepLink.ts（workspace/支付/分享导入路由、
+  * appLaunchCoordinator 简化为 ready 即消费启动 gate（OAuth 回调等待删除）。
+  * remoteWorkspaceServiceCollection 移除 OAuth 服务重实例化与登出 handler。
+  * desktopRuntimeEnv/tsup/.env.example/server connect.ts 裁剪 ZAI_OAUTH_* 注入
+  * 删除 useRootOAuthEffects、oauthCachedSessionRestore、oauthLoginAttemptGuard、
+  * store 删除 OAuth 会话字段簇（isRestoringOAuthSession/oauthError/oauthPollingActive/
+  * WorkspaceSidebarFooter 移除头像/用户块与登录/退出菜单，偏好菜单改中性触发器；
+  * ModelProviderSection 仅摘除 OAuth 同步回调块；rootStartupGate 去掉启动 auth 恢复门禁。
+  * i18n：删除 login.oauth.*/login.expired.*/logout.*/sidebar.profile.*/app.login/
+
 ## [3.14.3-alpha.6](https://github.com/yeyuan98/ZCode/compare/v3.14.3-alpha.5...v3.14.3-alpha.6) (2026-09-27)
 
 ### Bug Fixes
