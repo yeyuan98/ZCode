@@ -55,7 +55,7 @@ export function createCommandCenter(deps: CommandCenterDeps): TuiSubmitPrompt {
     if (command.type === "unknown") {
       const customResult = await handleCustomCommand(command.rawName, command.args, deps, options);
       if (customResult) {
-        await recordSlashCommandInHistory(deps, promptInput.text, command);
+        await recordSlashCommandInHistory(deps, promptInput.text);
         return customResult;
       }
       const customCommands = await listCustomCommandsForHelp(deps);
@@ -253,7 +253,7 @@ export function createCommandCenter(deps: CommandCenterDeps): TuiSubmitPrompt {
       };
     })();
 
-    await recordSlashCommandInHistory(deps, promptInput.text, command);
+    await recordSlashCommandInHistory(deps, promptInput.text);
     return result;
   };
 }

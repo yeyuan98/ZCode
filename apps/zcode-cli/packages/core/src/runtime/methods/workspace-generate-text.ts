@@ -15,7 +15,6 @@ import type {
   TraceContext,
 } from "../deps.js";
 import type { AgentRuntimeInternal } from "../internal.js";
-import { createRefreshRuntimeHeadersBeforeModelAttempt } from "./model-runtime-headers.js";
 import { recordModelUsageFact } from "./usage-observability.js";
 import { createRuntimeModel } from "./runtime-model.js";
 import { normalizeStreamError } from "../helpers/index.js";
@@ -85,11 +84,6 @@ export async function testModelConnectivity(
       modelCall: { operation: "workspace_generate_text" },
       statusSink: this.createModelStatusSink(traceContext, []),
       traceContext,
-      refreshRuntimeHeadersBeforeAttempt: createRefreshRuntimeHeadersBeforeModelAttempt(this, {
-        abortSignal,
-        model,
-        traceContext,
-      }),
     },
     async () => {
       for await (const event of model.streamText(request)) {
@@ -210,11 +204,6 @@ async function generateWorkspaceTextImpl(
       },
       statusSink: this.createModelStatusSink(modelTraceContext, events),
       traceContext: modelTraceContext,
-      refreshRuntimeHeadersBeforeAttempt: createRefreshRuntimeHeadersBeforeModelAttempt(this, {
-        abortSignal,
-        model,
-        traceContext: modelTraceContext,
-      }),
     },
     () => model.generateText(modelRequest),
   ).catch(async (error: unknown) => {

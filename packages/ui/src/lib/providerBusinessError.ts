@@ -8,7 +8,6 @@
  * | 模型不可用     | 3006 | 400  | 切换到 Built-in Provider 中的其他模型 |
  * | 参数错误       | 3001 | 400  | 检查请求体 |
  * | 安全校验拒绝   | 3007 | 403  | 客户端无法完成安全校验，提示联系支持 |
- * | 模型并发上限   | 3010 | 429  | Start Plan 下走升级横幅 |
  * | 请求过频       | 3002/429 | 429 | 限流提示，稍后重试 |
  * | 上游 HTTP 异常 | 2007 | 500  | 可重试；刷新配额，勿本地扣额度 |
  */
@@ -19,9 +18,6 @@ const PROVIDER_BUSINESS_ERROR_CODES = [
   "3006",
   "3001",
   "3007",
-  "3008",
-  "3009",
-  "3010",
   "3002",
   "2007",
   "429",
@@ -36,9 +32,6 @@ const PROVIDER_BUSINESS_ERROR_MESSAGE_IDS: Record<ProviderBusinessErrorCode, str
   "3002": "zcode.error.providerBusiness.3002",
   "3001": "zcode.error.providerBusiness.3001",
   "3007": "zcode.error.providerBusiness.3007",
-  "3008": "zcode.error.providerBusiness.3008",
-  "3009": "zcode.error.providerBusiness.3009",
-  "3010": "zcode.error.providerBusiness.3010",
   "2007": "zcode.error.providerBusiness.2007",
   "429": "zcode.error.providerBusiness.429",
 };

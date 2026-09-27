@@ -1,9 +1,7 @@
 import type { TextStreamPart, ToolSet } from "ai";
 import type { Logger, ModelStatusSink, ModelStreamEvent } from "@zcode/contracts";
 import {
-  ModelErrorCode,
   ModelFailureReason as ModelFailureReasonValue,
-  ModelProtocolError,
   ModelRetryReason,
   ModelTransportKind as ModelTransportKindValue,
   type ModelRetryBudget,
@@ -76,7 +74,6 @@ import type {
   AiSdkModelTextRequest,
   ResolvedAiSdkModel,
 } from "./runner-runtime.js";
-import { resolveModelForAttempt, RuntimeHeadersRefreshError } from "./runner-runtime-headers.js";
 import { retryAllowedByFailurePolicy } from "./workflow-model-failure-policy.js";
 import {
   modelFailureStatusFields,
@@ -271,11 +268,8 @@ export async function* runStreamText(input: {
     }
 
     try {
-      resolved = await resolveModelForAttempt({
-        attempt,
-        request: attemptRequest,
-        resolveModel: input.resolveModel,
-      });
+      attemptRequest.abortSignal?.throwIfAborted();
+      resolved = input.resolveModel();
       const anthropicMetadataUserId = await resolveAnthropicRequestMetadataUserId({
         env: input.env,
         providerKind: resolved.providerKind,
@@ -646,14 +640,6 @@ export async function* runStreamText(input: {
         awaitIteratorClose = true;
         throw error.adapterError;
       }
-      if (
-        error instanceof ModelProtocolError &&
-        error.code === ModelErrorCode.ModelRequestAuthMissing
-      ) {
-        // stream 在 attempt try 内解析请求鉴权，过去会把网络前的类型化
-        // 鉴权缺失错误重新归一化为通用请求失败；generate 则直接保留原始协议错误。
-        throw error;
-      }
 
       const completedAt = Date.now();
       const retryWithRepairedHistory =
@@ -665,11 +651,7 @@ export async function* runStreamText(input: {
         };
       }
       const classified = classifyModelFailure(error, input.request.abortSignal);
-      if (error instanceof RuntimeHeadersRefreshError) {
-        classified.message = error.message;
-        classified.retryable = false;
-      }
-      // P3：off-peak 排队协议特判已随供应商票据模型删除（无 429 排队豁免/3102 续跑标记）。
+      // P3：off-peak 排队协议特判已随供应商票据模型删除（无 429 排队豁免/续跑标记）。
       const failure: ClassifiedModelFailure = classified;
       const errorPhase =
         readModelFailureErrorPhase(error) ?? (streamIterator === undefined ? "prepare" : "stream");
@@ -1402,7 +1384,7 @@ function canRetryStreamFailure(input: {
   streamFailurePhase?: StreamFailurePhase;
 }): boolean {
   // workflow 流量（无上限预算）不读分类器的 retryable，读策略表：只有确定性的模型侧错误
-  // 才不重试；3008/3009/3010 这类并发上限在这里是 retry。
+  // 才不重试；并发上限这类瞬态业务码在这里是 retry。
   const providerCode = inspectProviderFailure(input.error).providerErrorCode;
   // 可见输出已发出后绝不重放（交给 core 的 stream recovery）；预算门在 unbounded 下恒开。
   if (

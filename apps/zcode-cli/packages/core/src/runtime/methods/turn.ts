@@ -535,9 +535,6 @@ export async function executeTurnCommand(
             displayInput,
             userMessageId,
             turnTraceContext,
-            {
-              deferIfProviderRuntimeHeadersRefresh: true,
-            },
           );
           shouldRetryTitleGenerationAfterTurn = !titleGenerationStarted;
         }

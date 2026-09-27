@@ -10,7 +10,6 @@ import type {
   CoordinatorResponsePort,
   ForkCommitBundle,
   ForkChildSessionMetadata,
-  ModelRequestAuth,
   ModelSelection,
   PluginReferenceCatalog,
   ResolvedUserInstructions,
@@ -316,7 +315,6 @@ export interface AgentRuntimeDeps {
   /** 可选宿主能力：解析未来执行的显式意图；不用于修改已冻结 Model。 */
   resolveEffectiveModelSelection?: (selection: ModelSelection) => EffectiveModelSelectionResult;
   modelIoDir?: string;
-  providerRuntimeHeadersPort?: ProviderRuntimeHeadersPort;
   permissionService?: PermissionService;
   permissionBroker?: PermissionBrokerPort;
   toolScheduler?: ToolScheduler;
@@ -380,30 +378,6 @@ export interface RuntimeModelFactoryInput {
 }
 
 export type RuntimeModelFactory = (input: RuntimeModelFactoryInput) => Model;
-
-/**
- * 面向协议客户端的 provider runtime headers 端口。
- *
- * 入参的 sessionId 必须能路由到客户端持有的会话。child runtime 的账本身份不能
- * 直接用于客户端请求，否则客户端无法找到会话并返回响应，首个模型请求会一直等待。
- * 子 runtime 通过 deriveChildClientPorts 派生端口，将请求路由到父端口绑定的客户端会话。
- */
-export interface ProviderRuntimeHeadersPort {
-  shouldRefreshBeforeModelRequest?(input: { providerId: string; modelId: string }): boolean;
-  refreshBeforeModelRequest(input: {
-    // P3 C4 供应商账号删除：accountAccess（zhipu-account 请求期鉴权身份）已移除。
-    abortSignal?: AbortSignal;
-    modelId: string;
-    providerId: string;
-    reason: "model-request";
-    sessionId: SessionId;
-    traceContext: TraceContext;
-    turnId?: TurnId;
-  }): Promise<{
-    headersApplied: boolean;
-    requestAuth?: ModelRequestAuth;
-  }>;
-}
 
 export interface TurnResult {
   response: string;
