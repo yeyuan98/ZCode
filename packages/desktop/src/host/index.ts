@@ -2742,6 +2742,12 @@ parentPort.on("message", async (e: Electron.MessageEvent) => {
               onOffPeakSchedulerWakeRequested: () => {
                 parentPort?.postMessage({ type: HostResponseTypes.OffPeakSchedulerWakeRequest });
               },
+              onOffPeakRunNowRequested: (offPeakTaskId) => {
+                parentPort?.postMessage({
+                  type: HostResponseTypes.OffPeakRunNowRequest,
+                  offPeakTaskId,
+                });
+              },
               onProviderProvisioningSourceChanged: (trigger) => {
                 parentPort?.postMessage({
                   type: HostResponseTypes.ProviderProvisioningSourceChanged,

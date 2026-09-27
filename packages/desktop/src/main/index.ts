@@ -65,6 +65,11 @@ import {
   type UpdateStatePayload,
   HostMessageTypes,
   isVendorManifestUpdateFeedWired,
+  DEFAULT_OFF_PEAK_WINDOW,
+  msUntilWindowOpen,
+  normalizeOffPeakWindow,
+  withinWindow,
+  type OffPeakWindowSettings,
 } from "@zcode/shared";
 import { logger } from "./logger.js";
 import { markMainLaunchAppReady } from "./desktopLaunchMarks.js";
@@ -242,6 +247,33 @@ let closeToTrayOnWindows = true;
 // powerSaveBlocker("prevent-app-suspension")，阻止系统闲置休眠（防不了合盖/手动睡眠）。
 // 不再绑定闲时任务活跃计数——设置页「常规」与 Automations 入口镜像同一配置。
 let keepAwakeWhileRunning = false;
+// P3 本地准入：main 是 offPeakWindow 设置唯一属主；scheduler 每 tick 询问时按此求值，
+// 窗口未开时布置 window-open 定时器唤醒 scheduler（settings 变更即重布）。
+let offPeakWindowSettings: OffPeakWindowSettings = DEFAULT_OFF_PEAK_WINDOW;
+let offPeakWindowOpenTimer: ReturnType<typeof setTimeout> | null = null;
+function resolveOffPeakAdmission(): boolean {
+  return withinWindow(new Date(), offPeakWindowSettings);
+}
+function reconcileOffPeakWindowTimer(): void {
+  if (offPeakWindowOpenTimer) {
+    clearTimeout(offPeakWindowOpenTimer);
+    offPeakWindowOpenTimer = null;
+  }
+  const delayMs = msUntilWindowOpen(new Date(), offPeakWindowSettings);
+  if (delayMs <= 0) return;
+  offPeakWindowOpenTimer = setTimeout(() => {
+    offPeakWindowOpenTimer = null;
+    logger.info("[off-peak] window opened; waking scheduler");
+    // 窗口打开即唤醒 scheduler tick（准入询问会放行），避免任务等到下一个 20s 轮询。
+    wakeOffPeakScheduler("window-open");
+    reconcileOffPeakWindowTimer();
+  }, delayMs);
+  offPeakWindowOpenTimer.unref?.();
+  logger.info(
+    `[off-peak] window closed; open timer armed in ${Math.round(delayMs / 1000)}s ` +
+      `(${offPeakWindowSettings.start}-${offPeakWindowSettings.end})`,
+  );
+}
 let powerSaveBlockerId: number | null = null;
 function reconcileKeepAwakeBlocker(): void {
   const shouldBlock = keepAwakeWhileRunning;
@@ -598,6 +630,10 @@ function wakeOffPeakScheduler(offPeakTaskId?: string): void {
   // 复用同一条 scheduler-wake 通道（tick 同时覆盖 cron 与 off-peak 分支），仅日志标签区分。
   cronScheduler?.wake(`offpeak:${offPeakTaskId ?? "sync"}`);
 }
+// host → main：Run-now 强制派发（P3 本地准入）转发 scheduler，绕过窗口认领单个任务。
+function forwardOffPeakRunNow(offPeakTaskId: string): void {
+  cronScheduler?.runNow(offPeakTaskId);
+}
 // 选一个本地 host 执行派发：本期本地 workspace 由任一本地窗口 host 的 createTask 按 path 拉起/复用 agent。
 function resolveCronDispatchHost(): ElectronUtilityProcess | null {
   const first = windowHostProcessMap.values().next();
@@ -862,6 +898,12 @@ function syncImmediateAppSettings(patch: Partial<AppSettings>) {
   if (typeof patch.keepAwakeWhileRunning === "boolean") {
     keepAwakeWhileRunning = patch.keepAwakeWhileRunning;
     reconcileKeepAwakeBlocker();
+  }
+
+  if (patch.offPeakWindow !== undefined) {
+    // 闲时准入窗口变更：立即重求值 + 重布 window-open 定时器（单一属主在 main）。
+    offPeakWindowSettings = normalizeOffPeakWindow(patch.offPeakWindow);
+    reconcileOffPeakWindowTimer();
   }
 
   if (typeof patch.receivePreviewUpdates === "boolean") {
@@ -1618,6 +1660,7 @@ function createWindowInstance(startupBootstrap: StartupWindowBootstrap = {}) {
           onOffPeakRunResult: forwardOffPeakRunResult,
           onCronSchedulerWakeRequested: wakeCronScheduler,
           onOffPeakSchedulerWakeRequested: wakeOffPeakScheduler,
+          onOffPeakRunNowRequested: forwardOffPeakRunNow,
           authorizeLocalMediaPreviewPath: localMediaPreviewPathRegistry.authorize,
           // Bugfix: bot service 运行在本地窗口 host 内，/reconnect 必须能从本地 host 请求 main 创建远端 session。
           handleBotRemoteWorkspaceReconnectRequest: async ({
@@ -1832,6 +1875,7 @@ app.whenReady().then(async () => {
     }
     closeToTrayOnWindows = bootstrapSettings.closeToTrayOnWindows ?? true;
     keepAwakeWhileRunning = bootstrapSettings.keepAwakeWhileRunning ?? false;
+    offPeakWindowSettings = normalizeOffPeakWindow(bootstrapSettings.offPeakWindow);
     currentDesktopZoomLevel = clampDesktopZoomLevel(bootstrapSettings.desktopZoomLevel ?? 0);
     currentDesktopWindowSize = bootstrapSettings.desktopWindowSize;
     // 全局 keep-awake：启动时若设置已开，立刻持有 powerSaveBlocker，不必等设置变更事件。
@@ -1853,7 +1897,11 @@ app.whenReady().then(async () => {
         resolveDispatchHost: resolveCronDispatchHost,
         // keep-awake 已改为纯设置驱动；计数上报保留给后续诊断/配额用途，不再联动 blocker。
         onOffPeakActiveCountChanged: () => {},
+        // P3 本地准入：scheduler correlated 询问的求值方（settings 唯一属主在 main）。
+        resolveOffPeakAdmission,
       });
+      // scheduler 已就绪，按当前窗口布置唤醒链（窗口开着时无定时器）。
+      reconcileOffPeakWindowTimer();
     } catch (error) {
       logger.error("[cron-scheduler] failed to spawn scheduler process:", error);
     }

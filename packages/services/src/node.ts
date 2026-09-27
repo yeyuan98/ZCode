@@ -1254,6 +1254,8 @@ export function createLocalServices(options: {
   }) => Promise<void>;
   /** 闲时任务翻 schedulable 后请求宿主立即唤醒 scheduler（desktop host 注入 parentPort 转发）。 */
   onOffPeakSchedulerWakeRequested?: () => void;
+  /** 闲时任务 Run-now 强制派发请求（desktop host → main → scheduler，P3 本地准入）。 */
+  onOffPeakRunNowRequested?: (offPeakTaskId: string) => void;
   // 注入点：默认 resolver 已能覆盖 dev/桌面/SSH 远端三类形态；
   // 测试或特殊宿主想强制走自定义 binary/参数时从这里注入。
   zcodeAgentCommandResolver?: ZCodeAgentCommandResolver;
@@ -2381,6 +2383,7 @@ export function createLocalServices(options: {
           },
           logger: offPeakLogger,
           requestSchedulerWake: options?.onOffPeakSchedulerWakeRequested,
+          requestRunNow: options?.onOffPeakRunNowRequested,
           stopRunningTask: async (params) => {
             await zcodeTaskService.stopGeneration({
               taskId: params.conversationId,

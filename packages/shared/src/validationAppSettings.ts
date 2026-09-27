@@ -8,6 +8,7 @@ import {
   DEFAULT_EMBEDDED_BROWSER_VIEWPORT_PREFERENCE,
   embeddedBrowserViewportPreferenceSchema,
 } from "./browser-use/command-metadata.js";
+import { DEFAULT_OFF_PEAK_WINDOW, offPeakWindowSchema } from "./off-peak-window.js";
 
 /** 引导职业枚举；单独导出供 onboarding 记录回填 settings 时做窄化校验。 */
 const appSettingsOccupationSchema = z.enum([
@@ -438,6 +439,8 @@ const appSettingsObjectSchema = z.object({
   closeToTrayOnWindows: z.boolean().default(true),
   closeToTrayOnWindowsMigrationInitialized: z.boolean().default(true),
   keepAwakeWhileRunning: z.boolean().default(false),
+  // 闲时任务本地准入窗口（P3）：enabled=false 表示任意时间可调度。
+  offPeakWindow: offPeakWindowSchema.default(DEFAULT_OFF_PEAK_WINDOW),
   desktopZoomLevel: desktopZoomLevelSchema.optional(),
   desktopWindowSize: desktopWindowSizeSchema.optional(),
   desktopChromiumHardwareAccelerationEnabled: z.boolean().default(true),
@@ -505,6 +508,7 @@ export const appSettingsPatchSchema = z.object({
   taskAutoArchiveOlderThanDays: z.number().int().positive().max(365).optional(),
   closeToTrayOnWindows: z.boolean().optional(),
   keepAwakeWhileRunning: z.boolean().optional(),
+  offPeakWindow: offPeakWindowSchema.optional(),
   closeToTrayOnWindowsMigrationInitialized: z.boolean().optional(),
   desktopZoomLevel: desktopZoomLevelSchema.optional(),
   desktopWindowSize: desktopWindowSizeSchema.optional(),

@@ -610,6 +610,8 @@ export const HostResponseTypes = {
   CronSchedulerWakeRequest: "cron-scheduler-wake-request",
   /** host → main：闲时任务翻 schedulable，请立即唤醒 scheduler 认领派发（与 cron 消息独立） */
   OffPeakSchedulerWakeRequest: "off-peak-scheduler-wake-request",
+  /** host → main：闲时任务 Run-now 强制派发请求（main 转发 scheduler，绕过窗口） */
+  OffPeakRunNowRequest: "off-peak-run-now-request",
   /** host → main：执行一条 browser-use 命令（main 用 WebContentsView+CDP 执行，按 requestId 关联） */
   BrowserExecuteRequest: "browser-execute-request",
   /** host → main：请求授权 Agent 已精确校验的本地视频路径 */

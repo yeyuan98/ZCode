@@ -734,6 +734,13 @@ export const hostOffPeakSchedulerWakeRequestResponseSchema = z.object({
   offPeakTaskId: z.string().optional(),
 });
 
+// host → main：Run-now 强制派发请求（UI→host service→main→scheduler）。
+// 绕过本地窗口；scheduler 端对 status='queued' 且 claim_running=0 的任务原子认领，其余 no-op。
+export const hostOffPeakRunNowRequestResponseSchema = z.object({
+  type: z.literal("off-peak-run-now-request"),
+  offPeakTaskId: nonEmptyStringSchema,
+});
+
 // host → main：执行一条 browser-use 命令（main 用 WebContentsView+CDP 执行）。
 export const hostBrowserExecuteRequestResponseSchema = z.object({
   type: z.literal("browser-execute-request"),
@@ -843,6 +850,7 @@ export const hostResponseMessageSchema = z.discriminatedUnion("type", [
   hostOffPeakRunResultResponseSchema,
   hostCronSchedulerWakeRequestResponseSchema,
   hostOffPeakSchedulerWakeRequestResponseSchema,
+  hostOffPeakRunNowRequestResponseSchema,
 ]);
 
 export const zcodeTaskPersistStatusSchema = z.enum(["running", "completed", "error"]);

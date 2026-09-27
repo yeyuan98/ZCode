@@ -49,6 +49,8 @@ interface OffPeakTaskServiceDeps {
   logger: ServiceLogger;
   /** schedulable 翻 1 后立即唤醒 scheduler tick（缺省等 20s 轮询）。 */
   requestSchedulerWake?: () => void;
+  /** Run-now 强制派发：host→main→scheduler 通道转发（P3 本地准入）。 */
+  requestRunNow?: (offPeakTaskId: string) => void;
   /** 取消 running 任务时中止其 agent loop（host 注入；best-effort）。 */
   stopRunningTask?: (params: {
     conversationId: string;
@@ -302,6 +304,34 @@ export class OffPeakTaskService implements IOffPeakTaskService {
     });
     if (paused) this.emitChanged();
     return paused;
+  }
+
+  /**
+   * Run-now（P3 本地准入）：用户显式触发，绕过时间窗口立即派发。
+   * paused 先回 queued（保持任务仍是可调度态）；认领的 single-flight 原子性由
+   * scheduler 端 claimOneForRunNow 保证——claim_running=1 时是幂等 no-op。
+   */
+  async runNow(offPeakTaskId: string): Promise<ZCodeOffPeakTask | null> {
+    const existing = await this.deps.repo.get(offPeakTaskId);
+    if (!existing || isOffPeakTerminalStatus(existing.status)) {
+      return existing ?? null;
+    }
+    if (existing.status === "paused") {
+      const resumed = await this.deps.repo.setPaused(offPeakTaskId, false, {
+        now: this.now(),
+      });
+      if (!resumed) {
+        // 认领在途等竞态下 setPaused 会拒绝；此时不需要强制派发（已有派发在途）。
+        return this.deps.repo.get(offPeakTaskId);
+      }
+    }
+    try {
+      this.deps.requestRunNow?.(offPeakTaskId);
+    } catch (error) {
+      this.deps.logger.warn(`off-peak run-now forward failed task=${offPeakTaskId}:`, error);
+    }
+    this.emitChanged();
+    return this.deps.repo.get(offPeakTaskId);
   }
 
   /**
