@@ -1,5 +1,56 @@
 # Changelog
 
+## [3.14.3-alpha.5](https://github.com/yeyuan98/ZCode/compare/v3.14.3-alpha.4...v3.14.3-alpha.5) (2026-09-27)
+
+### Features
+
+* **catalog:** restore GLM capability metadata rules (P1.1 F1, decision A5) ([3696988](https://github.com/yeyuan98/ZCode/commit/369698897495dc78211252441425022e23b36cb3))
+  * re-add the 24 pre-P1 GLM capability modelRules verbatim from 0ed9c86, original array order preserved (overlay order is load-bearing); the P1-sanitized composite ox-alpha|x-preview-f-free rule is superseded by the verbatim ox-alpha|glm-x-preview-f|x-preview-f-free form (same rule, glm alternative restored) — 84 rules total, matching pre-P1 sequence
+  * probe evidence: bigmodel/zai listing endpoints return ids only on both api flavors, so curated capability rules are the only correct-config source for GLM models; 61 equivalent rules for other vendors survived P1 — without the restore, GLM is the only metadata-less major family (violates equal-vendor treatment: glm-5.3 resolved 200k/no-vision instead of 1M; glm-5.3-flash lost vision/video/pdf)
+  * catalog invariant refined (A5): glm allowed only inside modelRules modelMatch + capability props; templateModelRules/builtinProviderModelRules stay glm-free (test: parse→null modelMatch→assert; + glm-free subtree asserts; count lock 84)
+  * new builtinGlmCapabilityRules.test.ts: glm-5.3→ctx 1M; glm-5.3-flash→image+video+pdf overlay; uppercase GLM-5.3 matches; glm-4v-flash→16384+image
+  * master plan: A5 recorded (user sanction quoted; rejected alternative noted), §1 goal 5/§3 row/§4 P1 summary/P6 allowlist annotated, P1.1 section added, alphas re-shifted (P3→alpha.6 … P6→alpha.9) incl. two pre-existing stale refs fixed
+
+* **discovery:** parser hardening + optional capability hints (P1.1 F4) ([33c70fb](https://github.com/yeyuan98/ZCode/commit/33c70fb850665a7ff4feb7cba3ee8936bb71f75a))
+  * accept both snake_case has_more/first_id/last_id (Anthropic spec) and camelCase hasMore/firstId/lastId (bigmodel/zai legacy mirrors, live-probe-verified); snake_case takes precedence
+  * repeated-first-id loop guard: a mirror that ignores after_id and restarts from page 1 stops paging immediately (treat as complete); 10-page cap retained as backstop
+  * additive success-result field modelHints: anthropic max_input_tokens(>0)→contextWindow + capabilities.image_input/pdf_input.supported; openai-compat context_length(>0) + architecture.input_modalities ∩ {image,video} (audio/file ignored; 0/null absent); cross-page merge fills absent fields only, never overwrites; keys omitted when no metadata (deepEqual-stable)
+  * +7 unit tests: camelCase mirror, snake-precedence, ignored-cursor guard (≤2 requests), anthropic metadata, max_input_tokens:0, openrouter shape, cross-page merge both directions
+
+* **settings:** per-provider Discover models action + bulk merge (P1.1 F3) ([27a6d8d](https://github.com/yeyuan98/ZCode/commit/27a6d8df2307546ee142a33d34d0adaf4442c31f))
+  * facade discoverProviderModels(providerId): reads the provider's own config server-side (key never crosses the RPC surface nor appears in error text — asserted by test); keyless providers discover anonymously; delegates to the shared direct-endpoint core
+  * ProviderConfigService.addPersonalModels: single-transaction bulk merge; dedupes silently against personal + builtin inherited ids and in-batch repeats; returns added count; hints gap-filling extracted as applyInitialModelHints and shared with createPersonalProvider (identical semantics)
+  * UI: Discover models button in ProviderModelsSection next to add-model (existing feedback banner pattern; spinner while testing); useDiscoverProviderModels hook; i18n discoverModels/discoverModelsSuccess {count}/discoverModelsFail in both locales
+  * 5 facade/provider unit tests: dedupe vs personal+builtin, 401 error excludes key while request carries it, keyless flow, unknown-provider/no-baseUrl errors, create-vs-bulk hints equivalence (glm-5.3 → no manual rule when catalog covers)
+
+* **wizard:** auto-discover on save + hints-aware initialModels persistence (P1.1 F2) ([814feb8](https://github.com/yeyuan98/ZCode/commit/814feb88f7c22157f3317edca850b6a35e7db023))
+  * save handler calls discoverTemplateModels directly (never stale hook state) when discovery state is idle and the template has an api config; silent; failure saves zero models (documented escapes); success/failure states never re-run
+  * custom-provider path auto-discovers via new facade discoverCustomProviderModels → discoverModelsForEndpoint (direct-endpoint discovery wrapper)
+  * CreatePersonalProviderInput.initialModelIds → initialModels: (string | {id, hints?})[]; InitialModelHints declared structurally in provider (no cross-package import); hints fill only fields the catalog leaves empty EXCLUDING the .* catch-all fallback (catch-all is the unknown-model default, not catalog knowledge — otherwise hints would be dead code); applied hints persist as complete manual rules (manual schema requires all leaves; creation-time effective values frozen for non-hint leaves — accepted shadow boundary, documented)
+  * keyless (ollama) path included; hook state extended with modelHints
+  * unit tests: hints fill-vs-override matrix through real createPersonalProvider→resolver (catalog-provided → no manual rule; explicit catalog false beats hint true; string entries; dedupe); discoverModelsForEndpoint URL normalization; e2e: save-without-button scenario locks auto-discover
+  * e2e mock template no longer injects builtinModelIds: gate-closed-after-reload assertions now prove discovery persistence (both manual + auto paths) instead of passing via hardcoded ids
+
+
+### Bug Fixes
+
+* **p1.1:** apply ulw review fixes (shadow-scope spec, testing-race, e2e locks) ([6f6e488](https://github.com/yeyuan98/ZCode/commit/6f6e4884f103bbf9b25c05fca2ff085b91e9e9be))
+  * spec §2 corrected to the implemented shadow semantics: applying ANY hint persists a complete manual rule (manual schema requires all leaves) — the model then shadows future catalog changes for ALL manual leaves until user-edited/removed (was wrongly promising per-field shadowing); two-phase catalog regression test locks frozen-value-wins (500k frozen vs 999k later catalog rule)
+  * spec §3: Continue disabled while a discovery run is in flight (was: mid-testing save fell through to zero-model); custom-form wording clarified (requires key; keyless goes via ollama template); ollama step wording aligned with implementation (key-less variant, not skip)
+  * wizard: Continue button disabled during discovery testing state
+  * e2e: custom-provider scenario gains the reload gate-closure assertion (auto-discover persistence locked on both paths)
+  * unit: anthropic mirror has_more-without-last_id stops paging after one request
+  * knip: unexport in-file-only ProviderModelDiscoveryState type
+
+
+### Documentation
+
+* **spec:** P1.1 amendments — A5 capability-metadata invariant, auto-discover on save, hint merge rule ([2a8cd75](https://github.com/yeyuan98/ZCode/commit/2a8cd7539676ec794b48435095b224fae9291f84))
+  * catalog invariant refined: glm allowed only inside modelConfigRules.modelRules (modelMatch + capability props); templateModelRules/builtinProviderModelRules stay glm-free (decision A5: equal-vendor capability metadata, 61-rule precedent)
+  * discovery §2: legacy camelCase hasMore mirrors (bigmodel/zai) + repeated-first-id loop guard; optional capability hints (anthropic max_input_tokens/capabilities, openai-compat context_length/input_modalities) with catalog-wins precedence
+  * wizard §3: save auto-discovers when idle (template/custom/keyless paths); failed discovery not re-run; custom-path expected-death bullet amended
+  * acceptance scenarios extended (resolver glm metadata, hint precedence both directions, auto-discover e2e, per-provider discover unit)
+
 ## [3.14.3-alpha.4](https://github.com/yeyuan98/ZCode/compare/v3.14.3-alpha.3...v3.14.3-alpha.4) (2026-09-26)
 
 ### Features
