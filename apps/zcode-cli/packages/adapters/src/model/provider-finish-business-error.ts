@@ -3,7 +3,7 @@ import { ProviderBusinessError } from "./model-execution.js";
 import { getHttpResponseStatus, getResponseHeaders } from "./failure-inspection.js";
 import { asRecord, stringProperty } from "./runner-record.js";
 
-const BIGMODEL_BRACKETED_BUSINESS_CODE_PATTERN = /^\[(\d{4})\](?=\[)/;
+const BRACKETED_BUSINESS_CODE_PATTERN = /^\[(\d{4})\](?=\[)/;
 const PROVIDER_BUSINESS_ERROR_WRAPPER_CODE = "PROVIDER_BUSINESS_ERROR";
 
 interface DetectProviderBusinessFinishErrorOptions {
@@ -175,14 +175,14 @@ function readProviderCode(record: Record<string, unknown>): string | undefined {
     normalizeProviderCode(record.code) ??
     normalizeProviderCode(errorRecord?.code) ??
     normalizeProviderCode(contextRecord?.code) ??
-    // BigModel/Z.AI 的 SSE error chunk 有时只有 `[1302][...][request_id]` message，
+    // 部分 provider 的 SSE error chunk 有时只有 `[1302][...][request_id]` message，
     // 没有结构化 code；只解析这个强格式前缀，避免把普通 rate limit 文案误判成业务码。
-    readBigModelBracketedBusinessCode(record.message) ??
-    readBigModelBracketedBusinessCode(record.providerMessage) ??
-    readBigModelBracketedBusinessCode(errorRecord?.message) ??
-    readBigModelBracketedBusinessCode(errorRecord?.providerMessage) ??
-    readBigModelBracketedBusinessCode(contextRecord?.message) ??
-    readBigModelBracketedBusinessCode(contextRecord?.providerMessage);
+    readBracketedBusinessCode(record.message) ??
+    readBracketedBusinessCode(record.providerMessage) ??
+    readBracketedBusinessCode(errorRecord?.message) ??
+    readBracketedBusinessCode(errorRecord?.providerMessage) ??
+    readBracketedBusinessCode(contextRecord?.message) ??
+    readBracketedBusinessCode(contextRecord?.providerMessage);
   return value;
 }
 
@@ -245,9 +245,9 @@ function normalizeProviderCode(value: unknown): string | undefined {
     : normalized;
 }
 
-function readBigModelBracketedBusinessCode(value: unknown): string | undefined {
+function readBracketedBusinessCode(value: unknown): string | undefined {
   const message = normalizeStringish(value);
-  const match = message?.match(BIGMODEL_BRACKETED_BUSINESS_CODE_PATTERN);
+  const match = message?.match(BRACKETED_BUSINESS_CODE_PATTERN);
   return match?.[1];
 }
 

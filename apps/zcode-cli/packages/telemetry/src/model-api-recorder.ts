@@ -440,7 +440,6 @@ function errorCategory(event: ModelRequestFailedStatusEvent): AgentTelemetryErro
     case ModelFailureReason.ServerError:
     case ModelFailureReason.ProxyError:
     case ModelFailureReason.AuthRefresh:
-    case ModelFailureReason.OffpeakQueued:
       return "provider";
     default:
       return "unknown";

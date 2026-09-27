@@ -105,35 +105,6 @@ const PROVIDER_BUSINESS_CODE_MAPPINGS = new Map<string, ProviderBusinessCodeMapp
       retryable: false,
     },
   ],
-  // 3008/3009/3010：并发上限，与配额耗尽 1005 类似但不走 refresh-quota，而是走升级横幅。
-  [
-    "3008",
-    {
-      code: ModelErrorCode.ModelRateLimited,
-      reason: ModelFailureReasonValue.RateLimited,
-      retryReason: ModelRetryReasonValue.RateLimited,
-      retryable: false,
-    },
-  ],
-  [
-    "3009",
-    {
-      code: ModelErrorCode.ModelRateLimited,
-      reason: ModelFailureReasonValue.RateLimited,
-      retryReason: ModelRetryReasonValue.RateLimited,
-      retryable: false,
-    },
-  ],
-  // 3010：当前模型并发上限。保留为非自动重试的 rate limited，由 UI 引导切换模型或升级。
-  [
-    "3010",
-    {
-      code: ModelErrorCode.ModelRateLimited,
-      reason: ModelFailureReasonValue.RateLimited,
-      retryReason: ModelRetryReasonValue.RateLimited,
-      retryable: false,
-    },
-  ],
   // BigModel 文档里的恢复类错误需要显式入表；同时把 1261 标成超窗，
   // 长期配额、套餐权限、公平使用限制和 provider 明确终止型业务码则显式终止，避免 generic 429 兜底误重试。
   [

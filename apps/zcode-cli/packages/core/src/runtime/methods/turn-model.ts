@@ -5,11 +5,9 @@ import {
   type TraceContext,
   type TurnInputIntentMetadata,
 } from "@zcode/contracts";
-import { getCurrentModelInvocationContext } from "../deps.js";
 import type { AgentRuntimeInternal } from "../internal.js";
 import { cloneModelSelection } from "../model-selection.js";
-import { createRefreshRuntimeHeadersBeforeModelAttempt } from "./model-runtime-headers.js";
-import { createRuntimeModel, withModelInvocationContext } from "./runtime-model.js";
+import { createRuntimeModel } from "./runtime-model.js";
 import { applyRuntimeExecutionState } from "../execution-state.js";
 
 export function createTurnModel(
@@ -19,14 +17,9 @@ export function createTurnModel(
   } = {},
 ): Model {
   const selection = options.selection ?? runtime.getSessionModelSelection();
-  const model = createRuntimeModel(runtime, { selection });
-  return withModelInvocationContext(model, (request) => ({
-    refreshRuntimeHeadersBeforeAttempt: createRefreshRuntimeHeadersBeforeModelAttempt(runtime, {
-      abortSignal: request.abortSignal,
-      model,
-      traceContext: getCurrentModelInvocationContext()?.traceContext ?? runtime.rootTraceContext,
-    }),
-  }));
+  // P4：请求期 runtime headers 刷新链（providerRuntimeHeadersPort）已整体删除，
+  // turn model 不再按请求包装鉴权刷新，直接返回运行时模型本体。
+  return createRuntimeModel(runtime, { selection });
 }
 
 /**

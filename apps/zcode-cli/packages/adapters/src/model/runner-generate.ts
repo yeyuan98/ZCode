@@ -1,7 +1,6 @@
 import type { Logger, ModelStatusSink, ModelTextResult } from "@zcode/contracts";
 import {
   ModelErrorCode,
-  ModelProtocolError,
   ModelRetryReason,
   ModelTransportKind as ModelTransportKindValue,
 } from "@zcode/contracts";
@@ -50,7 +49,6 @@ import type {
   AiSdkModelTextRequest,
   ResolvedAiSdkModel,
 } from "./runner-runtime.js";
-import { resolveModelForAttempt, RuntimeHeadersRefreshError } from "./runner-runtime-headers.js";
 import { retryAllowedByFailurePolicy } from "./workflow-model-failure-policy.js";
 import { modelFailureStatusFields, providerRequestIdFromHeaders } from "./runner-telemetry.js";
 import { repairReasoningHistoryAfterSignatureRejection } from "./reasoning-history-normalization.js";
@@ -154,11 +152,8 @@ export async function runGenerateText(input: {
     }
 
     try {
-      resolved = await resolveModelForAttempt({
-        attempt,
-        request: attemptRequest,
-        resolveModel: input.resolveModel,
-      });
+      attemptRequest.abortSignal?.throwIfAborted();
+      resolved = input.resolveModel();
       const anthropicMetadataUserId = await resolveAnthropicRequestMetadataUserId({
         env: input.env,
         providerKind: resolved.providerKind,
@@ -325,19 +320,9 @@ export async function runGenerateText(input: {
         providerMetadata: result.providerMetadata as Record<string, unknown> | undefined,
       };
     } catch (error) {
-      // 合并后鉴权解析进入 attempt try；与 stream 一致保留网络前凭据缺失的类型化错误。
-      if (
-        error instanceof ModelProtocolError &&
-        error.code === ModelErrorCode.ModelRequestAuthMissing
-      )
-        throw error;
       const completedAt = Date.now();
       const classified = classifyModelFailure(error, input.request.abortSignal);
-      if (error instanceof RuntimeHeadersRefreshError) {
-        classified.message = error.message;
-        classified.retryable = false;
-      }
-      // P3：off-peak 排队协议特判已随供应商票据模型删除（无 429 排队豁免/3102 续跑标记）。
+      // P3：off-peak 排队协议特判已随供应商票据模型删除（无 429 排队豁免/续跑标记）。
       const failure: ClassifiedModelFailure = classified;
       const responseHeaders = sanitizeModelNetworkHeaders(
         getResponseHeaders(unwrapRetryError(error)),
