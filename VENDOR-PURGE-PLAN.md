@@ -3,7 +3,7 @@
 - **Repo:** `/home/administrator/git/ZCode` (fork of ZCode v3.14.3, branch base `main`)
 - **Goal:** Remove all Z.ai / Zhipu / BigModel vendor-specific code — platform backend, logins, accounts/plans/subscriptions, vendor-bound skills/tools, vendor CDN/telemetry/infra — while keeping the product fully usable via generic API-key providers and local models. zai/bigmodel remain available as **ordinary, equal vendors**.
 - **Version policy:** stay upstream-consistent at **3.14.3**; per-phase test releases as `3.14.3-alpha.N`; final release is exactly `3.14.3`.
-- **Status:** EXECUTING. P0 done (`v3.14.3-alpha.1`); P2 done (`v3.14.3-alpha.2`, 2026-09-26) + wizard UX hotfix (`v3.14.3-alpha.3`); P1 done (`v3.14.3-alpha.4`, 2026-09-27, with amendments A1-A4 recorded in its §4 section); P1.1 done (`v3.14.3-alpha.5`, 2026-09-27, merge `e1a14fc`, release `c17469e`); P1.2 done (`v3.14.3-alpha.6`, 2026-09-27); next: P3 (ships as alpha.7). Investigation: 4 parallel deep-dive subagents + 3 independent review rounds, all findings source-verified on `main`.
+- **Status:** EXECUTING. P0 done (`v3.14.3-alpha.1`); P2 done (`v3.14.3-alpha.2`, 2026-09-26) + wizard UX hotfix (`v3.14.3-alpha.3`); P1 done (`v3.14.3-alpha.4`, 2026-09-27, with amendments A1-A4 recorded in its §4 section); P1.1 done (`v3.14.3-alpha.5`, 2026-09-27, merge `e1a14fc`, release `c17469e`); P1.2 done (`v3.14.3-alpha.6`, 2026-09-27, merge `9821744`, release `c49c962`); next: P3 (ships as alpha.7). Investigation: 4 parallel deep-dive subagents + 3 independent review rounds, all findings source-verified on `main`.
 - **Fresh-start policy:** no migration/compat shims for old setups; there are no existing libre-zcode users.
 
 ---
@@ -193,7 +193,7 @@ Delivered as `v3.14.3-alpha.4`: catalog = 21 equal-vendor templates (16 generic 
 
 **Tests/QA:** unit — catalog glm-scoping (parse → null out `modelRules[].modelMatch` → no `/glm/gi` anywhere; `templateModelRules`/`builtinProviderModelRules` glm-free; rule count + glm-5.3 1M presence), resolver capability units (glm-5.3 → ctx 1M; glm-5.3-flash → image+video+pdf; uppercase `GLM-5.3` matches; glm-4v-flash → 16384+image), discovery parser legacy-mirror + hint-merge units. E2E — wizard save without pressing the button still persists models and the gate stays closed after reload. Manual — real zai/bigmodel key end-to-end (glm-5.3 1M ctx; flash vision), Ollama keyless discover, settings discover merge.
 
-### P1.2 — GLM vision over-application fix → **alpha.6** (done)
+### P1.2 — GLM vision over-application fix → **alpha.6** (done; merge `9821744`, release `c49c962`)
 
 User report on alpha.5: context lengths correct (glm-5.2+ = 1M ✓) but ALL glm models showed as
 vision; ground truth = only the glm-5.3-flash family (incl. flashx) is vision. Root causes
