@@ -1,5 +1,28 @@
 # Changelog
 
+## [3.14.3-alpha.6](https://github.com/yeyuan98/ZCode/compare/v3.14.3-alpha.5...v3.14.3-alpha.6) (2026-09-27)
+
+### Bug Fixes
+
+* **catalog:** GLM vision over-application on anthropic endpoints (P1.2) ([50ee7e4](https://github.com/yeyuan98/ZCode/commit/50ee7e4dc8cb1cbad4cbaa82c4dc1a4dd76d236e))
+  * delete the two upstream vendor anthropic inputFormat site rules (api.z.ai + open.bigmodel.cn /api/anthropic, modelMatch .*): they expressed 'endpoint accepts image/video blocks' but overlay after modelRules (later-defined wins) and blanket-overrode every per-model image:false — all glm models showed vision on anthropic-flavor providers; latent upstream bug surfaced by the P1.1 rule restore; openai-compat flavor (no site rules) was already correct; midConversationSystem endpoint rules kept
+  * extend the flash-family vision overlay in place to (?:x)?: glm-5.3-flashx (suffix letter, no separator) previously missed by the overlay and masked by the site blanket — now vision per user ruling, ctx 1M via family base rule; cross-flavor intended flip pinned in tests
+  * resolver regression tests on both flavors: glm-5.3 image FALSE + ctx 1M; flash + flashx vision (video/pdf); glm-4.6v vision; unrated models default non-vision (no endpoint blanket)
+  * catalog-level guard: no vendor anthropic site rule may carry inputFormat again
+  * spec: P1.2 clauses + catalog-source note (upstream v3.14.3 vendor catalog rev 30, fork-maintained); master plan: P1.2 section, matrix row A6, alphas re-shifted (P3=alpha.7 … P6=alpha.10); revision stays 30
+
+
+### Documentation
+
+* **plan:** mark P1.1 delivered (v3.14.3-alpha.5) ([39a7878](https://github.com/yeyuan98/ZCode/commit/39a7878505f65280036932f5d4f49f7bbe8a60ed))
+
+
+### Other Changes
+
+* docs+test(p1.2): review fixes — full-lineup sweep test, plan re-shift corrections ([4cf9032](https://github.com/yeyuan98/ZCode/commit/4cf9032ca884dbf32b659350ba10f4d53522e4e3))
+  * committed full 11-model bigmodel lineup sweep (vision only for flash/flashx; ctx tiers 131072/200000/1M) — hardens against future catalog drift (reviewer's throwaway sweep verified current values)
+  * master plan: P1.1 version-note range re-worded (alpha.6 re-taken by P1.2); runbook A1..A10
+
 ## [3.14.3-alpha.5](https://github.com/yeyuan98/ZCode/compare/v3.14.3-alpha.4...v3.14.3-alpha.5) (2026-09-27)
 
 ### Features
