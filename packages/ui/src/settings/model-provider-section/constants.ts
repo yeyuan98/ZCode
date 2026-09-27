@@ -8,10 +8,13 @@ import {
   ZCODE_ENV,
   ZAI_PROVIDER_ID,
   type BuiltinModelProviderId,
-  type UsageQuotaLimit,
-  type UsageEntitlementSubscriptionDetail,
-  type UsageEntitlementSnapshot,
 } from "@zcode/shared";
+// P3 S2 过渡：vendor entitlement/quota 形状改自 UI 本地过渡模块（C4 de-plan 时移除）。
+import type {
+  UsageEntitlementSnapshot,
+  UsageEntitlementSubscriptionDetail,
+  UsageQuotaLimit,
+} from "@/lib/usageQuotaShapes.js";
 import type { ProviderSettingsFormProvider } from "@/lib/providerSettingsFormTypes.js";
 import { getProviderFormLabel } from "@/lib/providerSettingsFormTypes.js";
 

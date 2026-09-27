@@ -240,8 +240,8 @@ export * from "./tool-plan-adapter.js";
 export * from "./permission-request-preview.js";
 export * from "./settings-sync.js";
 export * from "./uuid.js";
-export * from "./usage-stats.js";
-// P3 供应商套餐/配额面删除：通用 App Usage 形状迁至 app-usage.ts，协议与 UI 改从新家读取。
+// P3 供应商套餐/配额面删除：usage-stats.ts（vendor 半边）与 usage-quota.ts 已删除，
+// 仅保留通用 App Usage 形状（app-usage.ts）。
 export * from "./app-usage.js";
 export * from "./coding-plan-subscription.js";
 export * from "./forceUpdate.js";

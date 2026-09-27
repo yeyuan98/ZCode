@@ -4,11 +4,14 @@ import {
   BIGMODEL_PROVIDER_ID,
   isStartPlanModelProviderId,
   resolveModelProviderFamilySpecByProviderId,
-  type UsageEntitlementSubscriptionDetail,
-  type UsageQuotaLimit,
   type ZCodeAccountAccess,
   type ZCodeProviderAccountAccess,
 } from "@zcode/shared";
+// P3 S2 过渡：vendor entitlement/quota 形状改自 UI 本地过渡模块（C4 de-plan 时移除）。
+import type {
+  UsageEntitlementSubscriptionDetail,
+  UsageQuotaLimit,
+} from "@/lib/usageQuotaShapes.js";
 import { InfoIcon, Loader2Icon } from "lucide-react";
 import { useState, type ReactNode } from "react";
 import { Button } from "@/components/ui/button.js";

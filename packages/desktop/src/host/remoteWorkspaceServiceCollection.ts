@@ -48,10 +48,6 @@ import {
   createOAuthService,
   createOAuthProviderLogoutHandler,
   createAccountProviderCredentialStore,
-  createAccountProviderCredentialService,
-  createAccountProviderRequestAuthService,
-  createAccountRequestAuthService,
-  resolveAccountTeamPlanRuntimeApiKey,
   createSettingsSyncService,
   createBotsService,
   createUsageStatsService,
@@ -61,14 +57,11 @@ import {
   createSubagentsService,
   createMemoryService,
   createRemoteConversationShareArtifactSource,
-  OAuthCredentialRepo,
 } from "@zcode/services/node";
 import {
-  BIGMODEL_PROVIDER_ID,
   buildRuntimeZCodeApiUrl,
   DEFAULT_ZCODE_MODEL_CONTEXT_BUDGET_STRATEGY,
   type ZCodeSessionRuntimePreferencesResult,
-  ZAI_PROVIDER_ID,
 } from "@zcode/shared";
 import { assertLegacyRemoteWorkspaceRpcContract } from "./legacyRemoteWorkspaceRpcContract.js";
 import {
@@ -111,48 +104,11 @@ export function createRemoteWorkspaceServiceCollection(params: {
   });
   const localBroadcastService = createBroadcastService(params.parentPort);
   let handleOAuthProviderLogout: ReturnType<typeof createOAuthProviderLogoutHandler> | null = null;
-  const localOAuthCredentialRepo = new OAuthCredentialRepo(localCredentialService, {
-    onCorruptOAuthSessionCleared: async (providers) => {
-      // remote workspace host 读写的是本机 OAuth 凭据。
-      // 损坏恢复必须和 local host 一样清理 Start/Coding Plan 派生 provider，避免手机 remote 残留旧 key。
-      await Promise.all(
-        providers.map((provider) => handleOAuthProviderLogout?.(provider) ?? Promise.resolve()),
-      );
-    },
-  });
-  const localAccountProviderCredentialService = createAccountProviderCredentialService({
-    credentialStore: localAccountProviderCredentialStore,
-    async loadOAuthAccessToken(family) {
-      const providerId = family === "zai" ? ZAI_PROVIDER_ID : BIGMODEL_PROVIDER_ID;
-      return (await localOAuthCredentialRepo.loadTokenSet(providerId))?.accessToken ?? null;
-    },
-    // desktop-attached remote 只复用本机已解析或旧存储中的 Key；远端刷新仍由本机正式账号链负责。
-    resolveProviderApiKey: async () => null,
-  });
-  const localAccountRequestAuthService = createAccountRequestAuthService(
-    createAccountProviderRequestAuthService({
-      // P2：Registry 不再发布账号 Access；当前账号连接解析恒为空，待 P3 重建连接选择。
-      resolveCurrentAccountAccess: async () => null,
-      loadOAuthTokenSet: (providerId) => localOAuthCredentialRepo.loadTokenSet(providerId),
-      async loadIndividualPlanApiKey(providerId, family) {
-        const oauthProviderId = family === "zai" ? ZAI_PROVIDER_ID : BIGMODEL_PROVIDER_ID;
-        const accountIdentity = (await localOAuthCredentialRepo.loadUserProfile(oauthProviderId))
-          ?.id;
-        if (!accountIdentity) return null;
-        return localAccountProviderCredentialService.loadCodingPlanApiKey({
-          providerId,
-          family,
-          accountIdentity,
-        });
-      },
-      resolveTeamPlanApiKey: (access) =>
-        resolveAccountTeamPlanRuntimeApiKey({
-          apiClient: localApiClient,
-          credentialService: localCredentialService,
-          access,
-        }),
-    }),
-  );
+  // P3 供应商套餐/配额面删除：localOAuthCredentialRepo / localAccountProviderCredentialService
+  // 只服务已删除的 vendor 用量查询链（localAccountRequestAuthService），一并移除；
+  // OAuth 登出清理（createOAuthProviderLogoutHandler）与凭据 store 属其它 slice，保持不动。
+  // P3 供应商套餐/配额面删除：本集合的 localAccountRequestAuthService 只服务用量服务的
+  // vendor 查询链，已随 usage 注册精简删除（账号/OAuth 重建属其它 slice）。
   const localCodingPlanSubscriptionService = createCodingPlanSubscriptionService({
     apiClient: localApiClient,
     credentialService: localCredentialService,
@@ -332,10 +288,9 @@ export function createRemoteWorkspaceServiceCollection(params: {
     .register(IProviderSettingsService, params.connectionServices.providerSettingsService)
     .register(
       IUsageStatsService,
+      // P3 供应商套餐/配额面删除：远端 workspace 的用量服务只剩 App Usage
+      // （经目标环境的 zcodeAgentService 读取 agent 数据库），vendor 依赖不再注入。
       createUsageStatsService({
-        apiClient: localApiClient,
-        accountRequestAuthService: localAccountRequestAuthService,
-        credentialService: localCredentialService,
         zcodeAgentService: params.connectionServices.zcodeAgentService,
       }),
     )

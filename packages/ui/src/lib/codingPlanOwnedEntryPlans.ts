@@ -1,4 +1,6 @@
-import { BUILTIN_MODEL_PROVIDER_IDS, type UsageEntitlementSnapshot } from "@zcode/shared";
+import { BUILTIN_MODEL_PROVIDER_IDS } from "@zcode/shared";
+// P3 S2 过渡：vendor entitlement 形状改自 UI 本地过渡模块（C4 de-plan 时移除）。
+import type { UsageEntitlementSnapshot } from "@/lib/usageQuotaShapes.js";
 
 const startIds: readonly string[] = [
   BUILTIN_MODEL_PROVIDER_IDS.bigmodelStartPlan,
