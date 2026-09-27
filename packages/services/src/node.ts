@@ -168,7 +168,8 @@ export {
 } from "./storage/adapters/rootsResolver.js";
 export { createFsVolumeProbe } from "./storage/adapters/volumeProbe.js";
 export { runStorageScan } from "./storage/adapters/inProcessScanRunner.js";
-export { createClientConfigService } from "./client-config/clientConfigService.js";
+// P3 C5 供应商 client/configs 拉取删除：createClientConfigService 已随
+// /api/v1/client/configs 配置面整体移除（插件商店排序回退打包默认顺序）。
 export { createClientScenesService } from "./client-scenes/clientScenesService.js";
 export { createSkillsService } from "./skills/skillsService.js";
 export { createSkillSyncService } from "./skill-sync/skillSyncService.js";
@@ -320,8 +321,7 @@ import { createProviderProvisioningTarget } from "./model-provider/providerProvi
 import { IProviderProvisioningTargetService } from "./model-provider/providerProvisioning.js";
 import { resolveClientConfigPlatform } from "./runtime-tools/clientPlatform.js";
 import { createUsageStatsService } from "./usage-stats/usageStatsService.js";
-import { createClientConfigService } from "./client-config/clientConfigService.js";
-import { IClientConfigService } from "./client-config/clientConfig.js";
+// P3 C5 供应商 client/configs 拉取删除：IClientConfigService 注册随配置面移除。
 import { createClientScenesService } from "./client-scenes/clientScenesService.js";
 import { createSkillsService } from "./skills/skillsService.js";
 import { createSkillSyncService } from "./skill-sync/skillSyncService.js";
@@ -2129,17 +2129,8 @@ export function createLocalServices(options: {
         zcodeAgentService,
       }),
     )
-    .register(
-      IClientConfigService,
-      createClientConfigService({
-        apiClient,
-        resolveRequestContext: async () => ({
-          endpointOrigin: await resolveCurrentZCodeEndpointOrigin(),
-          appVersion: ZCODE_VERSION,
-          platform: `${process.platform}-${process.arch}`,
-        }),
-      }),
-    )
+    // P3 C5 供应商 client/configs 拉取删除：IClientConfigService（窗口级公开配置快照，
+    // 最后一个消费方是插件商店排序）不再注册；排序回退打包默认顺序。
     .register(IClientScenesService, createClientScenesService({ apiClient }))
     .register(
       IOffPeakTaskService,

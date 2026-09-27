@@ -270,8 +270,9 @@ export * from "./execution-state.js";
 export { bashOutputDisplaySchema } from "./bash-output-display.js";
 
 export * from "./localTtft.js";
+// P3 C5：clientConfig.ts（/api/v1/client/configs 快照解析）已随供应商配置拉取删除；
+// pluginStoreOrder 仅保留本地排序类型，供打包默认排序与 UI 使用。
 export * from "./pluginStoreOrder.js";
-export * from "./clientConfig.js";
 export * from "./pluginStoreOrdering.js";
 export * from "./session-debug.js";
 export { redactFeedbackText } from "./feedbackPrivacy.js";

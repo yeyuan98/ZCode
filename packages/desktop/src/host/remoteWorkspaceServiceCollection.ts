@@ -18,7 +18,7 @@ import {
   IModelSelectionService,
   IProviderSettingsService,
   IUsageStatsService,
-  IClientConfigService,
+  // P3 C5 供应商 client/configs 拉取删除：IClientConfigService 注册已随服务移除。
   IClientScenesService,
   ISkillsService,
   ISkillSyncService,
@@ -67,7 +67,7 @@ const runtimePreferencesLogger = createServiceLogger("remote-runtime-preferences
 const ZCODE_JWT_TOKEN_KEY = "zcodejwttoken";
 
 export function createRemoteWorkspaceServiceCollection(params: {
-  clientConfigService: IClientConfigService;
+  // P3 C5：clientConfigService 参数（供应商 client/configs 快照透传）已删除。
   connectionServices: IServiceAccessor;
   sourceServices?: ServiceCollection;
   parentPort: Parameters<typeof createBroadcastService>[0];
@@ -272,7 +272,7 @@ export function createRemoteWorkspaceServiceCollection(params: {
         zcodeAgentService: params.connectionServices.zcodeAgentService,
       }),
     )
-    .register(IClientConfigService, params.clientConfigService)
+    // P3 C5 供应商 client/configs 拉取删除：远端 workspace 不再透传 ClientConfig 服务。
     .register(IClientScenesService, createClientScenesService({ apiClient: localApiClient }))
     // 远端 workspace 的项目级 skills/plugins/commands 位于 SSH/Docker 文件系统。
     // 这里必须透出远端服务，避免本机服务拿远端 workspacePath 去本机目录扫描。

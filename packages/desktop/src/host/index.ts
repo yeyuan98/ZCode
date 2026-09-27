@@ -27,7 +27,7 @@ import {
   ServiceCollection,
   IBotsService,
   IFileService,
-  IClientConfigService,
+  // P3 C5 供应商 client/configs 拉取删除：IClientConfigService 已随服务移除。
   IMediaPreviewService,
   IOffPeakTaskService,
   IModelSelectionService,
@@ -1571,7 +1571,8 @@ async function createWindowRemoteConnectionHandle(params: {
   signal: AbortSignal;
 }): Promise<WindowRemoteConnectionHandle<ServiceCollection, HostRemoteConnectionCapabilities>> {
   if (!activeServices) throw new Error("Local Host services are not initialized.");
-  const clientConfigService = activeServices.get(IClientConfigService);
+  // P3 C5 供应商 client/configs 拉取删除：ClientConfig 服务不再存在，
+  // 远端 workspace 集合不再透传该快照（排序回退打包默认顺序）。
   if (params.signal.aborted) {
     throw new Error("远程连接已取消");
   }
@@ -1616,7 +1617,6 @@ async function createWindowRemoteConnectionHandle(params: {
     },
   );
   const services = createRemoteWorkspaceServiceCollection({
-    clientConfigService,
     connectionServices: backendConnection.services,
     sourceServices: activeServices ?? undefined,
     parentPort,
