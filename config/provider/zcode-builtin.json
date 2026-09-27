@@ -763,7 +763,7 @@
           }
         },
         {
-          "modelMatch": ".*glm-5\\.3-flash(?:[.\\-:/\\[].*)?",
+          "modelMatch": ".*glm-5\\.3-flash(?:x)?(?:[.\\-:/\\[].*)?",
           "config": {
             "properties": {
               "inputFormat": {
@@ -3491,30 +3491,6 @@
             "optionSpecs": {
               "reasoningLevel": {
                 "map": "reasoningLevel == \"disabled\" || reasoningLevel == \"none\"\n  ? {\n      \"thinking\": {\n        \"type\": \"disabled\"\n      }\n    }\n  : {\n      \"thinking\": {\n        \"type\": \"adaptive\"\n      },\n      \"output_config\": {\n        \"effort\": reasoningLevel == \"enabled\" ? \"high\" : reasoningLevel\n      }\n    }"
-              }
-            }
-          }
-        },
-        {
-          "modelMatch": ".*",
-          "baseUrlMatch": "https://api\\.z\\.ai/api/anthropic/?",
-          "config": {
-            "properties": {
-              "inputFormat": {
-                "supportsImage": true,
-                "supportsVideo": true
-              }
-            }
-          }
-        },
-        {
-          "modelMatch": ".*",
-          "baseUrlMatch": "https://open\\.bigmodel\\.cn/api/anthropic/?",
-          "config": {
-            "properties": {
-              "inputFormat": {
-                "supportsImage": true,
-                "supportsVideo": true
               }
             }
           }

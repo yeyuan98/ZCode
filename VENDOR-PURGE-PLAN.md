@@ -3,7 +3,7 @@
 - **Repo:** `/home/administrator/git/ZCode` (fork of ZCode v3.14.3, branch base `main`)
 - **Goal:** Remove all Z.ai / Zhipu / BigModel vendor-specific code — platform backend, logins, accounts/plans/subscriptions, vendor-bound skills/tools, vendor CDN/telemetry/infra — while keeping the product fully usable via generic API-key providers and local models. zai/bigmodel remain available as **ordinary, equal vendors**.
 - **Version policy:** stay upstream-consistent at **3.14.3**; per-phase test releases as `3.14.3-alpha.N`; final release is exactly `3.14.3`.
-- **Status:** EXECUTING. P0 done (`v3.14.3-alpha.1`); P2 done (`v3.14.3-alpha.2`, 2026-09-26) + wizard UX hotfix (`v3.14.3-alpha.3`); P1 done (`v3.14.3-alpha.4`, 2026-09-27, with amendments A1-A4 recorded in its §4 section); P1.1 done (`v3.14.3-alpha.5`, 2026-09-27, merge `e1a14fc`, release `c17469e`); next: P3 (ships as alpha.6). Investigation: 4 parallel deep-dive subagents + 3 independent review rounds, all findings source-verified on `main`.
+- **Status:** EXECUTING. P0 done (`v3.14.3-alpha.1`); P2 done (`v3.14.3-alpha.2`, 2026-09-26) + wizard UX hotfix (`v3.14.3-alpha.3`); P1 done (`v3.14.3-alpha.4`, 2026-09-27, with amendments A1-A4 recorded in its §4 section); P1.1 done (`v3.14.3-alpha.5`, 2026-09-27, merge `e1a14fc`, release `c17469e`); P1.2 done (`v3.14.3-alpha.6`, 2026-09-27); next: P3 (ships as alpha.7). Investigation: 4 parallel deep-dive subagents + 3 independent review rounds, all findings source-verified on `main`.
 - **Fresh-start policy:** no migration/compat shims for old setups; there are no existing libre-zcode users.
 
 ---
@@ -189,11 +189,29 @@ Delivered as `v3.14.3-alpha.4`: catalog = 21 equal-vendor templates (16 generic 
 
 ### P1.1 — Model capability metadata & discovery UX → **alpha.5** (done)
 
-**Amendment A5 (numbered, in-phase):** restore GLM model-capability metadata rules into the builtin catalog's `modelConfigRules.modelRules` as ordinary equal-vendor content. Probe evidence (live key, both domains, all 4 listing endpoints HTTP 200): bigmodel/zai endpoints (`/api/paas/v4/models`, `/api/anthropic/v1/models`) return **ids only** — no openai-compat `context_length`, no anthropic `capabilities`/`max_input_tokens`; the anthropic mirrors are legacy-shaped (camelCase `hasMore`/`firstId`/`lastId`, cursor params ignored), while real Anthropic (`api.anthropic.com`) and OpenRouter do return usable metadata. Without catalog rules GLM became the only metadata-less major family (61 equivalent gpt/claude/kimi/deepseek/qwen/minimax/mimo/grok rules survived P1 — `codegeex-4`/`emohaa` already-cited precedent), degrading glm-5.3 to the `.*` default 200k/no-vision instead of 1M and losing glm-5.3-flash vision/video/pdf. User sanction: "we should consider reviving that mechanism". Rejected alternative: delete all 61 surviving vendor capability rules (would leave every major family metadata-less and worsen the equal-vendor posture). Scope (plan of record): **F1** — the 24 pre-P1 GLM capability rules restored verbatim from `0ed9c86` in original overlay order (composite `ox-alpha|glm-x-preview-f|x-preview-f-free` included; the P1-sanitized composite stand-in replaced; `templateModelRules`/`builtinProviderModelRules` stay glm-free; catalog invariant refined to "glm only within modelMatch patterns + capability properties"); **F2** — wizard auto-discovers on save whenever discovery state is idle (template + custom + keyless paths), so a saved provider always persists ≥1 model and never dead-loops the startup gate; **F3** — settings-tab per-provider "discover models" (services-side via `IProviderSettingsService`, key never surfaced to the renderer), bulk merge deduped against personal + builtin ids; **F4** — discovery parser hardening (legacy camelCase `hasMore` mirrors, repeated-first-id loop guard, 10-page cap backstop) plus optional metadata hints from real Anthropic/OpenRouter response shapes (hints fill only fields catalog resolution leaves empty; persisted as personal manual values). Version note: this phase takes `alpha.5`; P3→P6 shift to alpha.6–alpha.9 (matrix below renumbered A5=P1.1, A6=P3 … A9=P6).
+**Amendment A5 (numbered, in-phase):** restore GLM model-capability metadata rules into the builtin catalog's `modelConfigRules.modelRules` as ordinary equal-vendor content. Probe evidence (live key, both domains, all 4 listing endpoints HTTP 200): bigmodel/zai endpoints (`/api/paas/v4/models`, `/api/anthropic/v1/models`) return **ids only** — no openai-compat `context_length`, no anthropic `capabilities`/`max_input_tokens`; the anthropic mirrors are legacy-shaped (camelCase `hasMore`/`firstId`/`lastId`, cursor params ignored), while real Anthropic (`api.anthropic.com`) and OpenRouter do return usable metadata. Without catalog rules GLM became the only metadata-less major family (61 equivalent gpt/claude/kimi/deepseek/qwen/minimax/mimo/grok rules survived P1 — `codegeex-4`/`emohaa` already-cited precedent), degrading glm-5.3 to the `.*` default 200k/no-vision instead of 1M and losing glm-5.3-flash vision/video/pdf. User sanction: "we should consider reviving that mechanism". Rejected alternative: delete all 61 surviving vendor capability rules (would leave every major family metadata-less and worsen the equal-vendor posture). Scope (plan of record): **F1** — the 24 pre-P1 GLM capability rules restored verbatim from `0ed9c86` in original overlay order (composite `ox-alpha|glm-x-preview-f|x-preview-f-free` included; the P1-sanitized composite stand-in replaced; `templateModelRules`/`builtinProviderModelRules` stay glm-free; catalog invariant refined to "glm only within modelMatch patterns + capability properties"); **F2** — wizard auto-discovers on save whenever discovery state is idle (template + custom + keyless paths), so a saved provider always persists ≥1 model and never dead-loops the startup gate; **F3** — settings-tab per-provider "discover models" (services-side via `IProviderSettingsService`, key never surfaced to the renderer), bulk merge deduped against personal + builtin ids; **F4** — discovery parser hardening (legacy camelCase `hasMore` mirrors, repeated-first-id loop guard, 10-page cap backstop) plus optional metadata hints from real Anthropic/OpenRouter response shapes (hints fill only fields catalog resolution leaves empty; persisted as personal manual values). Version note: this phase takes `alpha.5`; subsequent phases re-shifted (P1.2 later re-took alpha.6; matrix: A5=P1.1, A6=P1.2, A7=P3 … A10=P6).
 
 **Tests/QA:** unit — catalog glm-scoping (parse → null out `modelRules[].modelMatch` → no `/glm/gi` anywhere; `templateModelRules`/`builtinProviderModelRules` glm-free; rule count + glm-5.3 1M presence), resolver capability units (glm-5.3 → ctx 1M; glm-5.3-flash → image+video+pdf; uppercase `GLM-5.3` matches; glm-4v-flash → 16384+image), discovery parser legacy-mirror + hint-merge units. E2E — wizard save without pressing the button still persists models and the gate stays closed after reload. Manual — real zai/bigmodel key end-to-end (glm-5.3 1M ctx; flash vision), Ollama keyless discover, settings discover merge.
 
-### P3 — Services purge + off-peak local backend → **alpha.6**
+### P1.2 — GLM vision over-application fix → **alpha.6** (done)
+
+User report on alpha.5: context lengths correct (glm-5.2+ = 1M ✓) but ALL glm models showed as
+vision; ground truth = only the glm-5.3-flash family (incl. flashx) is vision. Root causes
+(source-verified + reviewer-simulated on the real resolver): (1) two upstream
+**vendor anthropic inputFormat site rules** (`api.z.ai`/`open.bigmodel.cn` `/api/anthropic`,
+modelMatch `.*`, `inputFormat{image,video:true}`) — "endpoint accepts image blocks" conflated
+with per-model vision; providerSiteRules flatten AFTER modelRules and later-defined fields win,
+so they blanket-overrode every per-model `image:false` on anthropic-flavor providers (latent
+upstream bug; openai-compat flavor has no site rules and was already correct). (2) The
+flash-family vision overlay missed `glm-5.3-flashx` (suffix letter without separator) — masked
+by (1). Fix (data-only): delete the two site rules (midConversationSystem endpoint rules kept);
+extend the overlay in place to `(?:x)?`; resolver regression tests on both flavors (glm-5.3
+image false + 1M; flash + flashx vision; unrated models default non-vision) + catalog-level
+guard (no vendor anthropic site rule carries inputFormat). Catalog revision stays 30
+(appVersion-scoped active cache; same-revision conflict → bundled wins). Legacy V-suffixed
+vision rules (glm-5v-turbo, glm-4.xv) predate the current 11-model lineup and are name-correct.
+
+### P3 — Services purge + off-peak local backend → **alpha.7**
 
 **Changes (deletions):**
 
@@ -213,7 +231,7 @@ Delivered as `v3.14.3-alpha.4`: catalog = 21 equal-vendor templates (16 generic 
 
 **Tests/QA:** unit — local admission policy (idle window), create→dispatch→settle against user provider, schema without ticket columns; deletion compile gates. Integration — scheduler utility-process round-trip (harness = explicit deliverable). Manual — queue a task in the idle window, verify local execution + notification; OAuth/plan/quota UI absent; IM bots still function.
 
-### P4 — CLI runtime: rename + WebSearch removal → **alpha.7**
+### P4 — CLI runtime: rename + WebSearch removal → **alpha.8**
 
 **Changes:**
 
@@ -232,11 +250,11 @@ Delivered as `v3.14.3-alpha.4`: catalog = 21 equal-vendor templates (16 generic 
 
 **Tests/QA:** unit — protocol events with new name; skill catalog `zcode:` prefix; tool registry without WebSearch (schema/permissions/tool-identity updated); binary resolution via `ZCODE_AGENT_BINARY_PATH` + bundled `zcode/` dir (extract resolution logic into `packages/services` unit-testable module). `pnpm smoke:windows-bundle` (packaging changed). Manual — agent spawn E2E on the Windows installer; permission prompts; no WebSearch anywhere; MCP server works as search replacement (spot-check).
 
-### P5 — Infrastructure re-pointing → **alpha.8**
+### P5 — Infrastructure re-pointing → **alpha.9**
 
 **Changes:**
 
-1. **Auto-update → electron-updater GitHub provider:** `.github/workflows/release-desktop.yml` uploads `latest.yml` + `.exe.blockmap` (+ `beta.yml` if preview channel kept, mapped to `allowPrerelease`); `publish: {provider:"github", owner, repo}` in `electron-builder.config.js` (replacing the localhost generic placeholder + `dev-app-update.yml`); delete `ManifestUpdateProvider` + force-update gate; rework stable/preview channel UI logic to the GitHub model; **re-enable the three P0 update paths** (guard was provider-keyed so alpha→alpha updates now work — first real in-app alpha→alpha verification happens at A9, since A1–A8 builds all carry the disabled updater); **make the mirror override real**: `ZCODE_UPDATE_FEED_URL` is currently ignored in packaged builds (`autoUpdater.ts:703-710` `isPackaged` guard; NOTICE.md:49) — remove that guard so it becomes a genuine runtime mirror escape hatch (CN reachability), and update NOTICE.md. `pnpm smoke:windows-bundle` before pushing workflow changes (mandatory per AGENTS.md).
+1. **Auto-update → electron-updater GitHub provider:** `.github/workflows/release-desktop.yml` uploads `latest.yml` + `.exe.blockmap` (+ `beta.yml` if preview channel kept, mapped to `allowPrerelease`); `publish: {provider:"github", owner, repo}` in `electron-builder.config.js` (replacing the localhost generic placeholder + `dev-app-update.yml`); delete `ManifestUpdateProvider` + force-update gate; rework stable/preview channel UI logic to the GitHub model; **re-enable the three P0 update paths** (guard was provider-keyed so alpha→alpha updates now work — first real in-app alpha→alpha verification happens at A10, since A1–A9 builds all carry the disabled updater); **make the mirror override real**: `ZCODE_UPDATE_FEED_URL` is currently ignored in packaged builds (`autoUpdater.ts:703-710` `isPackaged` guard; NOTICE.md:49) — remove that guard so it becomes a genuine runtime mirror escape hatch (CN reachability), and update NOTICE.md. `pnpm smoke:windows-bundle` before pushing workflow changes (mandatory per AGENTS.md).
 2. **Remote assets → GitHub Releases:** flat-named per-version-tag assets (`zcode-linux-x64.tar.gz`, `manifest-linux-x64.json`, node/node-pty per-platform components); rework URL builders — desktop `remoteCdn.ts:29-31` hardcoded `/zcode/electron/releases/<v>` suffix and server `remoteAssetCdn.ts` nested-path candidate builders; collapse 404-probe candidates (GitHub unauthenticated rate limit 60 req/hr/IP); keep runtime overrides for self-host/mirrors — note `ZCODE_CDN_BASE_URL` is currently a **build-time** define (`desktop/tsup.config.ts:112`), so `ZCODE_REMOTE_ASSET_CDN_BASE_URL` (runtime) is the user-facing mirror knob, or make `ZCODE_CDN_BASE_URL` runtime-resolved; document mirror guidance. Note: per-remote-platform node binaries cannot be bundled into one installer — GitHub Releases (or mirror) is the complete solution.
 3. **Plugin marketplace:** remove official CDN default + `ZAI_AUTHOR` + `OFFICIAL_PLUGIN_ASSETS_BASE_URL` (`official-plugin-definitions.ts:57-58`); store = repo-bundled plugins + Personal Sources (git/URL/local — already supported); default marketplace source configurable; drop image-search plugin (vendor MCP); fix pinned-list bootstrap test (`plugin-marketplaces.ts` parity comment); update CONTEXT.md concepts (Official Marketplace/CDN/Featured).
 4. **Conversation share → local export only:** delete `conversationShareService.ts` publish path, web landing page, `zcode://share/import`; **build** local markdown session export (net-new; reuse share turn-serialization concepts).
@@ -249,9 +267,9 @@ Delivered as `v3.14.3-alpha.4`: catalog = 21 equal-vendor templates (16 generic 
 - _UX degradation:_ update UX equivalent (native updater flow, now from GitHub; CN users may need the feed override/mirror — documented); conversation share becomes local export (accepted, D3).
 - _OSS alternative:_ GitHub Releases (standard OSS distribution); generic provider for fully self-hosted update feeds; any static host for assets via env overrides.
 
-**Tests/QA:** unit — URL builders produce flat GitHub asset URLs; updater parses `latest.yml`; feed override honored in packaged builds. Integration — `ZCODE_AUTO_UPDATE_DEV` loop against fixture feed. `pnpm smoke:windows-bundle`. Manual — install A8 over A7 manually (updater disabled on A1–A7 by design); verify in-app update machinery against the dev fixture feed; remote SSH workspace downloads assets from GitHub Releases; overrides work. Real in-app alpha→alpha update is verified at A9 (A8→A9).
+**Tests/QA:** unit — URL builders produce flat GitHub asset URLs; updater parses `latest.yml`; feed override honored in packaged builds. Integration — `ZCODE_AUTO_UPDATE_DEV` loop against fixture feed. `pnpm smoke:windows-bundle`. Manual — install A9 over A8 manually (updater disabled on A1–A8 by design); verify in-app update machinery against the dev fixture feed; remote SSH workspace downloads assets from GitHub Releases; overrides work. Real in-app alpha→alpha update is verified at A10 (A9→A10).
 
-### P6 — Cleanup, sweep gate, RC → **alpha.9** (RC), then **final 3.14.3**
+### P6 — Cleanup, sweep gate, RC → **alpha.10** (RC), then **final 3.14.3**
 
 **Changes:**
 
@@ -267,7 +285,7 @@ Delivered as `v3.14.3-alpha.4`: catalog = 21 equal-vendor templates (16 generic 
 - _UX degradation:_ none — cleaner docs and onboarding guidance (Ollama/vLLM, MCP search, mirrors).
 - _OSS alternative:_ n/a (gate itself enforces the OSS posture).
 
-**Tests/QA:** full matrix re-run on the RC build + final; in-app update to final verified from A8/A9 lineage (A1–A7 lineages upgrade via manual installer — updater intentionally disabled until P5).
+**Tests/QA:** full matrix re-run on the RC build + final; in-app update to final verified from A9/A10 lineage (A1–A8 lineages upgrade via manual installer — updater intentionally disabled until P5).
 
 ---
 
@@ -288,10 +306,10 @@ Source-verified mechanics (installed `node_modules/release-it` + `@release-it/co
 **Runbook:**
 
 1. **Pre-step** (chore commit): delete tag `v3.14.3` (local + remote) **and** the orphaned GitHub Release `v3.14.3` (softprops would leave an orphan; final re-tag needs a clean slate).
-2. **Per alpha (A1..A8):** `pnpm release --increment=3.14.3-alpha.<N> --ci` — always preceded by a dry check: `pnpm release --increment=3.14.3-alpha.<N> --ci --release-version` (prints target, exits; catches mis-resolution). Tag `v3.14.3-alpha.N` pushes trigger `release-desktop.yml`.
+2. **Per alpha (A1..A10):** `pnpm release --increment=3.14.3-alpha.<N> --ci` — always preceded by a dry check: `pnpm release --increment=3.14.3-alpha.<N> --ci --release-version` (prints target, exits; catches mis-resolution). Tag `v3.14.3-alpha.N` pushes trigger `release-desktop.yml`.
 3. **Workflow tweak:** add `prerelease: ${{ contains(github.ref_name, '-') }}` to the softprops step.
 4. **Final:** `pnpm release --increment=3.14.3 --ci --release-version` (verify `3.14.3`) then execute → exact `3.14.3`, non-prerelease Release.
-5. **Changelog:** default behavior — each alpha gets its own entry (alpha.1's entry spans full history because no tags remain — one-time blob, optionally pruned in a follow-up docs commit); final entry = commits since alpha.9. `--git.tagExclude='*[-]*'` on final would span full history instead — not recommended.
+5. **Changelog:** default behavior — each alpha gets its own entry (alpha.1's entry spans full history because no tags remain — one-time blob, optionally pruned in a follow-up docs commit); final entry = commits since alpha.10. `--git.tagExclude='*[-]*'` on final would span full history instead — not recommended.
 6. CLI/agent-internal versions unchanged.
 
 ---
@@ -303,7 +321,7 @@ Every phase, before its alpha tag:
 ```
 pnpm typecheck && pnpm lint && pnpm fmt:check && pnpm architecture:check --changed && pnpm knip
 node --test (per-package test suites — see below)
-pnpm smoke:windows-bundle   # required at A7 and A8 (packaging/workflow changes); Docker + 15 GiB disk
+pnpm smoke:windows-bundle   # required at A8 and A9 (packaging/workflow changes); Docker + 15 GiB disk
 ```
 
 Manual: fresh Windows install of the alpha + upgrade from the previous alpha; phase-specific checks per §4.
@@ -324,11 +342,12 @@ Manual: fresh Windows install of the alpha + upgrade from the previous alpha; ph
 | A3    | P2 hotfix | wizard layout regression locks (wizard-scroll.spec)                                                                                           | alpha.3 wizard layout on user machines (shipped 2026-09-26)                                                                  |
 | A4    | P1        | catalog/schema units; discovery client units (mocked) — delivered: services 28, e2e 9                                                         | discovery with real key + Ollama; no GLM rules; wizard-complete⇒usable                                                       |
 | A5    | P1.1      | catalog glm-scope units (null-modelMatch walk) + GLM capability resolver units; discovery parser units (legacy camelCase mirrors, hint merge) | bigmodel/zai wizard end-to-end (glm-5.3 1M ctx; flash vision); Ollama keyless discover; settings discover merge              |
-| A6    | P3        | off-peak local backend units+integration (new harness)                                                                                        | off-peak runs locally; plan/quota UI gone; IM bots work                                                                      |
-| A7    | P4        | rename/protocol/tool-registry units; binary-resolution units; **smoke**                                                                       | agent spawn on installer; no WebSearch; MCP search spot-check                                                                |
-| A8    | P5        | URL-builder/updater units; dev update loop; **smoke**                                                                                         | install A8 over A7 manually; update machinery via fixture feed; remote assets from GitHub; overrides work                    |
-| A9    | P6        | vendor-free gate in new CI; full suites                                                                                                       | full dogfood RC pass; real in-app update A8→A9                                                                               |
-| Final | —         | full matrix re-run                                                                                                                            | in-app update A8/A9→final; A1–A7 manual-installer upgrade                                                                    |
+| A6    | P1.2      | resolver vision matrix both flavors + catalog inputFormat guard                                                                               | glm-5.3 non-vision/1M; flash+flashx vision; both flavors                                                                     |
+| A7    | P3        | off-peak local backend units+integration (new harness)                                                                                        | off-peak runs locally; plan/quota UI gone; IM bots work                                                                      |
+| A8    | P4        | rename/protocol/tool-registry units; binary-resolution units; **smoke**                                                                       | agent spawn on installer; no WebSearch; MCP search spot-check                                                                |
+| A9    | P5        | URL-builder/updater units; dev update loop; **smoke**                                                                                         | install A9 over A8 manually; update machinery via fixture feed; remote assets from GitHub; overrides work                    |
+| A10   | P6        | vendor-free gate in new CI; full suites                                                                                                       | full dogfood RC pass; real in-app update A9→A10                                                                              |
+| Final | —         | full matrix re-run                                                                                                                            | in-app update A9/A10→final; A1–A8 manual-installer upgrade                                                                   |
 
 ---
 
