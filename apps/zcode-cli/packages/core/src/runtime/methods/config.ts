@@ -137,13 +137,13 @@ export function getTools(this: AgentRuntimeInternal, model?: Model): ModelToolCo
   if (this.cachedTools === null) {
     this.cachedTools = filterRuntimeVisibleTools.call(this, this.registry.toContracts());
   }
-  return this.cachedTools
-    .filter((tool) => tool.name !== "WebSearch" || shouldExposeWebSearch.call(this, model))
-    .map((tool) =>
-      projectToolModelContract(tool, this.registry.get(tool.name), {
-        model,
-      }),
-    );
+  // P4 WebSearch 工具删除后不再有按模型能力过滤的工具，model 参数仅保留给
+  // projectToolModelContract 的模型同源投影。
+  return this.cachedTools.map((tool) =>
+    projectToolModelContract(tool, this.registry.get(tool.name), {
+      model,
+    }),
+  );
 }
 
 export function invalidateToolCache(this: AgentRuntimeInternal): void {
@@ -265,10 +265,4 @@ function filterRuntimeVisibleTools(
   return orderProviderVisibleToolContracts(visibleTools);
 }
 
-function shouldExposeWebSearch(this: AgentRuntimeInternal, model?: Model): boolean {
-  // 无 Model 的调用只枚举完整注册表，供持久化和 UI 元数据使用；真实执行始终传入
-  // 当前 Active Model，并只读取其冻结的完整能力事实。
-  if (!model) return true;
-  return model.properties.supportsNativeWebSearch;
-}
 import { resolveExecutionState } from "@zcode/shared";

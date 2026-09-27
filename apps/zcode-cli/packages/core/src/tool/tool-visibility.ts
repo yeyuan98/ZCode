@@ -1,5 +1,7 @@
+// P4 WebSearch 工具删除后 `web_search -> WebSearch` 别名不再存在；保留恒等函数
+// 是为了让规则名归一化的调用点（tool-allowlist / handlers 注册）不必各自内联。
 export function normalizeToolNameAlias(toolName: string): string {
-  return toolName === "web_search" ? "WebSearch" : toolName;
+  return toolName;
 }
 
 function getToolRuleName(rule: string): string {

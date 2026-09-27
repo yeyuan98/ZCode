@@ -2781,7 +2781,7 @@ const enUS: Record<string, string> = {
   "settings.modelProvider.help.outputModalities":
     "The content type of the model's replies. Only text is currently supported.",
   "settings.modelProvider.help.capabilities":
-    "- **Structured output**: Supports JSON Schema constraints on output fields, types, and structure.\n- **Native web search**: Supports the model API's built-in web search capability.\n- **Mid-conversation system messages**: Supports inserting system instructions during a conversation.\n\nDo not enable capabilities the model does not support.",
+    "- **Structured output**: Supports JSON Schema constraints on output fields, types, and structure.\n- **Mid-conversation system messages**: Supports inserting system instructions during a conversation.\n\nDo not enable capabilities the model does not support.",
   "settings.modelProvider.help.reasoningLevelsOrdered":
     "Set the reasoning levels available in chat. **They must be ordered from lowest to highest reasoning effort**.\nDo not configure reasoning levels the model does not support.",
   "settings.modelProvider.help.reasoningLevelMapping":
@@ -2807,7 +2807,6 @@ const enUS: Record<string, string> = {
   "settings.modelProvider.capabilities": "Model capabilities",
   "settings.modelProvider.supportsToolCall": "Tool calls",
   "settings.modelProvider.supportsJsonSchemaOutput": "Structured output",
-  "settings.modelProvider.supportsNativeWebSearch": "Native web search",
   "settings.modelProvider.supportsMidConversationSystem": "Mid-conversation system messages",
   "settings.modelProvider.requiresMfjsToolSchema": "MFJS tool schema",
   "settings.modelProvider.otherSettings": "Other settings",

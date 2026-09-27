@@ -2,7 +2,6 @@
 // Vercel AI SDK tool transforms
 // ============================================================
 
-import { anthropic } from "@ai-sdk/anthropic";
 import { jsonSchema, tool, type ToolSet } from "ai";
 import { ModelErrorCode, type JsonSchema, type ModelToolContract } from "@zcode/contracts";
 import { AiSdkModelAdapterError } from "./errors.js";
@@ -10,7 +9,6 @@ import { isAnthropicFirstPartyModelId, toStrictToolSchema } from "./strict-tool-
 
 export interface AiSdkToolTransformOptions {
   requiresMfjsToolSchema?: boolean;
-  supportsNativeWebSearch?: boolean;
   providerKind?: "openai" | "anthropic" | "openai-compatible" | "gateway" | "custom";
 
   /** 本次请求的模型 id，仅用于首方 strict 资格判定；缺席即不启用 strict。 */
@@ -26,11 +24,6 @@ export function toAiSdkTools(
   }
 
   const entries = tools.flatMap((contract): [string, ToolSet[string]][] => {
-    if (contract.providerNative) {
-      const providerTool = toAiSdkProviderNativeTool(contract, options);
-      return providerTool ? [[contract.name, providerTool]] : [];
-    }
-
     const strictSchema = resolveStrictToolSchema(contract, options);
     const baseTool = {
       description: contract.description,
@@ -240,49 +233,4 @@ function providerOptionsForClientTool(options: AiSdkToolTransformOptions): {
       },
     },
   };
-}
-
-function toAiSdkProviderNativeTool(
-  contract: ModelToolContract,
-  options: AiSdkToolTransformOptions,
-): ToolSet[string] | undefined {
-  if (contract.providerNative?.logicalName !== "WebSearch") {
-    return undefined;
-  }
-
-  const args = contract.providerNative.args ?? {};
-  const maxUses = numberArg(args.maxUses) ?? 8;
-  const allowedDomains = stringArrayArg(args.allowedDomains);
-  const blockedDomains = stringArrayArg(args.blockedDomains);
-
-  switch (options.providerKind) {
-    case "anthropic":
-      if (!options.supportsNativeWebSearch) {
-        throw new AiSdkModelAdapterError(
-          ModelErrorCode.InvalidModelRequest,
-          "Effective Model Config does not support provider-native WebSearch",
-        );
-      }
-      return anthropic.tools.webSearch_20260209({
-        maxUses,
-        allowedDomains,
-        blockedDomains,
-      }) as ToolSet[string];
-
-    default:
-      throw new AiSdkModelAdapterError(
-        ModelErrorCode.InvalidModelRequest,
-        `Provider API kind ${options.providerKind ?? "unknown"} does not encode provider-native WebSearch`,
-      );
-  }
-}
-
-function numberArg(value: unknown): number | undefined {
-  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
-}
-
-function stringArrayArg(value: unknown): string[] | undefined {
-  if (!Array.isArray(value)) return undefined;
-  const values = value.filter((item): item is string => typeof item === "string");
-  return values.length > 0 ? values : undefined;
 }

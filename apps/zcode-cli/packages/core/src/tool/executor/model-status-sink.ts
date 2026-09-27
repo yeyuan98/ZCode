@@ -11,7 +11,7 @@ import type { ToolExecutionContext } from "../types.js";
 /**
  * 工具内部模型请求的默认状态出口。
  *
- * `statusSink` 不能是每个调用点各自的职责——WebSearch 记得设，WebFetch 处理没有。
+ * `statusSink` 不能是每个调用点各自的职责——工具内部模型调用统一在执行器接入。
  * 没有 sink 的请求照样过准入闸门、照样排队，但 runner 发的 queued / admitted / 429 事件没有去处：
  * 执行器的 deadline 不知道该暂停（实测 18 次 WebFetch 在队里等了 20–45 s 后按
  * 60 s 超时被取消，错误里 `queuedMs: 0`），driver 也看不见这个子代理在等。
