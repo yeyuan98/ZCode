@@ -1,6 +1,8 @@
 import type { Event } from "@zcode/rpc";
 import { ServiceChannels } from "@zcode/shared";
 import {
+  isApiKeyAccess,
+  type InitialModelEntry,
   type ModelConfigObject,
   type ModelId,
   type ModelSelection,
@@ -20,7 +22,9 @@ import { createServiceDescriptor } from "../descriptors.js";
 import type { ModelConnectivityResult } from "@zcode/shared";
 import { createServiceLogger } from "../logger/serviceLogger.js";
 import {
+  discoverModelsForEndpoint,
   discoverTemplateModels,
+  type DiscoverModelsForEndpointInput,
   type DiscoverTemplateModelsFetch,
   type DiscoverTemplateModelsInput,
   type DiscoverTemplateModelsResult,
@@ -33,6 +37,8 @@ export type {
   ProviderSettingsView,
 } from "@zcode/provider";
 export type {
+  DiscoveryModelHints,
+  DiscoverModelsForEndpointInput,
   DiscoverTemplateModelsInput,
   DiscoverTemplateModelsResult,
 } from "./providerModelDiscovery.js";
@@ -83,6 +89,27 @@ export interface IProviderSettingsService {
    * P1 吸收 A2 的“测试 Key”探测：不创建 provider、不启动 agent，失败仅作提示不阻塞保存。
    */
   discoverTemplateModels(input: DiscoverTemplateModelsInput): Promise<DiscoverTemplateModelsResult>;
+  /**
+   * 直接端点发现（P1.1 spec §3）：自定义 provider 保存路径按用户输入的 apiType +
+   * baseUrl 直连模型列表端点；同样不创建 provider、不启动 agent，失败静默降级不阻塞保存。
+   */
+  discoverCustomProviderModels(
+    input: DiscoverModelsForEndpointInput,
+  ): Promise<DiscoverTemplateModelsResult>;
+  /**
+   * 从 provider 自身配置发起模型发现（P1.1 spec §4，设置页“发现模型”）。
+   * apiType/baseUrl/apiKey 全部在服务端从配置视图解析；无 access（如 ollama 个人
+   * provider）按无 Key 匿名发现。方法只收 providerId、只回模型 id/hints。
+   */
+  discoverProviderModels(providerId: ProviderId): Promise<DiscoverTemplateModelsResult>;
+  /**
+   * 批量合并发现到的模型（P1.1 spec §4）：单次 Personal 事务写入，与 personal 现有
+   * id、builtin 继承 id 重复的条目静默跳过，返回实际新增数量；绝不删除或改写现有模型。
+   */
+  addPersonalModels(
+    providerId: ProviderId,
+    models: ReadonlyArray<InitialModelEntry>,
+  ): Promise<number>;
 }
 
 export const IProviderSettingsService = createServiceDescriptor<IProviderSettingsService>(
@@ -234,6 +261,47 @@ export function createProviderSettingsService(
         (candidate) => candidate.templateId === input.templateId,
       );
       return discoverTemplateModels(input, { fetch: discoveryFetch, template });
+    },
+    discoverCustomProviderModels: async (input) => {
+      await ensureReady();
+      if (!discoveryFetch) {
+        return { ok: false, error: "template model discovery is not available" };
+      }
+      return discoverModelsForEndpoint(input, { fetch: discoveryFetch });
+    },
+    discoverProviderModels: async (providerId) => {
+      await ensureReady();
+      if (!discoveryFetch) {
+        return { ok: false, error: "template model discovery is not available" };
+      }
+      const provider = facade.getView().providers.find((item) => item.providerId === providerId);
+      if (!provider) {
+        return { ok: false, error: "provider not found" };
+      }
+      const api = provider.effectiveConfig.api;
+      if (!api?.baseUrl) {
+        return { ok: false, error: "provider has no base url" };
+      }
+      const access = provider.effectiveConfig.access;
+      if (access != null && !isApiKeyAccess(access)) {
+        return { ok: false, error: "unsupported provider access" };
+      }
+      // 密钥只在服务端（Host/RPC 服务端）解析并直连端点使用：本方法入参仅 providerId、
+      // 出参仅模型 id/hints，Key 绝不跨 RPC 去 Renderer；错误文案只含 "provider not
+      // found"、HTTP 状态等固定片段，杜绝把 Key 回显进 error（P1.1 spec §4）。
+      const apiKey = isApiKeyAccess(access) ? access.apiKey?.trim() : undefined;
+      return discoverModelsForEndpoint(
+        {
+          apiType: api.type ?? "openai-chat-completions",
+          baseUrl: api.baseUrl,
+          ...(apiKey ? { apiKey } : {}),
+        },
+        { fetch: discoveryFetch },
+      );
+    },
+    addPersonalModels: async (providerId, models) => {
+      await ensureReady();
+      return facade.addPersonalModels(providerId, models);
     },
   };
 }

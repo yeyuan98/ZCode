@@ -6,6 +6,8 @@ export {
   IProviderSettingsService,
   type ModelSelectionView,
   type ModelSelectionViewInput,
+  type DiscoveryModelHints,
+  type DiscoverModelsForEndpointInput,
   type DiscoverTemplateModelsInput,
   type DiscoverTemplateModelsResult,
   type ProviderSettingsProviderView,

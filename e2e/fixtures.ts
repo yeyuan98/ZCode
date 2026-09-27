@@ -123,7 +123,9 @@ async function buildBuiltinConfigWithMockTemplate(mockOrigin: string): Promise<s
     ...clone.config,
     access: { type: "api-key" },
     api: { type: "openai-chat-completions", baseUrl: `${mockOrigin}/v1` },
-    builtinModelIds: ["mock-e2e-model"],
+    // 不注入 builtinModelIds：模板保持 P1 后的真实形态（无硬编码模型列表），
+    // 向导关闭门禁只能靠发现结果的持久化——这让 complete⇒usable 与自动发现
+    // 两个 e2e 场景对持久化行为有真实约束力。
   };
   templateRules.push(clone);
   return `${JSON.stringify(release)}\n`;

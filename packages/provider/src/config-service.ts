@@ -1,6 +1,5 @@
 /* oxlint-disable eslint(max-lines) -- Provider/Model 的原子配置生命周期共享一次 Repository 更新边界，拆开会重复顺序与规范化逻辑。 */
 import type {
-  ModelConfigRules,
   ModelId,
   ProviderConfig,
   ProviderId,
@@ -10,7 +9,13 @@ import type {
 } from "./config/index.js";
 import {
   ApiKeyAccessConfig,
+  EnumOptionSpecConfig,
+  LimitOptionSpecConfig,
   ModelConfig,
+  ModelConfigRules,
+  ModelInputFormatConfig,
+  ModelOptionSpecsConfig,
+  ModelPropertiesConfig,
   ProviderConfigMap,
   ProviderConfig as ProviderConfigValue,
   ProviderTemplateMap,
@@ -52,13 +57,33 @@ export interface PersonalProviderCreation {
   readonly providerId: ProviderId;
 }
 
+/**
+ * 端点自愿提供的初始模型能力提示（spec §2）。provider 包不得依赖 services 包，
+ * 这里按结构声明；服务层把它的 DiscoveryModelHints 结构化映射进来。
+ */
+export interface InitialModelHints {
+  readonly contextWindow?: number;
+  readonly supportsImage?: boolean;
+  readonly supportsVideo?: boolean;
+  readonly supportsPdf?: boolean;
+}
+
+/** 初始模型条目：纯 id 沿用旧行为；对象形态可携带端点能力 hints。 */
+export type InitialModelEntry =
+  | string
+  | { readonly id: string; readonly hints?: InitialModelHints };
+
 export interface CreatePersonalProviderInput {
   readonly templateId?: ProviderTemplateId;
   readonly providerName?: string;
   readonly locale?: ProviderTemplateLocale;
   readonly initialConfig?: ProviderConfig;
-  /** 向导“测试并发现”得到的模型 id；作为 personalModelIds 种子随同一次保存持久化。 */
-  readonly initialModelIds?: readonly ModelId[];
+  /**
+   * 向导“测试并发现”得到的模型（id + 可选能力提示）；作为 personalModelIds 种子随同一次
+   * 保存持久化。hints 只填目录解析留空的字段（spec §2），被采纳的字段以 personal 手动
+   * 配置值落盘（对未来目录变更构成影子——已接受）。
+   */
+  readonly initialModels?: ReadonlyArray<InitialModelEntry>;
 }
 
 /** Facade 提供的 Host 内部成员事实；不得接受 Renderer 自报的模型名单。 */
@@ -225,17 +250,11 @@ export class ProviderConfigService implements ProviderSource<ProviderConfigSnaps
       throw new Error("initialConfig 不能包含 builtinModelIds");
     }
     // P1 移除了 vendor/ollama 模板的 builtinModelIds：模板实例创建时自身 models 为空会让
-    // 启动门禁（models.length>0）永不满足，向导保存后死循环。发现到的模型 id 在同一次
-    // 保存里作为 personalModelIds 种子写入；目录保留的 .* 默认 modelRule 提供 enabled 与
-    // 完整模型配置，让这些 id 立即进入 Registry。modelOrder 留空即可：resolveOwnedOrder
-    // 会把未排序的 personal 段按写入顺序排在 builtin 段之后，不会丢顺序。
-    const initialModelIds = [
-      ...new Set(
-        (input.initialModelIds ?? [])
-          .map((modelId) => modelId.trim())
-          .filter((modelId) => modelId.length > 0),
-      ),
-    ];
+    // 启动门禁（models.length>0）永不满足，向导保存后死循环。发现到的模型（id + 端点自愿
+    // 提供的能力 hints）在同一次保存里作为 personalModelIds 种子写入；目录保留的 .* 默认
+    // modelRule 提供 enabled 与完整模型配置，让这些 id 立即进入 Registry。modelOrder 留空
+    // 即可：resolveOwnedOrder 会把未排序的 personal 段按写入顺序排在 builtin 段之后。
+    const initialModels = normalizeInitialModels(input.initialModels);
     let createdProviderId: ProviderId | undefined;
     await this.#updatePersonal((current) => {
       const occupied = new Set([...zcodeBuiltin.providers.keys(), ...current.providers.keys()]);
@@ -250,20 +269,30 @@ export class ProviderConfigService implements ProviderSource<ProviderConfigSnaps
         effectiveProviders,
       );
       const initial = input.initialConfig ?? new ProviderConfigValue();
+      const baseConfig = new ProviderConfigValue({
+        group: "standard-personal",
+        access: templateId ? undefined : new ApiKeyAccessConfig(),
+        personalModelIds: initialModels.map((entry) => entry.id),
+        modelOrder: [],
+      }).overlay(initial);
       const providers = current.providers.setRule({
         providerId,
         ...(templateId ? { templateId } : {}),
         providerName: label,
-        config: new ProviderConfigValue({
-          group: "standard-personal",
-          access: templateId ? undefined : new ApiKeyAccessConfig(),
-          personalModelIds: initialModelIds,
-          modelOrder: [],
-        }).overlay(initial),
+        config: baseConfig,
+      });
+      // P1.1（spec §2）：端点 hints 只填目录解析留空的字段，绝不覆盖目录规则。规则解析
+      // 使用与 Resolver 相同的 api 上下文（模板实例的有效 api = 模板配置在底、个人覆盖在顶）。
+      const effectiveApi = (template ? template.config.overlay(baseConfig) : baseConfig).api;
+      const models = applyInitialModelHints(current.models, zcodeBuiltin.models, initialModels, {
+        providerId,
+        ...(templateId ? { templateId } : {}),
+        apiType: effectiveApi?.type,
+        baseUrl: effectiveApi?.baseUrl,
       });
       return {
         providers,
-        models: current.models,
+        models,
         providerOrder: appendCurrentProviderOrder(
           zcodeBuiltin.providers,
           providers,
@@ -366,6 +395,65 @@ export class ProviderConfigService implements ProviderSource<ProviderConfigSnaps
         providerOrder: current.providerOrder,
       };
     });
+  }
+
+  /**
+   * 批量合并发现到的模型（P1.1 spec §4）：与 personal 现有 id、builtin 继承 id、批内
+   * 重复 id 重复的条目全部静默跳过（发现可反复执行，重复合并不得抛错），单次
+   * #updatePersonal 事务完成全部写入，返回实际新增数量。带 hints 的条目与创建路径
+   * 共用 applyInitialModelHints 的同一套 gap-filling 落盘语义。
+   */
+  async addPersonalModels(
+    providerId: ProviderId,
+    models: ReadonlyArray<InitialModelEntry>,
+    membership?: ProviderModelMembership,
+  ): Promise<number> {
+    const normalizedProviderId = normalizeId("providerId", providerId);
+    const normalizedModels = normalizeInitialModels(models);
+    const zcodeBuiltin = await this.#zcodeBuiltinSource.read();
+    let addedCount = 0;
+    await this.#updatePersonal((current) => {
+      assertMembershipCurrent(membership, normalizedProviderId, current);
+      const provider = writableProviderOverlay(zcodeBuiltin, current, normalizedProviderId);
+      const builtinModelIds =
+        membership?.inheritedModelIds ??
+        resolveProviderBuiltinModelIds(zcodeBuiltin, current.providers, normalizedProviderId);
+      const existingIds = new Set<ModelId>([
+        ...builtinModelIds,
+        ...(provider.personalModelIds ?? []),
+      ]);
+      const pending = normalizedModels.filter((entry) => !existingIds.has(entry.id));
+      if (pending.length === 0) {
+        return {
+          providers: current.providers,
+          models: current.models,
+          providerOrder: current.providerOrder,
+        };
+      }
+      addedCount = pending.length;
+      const nextModelIds = [...(provider.personalModelIds ?? []), ...pending.map((e) => e.id)];
+      const templateId = current.providers.getRule(normalizedProviderId)?.templateId;
+      const template = templateId ? zcodeBuiltin.providerTemplates?.get(templateId) : undefined;
+      // 与创建路径相同的 api 上下文：模板基线在底、personal 覆盖在顶的有效 api。
+      const effectiveApi = (template ? template.config.overlay(provider) : provider).api;
+      return {
+        providers: current.providers.set(
+          normalizedProviderId,
+          provider.withPersonalModelIds(nextModelIds).withModelOrder(
+            // 批量追加不能重排用户已保存的顺序（与 addPersonalModel 同一约束）。
+            normalizeModelOrder(builtinModelIds, nextModelIds, provider.modelOrder ?? []),
+          ),
+        ),
+        models: applyInitialModelHints(current.models, zcodeBuiltin.models, pending, {
+          providerId: normalizedProviderId,
+          ...(templateId ? { templateId } : {}),
+          apiType: effectiveApi?.type,
+          baseUrl: effectiveApi?.baseUrl,
+        }),
+        providerOrder: current.providerOrder,
+      };
+    });
+    return addedCount;
   }
 
   async renamePersonalModel(
@@ -594,6 +682,183 @@ function isStructurallyEmpty(value: unknown): boolean {
   if (value === null || typeof value !== "object") return false;
   if (Array.isArray(value)) return value.length === 0;
   return Object.values(value).every(isStructurallyEmpty);
+}
+
+interface NormalizedInitialModel {
+  readonly id: ModelId;
+  readonly hints?: InitialModelHints;
+}
+
+function normalizeInitialModels(
+  models: ReadonlyArray<InitialModelEntry> | undefined,
+): readonly NormalizedInitialModel[] {
+  const result: NormalizedInitialModel[] = [];
+  const seen = new Set<ModelId>();
+  for (const entry of models ?? []) {
+    const id = (typeof entry === "string" ? entry : entry.id).trim();
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    const hints = typeof entry === "string" ? undefined : normalizeInitialModelHints(entry.hints);
+    result.push(hints ? { id, hints } : { id });
+  }
+  return result;
+}
+
+function normalizeInitialModelHints(
+  hints: InitialModelHints | undefined,
+): InitialModelHints | undefined {
+  if (!hints) return undefined;
+  const normalized: {
+    contextWindow?: number;
+    supportsImage?: boolean;
+    supportsVideo?: boolean;
+    supportsPdf?: boolean;
+  } = {};
+  // contextWindow 完整 schema 为正整数；非正数/非整数视为端点噪声直接丢弃。
+  if (
+    typeof hints.contextWindow === "number" &&
+    Number.isInteger(hints.contextWindow) &&
+    hints.contextWindow > 0
+  ) {
+    normalized.contextWindow = hints.contextWindow;
+  }
+  if (hints.supportsImage === true) normalized.supportsImage = true;
+  if (hints.supportsVideo === true) normalized.supportsVideo = true;
+  if (hints.supportsPdf === true) normalized.supportsPdf = true;
+  return Object.keys(normalized).length > 0 ? normalized : undefined;
+}
+
+/**
+ * 目录 modelRules 末位的 .* 兜底规则为所有字段提供默认值（200k 上下文、无视觉输入）；
+ * 它是“未知模型”的兜底，不是目录对该模型的认知。spec §2 的“目录留空”按排除该兜底后的
+ * 特定解析判定——否则任何模型的所有字段都被兜底填满，hints 将永远无法生效。
+ */
+const CATCH_ALL_MODEL_RULE_MATCH = ".*";
+
+/**
+ * 为带 hints 的初始模型构造 personal 手动规则（spec §2：被采纳的 hint 以 personal 手动
+ * 配置值落盘）。目录特定解析已提供全部相关字段时返回 undefined——不产生精确规则，模型
+ * 继续完整跟随目录（含未来目录变更）。
+ */
+function buildInitialModelManualConfig(
+  builtinRules: ModelConfigRules,
+  input: {
+    readonly providerId: ProviderId;
+    readonly templateId?: ProviderTemplateId;
+    readonly modelId: ModelId;
+    readonly apiType?: string | null;
+    readonly baseUrl?: string | null;
+    readonly hints: InitialModelHints;
+  },
+): ModelConfig | undefined {
+  const resolveInput = {
+    providerId: input.providerId,
+    templateId: input.templateId,
+    modelId: input.modelId,
+    apiType: input.apiType,
+    baseUrl: input.baseUrl,
+  };
+  const specific = new ModelConfigRules(
+    builtinRules
+      .rules()
+      .filter((rule) => !(rule.type === "model" && rule.modelMatch === CATCH_ALL_MODEL_RULE_MATCH)),
+  ).resolve(resolveInput);
+  const effective = builtinRules.resolve(resolveInput);
+  const effectiveProperties = effective.properties;
+  const effectiveOptionSpecs = effective.optionSpecs;
+  const effectiveReasoningLevel = effectiveOptionSpecs?.reasoningLevel;
+  const effectiveReasoningValues = effectiveReasoningLevel?.values;
+  const effectiveReasoningMap = effectiveReasoningLevel?.map;
+  const effectiveMaxOutputTokens = effectiveOptionSpecs?.maxOutputTokens?.max;
+  // 手动规则 schema 要求全部手动叶子齐全（properties 七叶 + optionSpecs 的
+  // reasoningLevel.values/map 与 maxOutputTokens.max）；.* 兜底缺失（目录异常）时放弃
+  // 落手动规则，降级为纯目录解析——创建保存不能因 hints 落盘失败而中断。
+  if (
+    effectiveProperties?.contextWindow === undefined ||
+    effectiveReasoningValues == null ||
+    effectiveReasoningValues.length === 0 ||
+    effectiveReasoningMap == null ||
+    effectiveMaxOutputTokens === undefined
+  ) {
+    return undefined;
+  }
+  const hintContextWindow = input.hints.contextWindow;
+  const hintSupportsImage = input.hints.supportsImage;
+  const hintSupportsVideo = input.hints.supportsVideo;
+  const hintSupportsPdf = input.hints.supportsPdf;
+  const specificInputFormat = specific.properties?.inputFormat;
+  const applyContextWindow =
+    hintContextWindow !== undefined && specific.properties?.contextWindow === undefined;
+  const applySupportsImage =
+    hintSupportsImage !== undefined && specificInputFormat?.supportsImage === undefined;
+  const applySupportsVideo =
+    hintSupportsVideo !== undefined && specificInputFormat?.supportsVideo === undefined;
+  const applySupportsPdf =
+    hintSupportsPdf !== undefined && specificInputFormat?.supportsPdf === undefined;
+  if (!applyContextWindow && !applySupportsImage && !applySupportsVideo && !applySupportsPdf) {
+    return undefined;
+  }
+  const effectiveInputFormat = effectiveProperties.inputFormat ?? new ModelInputFormatConfig();
+  const manualInputFormat = {
+    supportsImage: applySupportsImage ? hintSupportsImage : effectiveInputFormat.supportsImage,
+    supportsVideo: applySupportsVideo ? hintSupportsVideo : effectiveInputFormat.supportsVideo,
+    supportsPdf: applySupportsPdf ? hintSupportsPdf : effectiveInputFormat.supportsPdf,
+  };
+  if (Object.values(manualInputFormat).some((value) => value === undefined)) {
+    return undefined;
+  }
+  return new ModelConfig({
+    properties: new ModelPropertiesConfig({
+      contextWindow: applyContextWindow ? hintContextWindow : effectiveProperties.contextWindow,
+      inputFormat: new ModelInputFormatConfig(manualInputFormat),
+      // 手动模式冻结的其余叶子沿用创建时刻的目录有效值；新增系统字段不属于个人手动配置。
+      supportsJsonSchemaOutput: effectiveProperties.supportsJsonSchemaOutput ?? false,
+      supportsNativeWebSearch: effectiveProperties.supportsNativeWebSearch ?? false,
+      supportsMidConversationSystem: effectiveProperties.supportsMidConversationSystem ?? false,
+    }),
+    // 手动 schema 同样冻结 optionSpecs 两个手动叶子（maxOutputTokens.map 不是手动叶子，
+    // 继续跟随目录）；这是“手动值影子未来目录变更”（spec 已接受）在完整手动契约下的边界。
+    optionSpecs: new ModelOptionSpecsConfig({
+      reasoningLevel: new EnumOptionSpecConfig({
+        values: [...effectiveReasoningValues],
+        map: effectiveReasoningMap,
+      }),
+      maxOutputTokens: new LimitOptionSpecConfig({
+        max: effectiveMaxOutputTokens,
+      }),
+    }),
+  });
+}
+
+/**
+ * 把端点 hints 以 personal 手动规则落盘（spec §2 gap-filling：只填目录留空的字段，
+ * 目录已提供全部字段时不产生精确规则）。向导创建种子与设置页批量合并共用此函数，
+ * 保证两条写入路径的 hints 语义完全一致，不各写一份覆盖判定。
+ */
+function applyInitialModelHints(
+  models: ModelConfigRules,
+  builtinRules: ModelConfigRules,
+  entries: readonly NormalizedInitialModel[],
+  context: {
+    readonly providerId: ProviderId;
+    readonly templateId?: ProviderTemplateId;
+    readonly apiType?: string | null;
+    readonly baseUrl?: string | null;
+  },
+): ModelConfigRules {
+  let next = models;
+  for (const entry of entries) {
+    if (!entry.hints) continue;
+    const manualConfig = buildInitialModelManualConfig(builtinRules, {
+      ...context,
+      modelId: entry.id,
+      hints: entry.hints,
+    });
+    if (manualConfig) {
+      next = next.setExact(context.providerId, entry.id, manualConfig, false);
+    }
+  }
+  return next;
 }
 
 function assertProviderLabelMutationIsUnique(
