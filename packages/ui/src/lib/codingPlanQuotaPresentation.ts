@@ -1,4 +1,5 @@
-import type { UsageEntitlementSnapshot, UsageQuotaLimit } from "@zcode/shared";
+// P3 S2 过渡：vendor entitlement/quota 形状改自 UI 本地过渡模块（C4 de-plan 时移除）。
+import type { UsageEntitlementSnapshot, UsageQuotaLimit } from "@/lib/usageQuotaShapes.js";
 
 type CodingPlanQuotaResetFormat = "date" | "dateTime" | "adaptive";
 

@@ -1,4 +1,5 @@
-import type { UsageEntitlementSubscriptionDetail } from "@zcode/shared";
+// P3 S2 过渡：vendor entitlement 形状改自 UI 本地过渡模块（C4 de-plan 时移除）。
+import type { UsageEntitlementSubscriptionDetail } from "@/lib/usageQuotaShapes.js";
 import { Loader2Icon, RefreshCwIcon } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 import { Button } from "@/components/ui/button.js";

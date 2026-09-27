@@ -405,10 +405,7 @@ import {
   resolveOffPeakCodingPlanSupport,
   resolveOffPeakMockUpstream,
 } from "./session/offPeakRuntimeModel.js";
-import {
-  createOfficialMcpAuthHeadersResolver,
-  resolveOfficialMcpCredentials,
-} from "./official-mcp/officialMcpCredentials.js";
+import { createOfficialMcpAuthHeadersResolver } from "./official-mcp/officialMcpCredentials.js";
 import {
   createOfficialMcpTrustedOriginRegistry,
   OFFICIAL_MCP_DEV_TRUSTED_ORIGINS_ENV,
@@ -1518,18 +1515,9 @@ export function createLocalServices(options: {
   handleOAuthProviderLogout = createOAuthProviderLogoutHandler({
     accountProviderCredentialStore,
   });
-  // 官方 Server MCP 的凭证解析源。MCP 调用的身份头与 MCP 额度查询（/api/v1/mcp/usage）
-  // 必须共用这一份实现，否则两处对"当前选中的 Coding Plan 连接"的判定会分叉。
-  // 额度侧注入的是凭证解析而非 resolveHeaders：归属校验需要 providerFamily，
-  // 而身份头里没有 family；身份头仍由同一个 buildOfficialMcpAuthHeaders 构造。
-  const officialMcpCredentialSource = {
-    resolve: () =>
-      resolveOfficialMcpCredentials({
-        accountRequestAuthService,
-        credentialService,
-        modelSelectionService: providerRuntime.modelSelection,
-      }),
-  };
+  // P3 供应商套餐/配额面删除：原 officialMcpCredentialSource（MCP 额度查询共用凭证解析）
+  // 只服务于 usage 服务的 entitlement 面，已随之删除；MCP 调用身份头仍由
+  // createOfficialMcpAuthHeadersResolver 单独构造。
   // mcpSync/hooks 里引用 zcodeAgentService 的闭包是惰性调用，声明顺序不影响初始化。
   const skillsService = createSkillsService({ isDesktopRuntime: true });
   const mcpSyncService = createMcpSyncService({
@@ -2309,12 +2297,11 @@ export function createLocalServices(options: {
     .register(IOAuthService, oauthService)
     .register(
       IUsageStatsService,
+      // P3 供应商套餐/配额面删除：用量服务只剩 App Usage（agent 数据库统计），
+      // apiClient/accountRequestAuthService/credentialService/officialMcpCredentialSource
+      // 等 vendor 依赖不再注入。
       createUsageStatsService({
-        apiClient,
-        accountRequestAuthService,
-        credentialService,
         zcodeAgentService,
-        officialMcpCredentialSource,
       }),
     )
     .register(ICodingPlanSubscriptionService, codingPlanSubscriptionService)

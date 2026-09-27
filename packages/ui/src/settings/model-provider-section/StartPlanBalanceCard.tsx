@@ -1,5 +1,9 @@
 import { Loader2Icon } from "lucide-react";
-import type { UsageEntitlementSubscriptionDetail, UsageQuotaLimit } from "@zcode/shared";
+// P3 S2 过渡：vendor entitlement/quota 形状改自 UI 本地过渡模块（C4 de-plan 时移除）。
+import type {
+  UsageEntitlementSubscriptionDetail,
+  UsageQuotaLimit,
+} from "@/lib/usageQuotaShapes.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import { formatStartPlanBucketResetTime } from "@/lib/codingPlanQuotaPresentation.js";
 import { formatStartPlanExpireDate } from "./CodingPlanStatusMeta.js";

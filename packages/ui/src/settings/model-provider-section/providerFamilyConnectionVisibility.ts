@@ -1,9 +1,10 @@
 /* eslint-disable max-lines -- Settings 与输入框共用连接方式可见性规则，集中放置避免 Start/Coding/Team/API 条件漂移。 */
+import type { ProviderFamilyDomain } from "@zcode/shared";
+// P3 S2 过渡：vendor entitlement/quota 形状改自 UI 本地过渡模块（C4 de-plan 时移除）。
 import type {
-  ProviderFamilyDomain,
   UsageEntitlementSubscriptionDetail,
   UsageQuotaLimit,
-} from "@zcode/shared";
+} from "@/lib/usageQuotaShapes.js";
 import {
   getModelProviderFamilySpec,
   isStartPlanModelProviderId,
