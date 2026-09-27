@@ -320,6 +320,15 @@ test("重启恢复：running 置回 queued（保留 session/queued_at 供 resume
     assert.equal(stale.length, 1);
     const recoveredClaims = await repo.recoverInterrupted(now + 2000 + 11 * 60_000);
     assert.equal(recoveredClaims, 0, "无 running 任务时回收数为 0（认领已随派发在途）");
+
+    // 僵尸认领释放必须真正让任务可被重新认领：认领已超 CLAIM_STALE（10min），
+    // 下一次 claimDue 先回收过期认领（claim_running 0），再原子认领同一任务；
+    // 随后的并行 claimDue（认领在途未超时）不得重复派发。
+    const reclaimed = await repo.claimDue(now + 2000 + 11 * 60_000);
+    assert.equal(reclaimed.length, 1, "过期认领释放后任务应可被重新认领");
+    assert.equal(reclaimed[0]?.offPeakTaskId, taskId);
+    const doubleClaim = await repo.claimDue(now + 2000 + 11 * 60_000 + 1000);
+    assert.equal(doubleClaim.length, 0, "重新认领在途时不得重复派发");
   } finally {
     await cleanup();
   }
