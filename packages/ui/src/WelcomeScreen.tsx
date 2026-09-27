@@ -1,3 +1,4 @@
+/* oxlint-disable eslint(max-lines) -- 向导三个步骤（模板/Key/自定义）共用同一保存与跳过语义；P1.1 自定义路径的保存时自动发现与模板路径同源，拆文件会复制关闭闸与 settings 写入约定。 */
 /**
  * WelcomeScreen —— 首次配置向导
  *
@@ -19,7 +20,11 @@ import { DesktopWindowControls } from "@/DesktopWindowControls.js";
 import { ZCodeAboutLogo } from "@/components/ui/ZCodeAboutLogo.js";
 import { useZCodeIntl } from "./i18n/IntlProvider.js";
 import { LoginApiKeyForm } from "./login/LoginApiKeyForm.js";
-import { buildWizardSkipSettings } from "@/login/LoginApiKeyForm.helpers.js";
+import {
+  buildWizardSkipSettings,
+  buildInitialModels,
+  type WizardInitialModel,
+} from "@/login/LoginApiKeyForm.helpers.js";
 import { useProviderSettingsView } from "./hooks/useProviderSettingsView.js";
 import { useServices } from "./hooks/useServices.js";
 import { logger } from "./logger.js";
@@ -244,12 +249,32 @@ function CustomProviderForm({
     setSaving(true);
     setError(null);
     try {
+      // P1.1（spec §3 + 预期死亡清单）：自定义 provider 保存同样自动发现——按用户输入的
+      // openai-compat baseUrl 直连端点（静默、可失败）；成功则模型（ids + hints）随同一
+      // 次保存持久化，失败/空列表按零模型保存，启动门禁下次以 skip/手动加模型脱困。
+      let initialModels: readonly WizardInitialModel[] = [];
+      try {
+        const discovery = await providerSettingsService.discoverCustomProviderModels({
+          apiType: "openai-chat-completions",
+          baseUrl: parsedBaseUrl.toString(),
+          apiKey,
+        });
+        if (discovery.ok) {
+          initialModels = buildInitialModels(discovery.modelIds, discovery.modelHints);
+        }
+      } catch (discoveryError) {
+        logger.warn("[Wizard] 自定义 provider 保存时自动发现失败", {
+          baseUrl,
+          error: discoveryError,
+        });
+      }
       // 自定义供应商按 OpenAI 兼容端点创建（镜像设置页 createPersonalProvider 的
       // initialConfig 覆盖：api.baseUrl + api-key access），本地模型（Ollama/vLLM）走同一路径。
       // locale 与设置页保持一致：zh-CN 用户拿到本地化的默认模板文案。
       await providerSettingsService.createPersonalProvider({
         ...(nameValue.trim() ? { providerName: nameValue.trim() } : {}),
         locale,
+        initialModels,
         initialConfig: {
           access: { type: "api-key", apiKey },
           api: { type: "openai-chat-completions", baseUrl: parsedBaseUrl.toString() },

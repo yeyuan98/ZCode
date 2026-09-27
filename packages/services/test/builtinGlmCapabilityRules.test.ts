@@ -46,7 +46,7 @@ async function withResolvedModels(
 
     const creation = await runtime.configService.createPersonalProvider({
       templateId,
-      initialModelIds: [...initialModelIds],
+      initialModels: [...initialModelIds],
     });
     const next = await runtime.configService.read();
     const resolution = new ProviderConfigResolver().resolve({

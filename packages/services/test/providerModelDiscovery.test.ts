@@ -11,6 +11,7 @@ import {
   type ProviderSettingsTemplateView,
 } from "@zcode/provider";
 import {
+  discoverModelsForEndpoint,
   discoverTemplateModels,
   type DiscoverTemplateModelsFetch,
 } from "../src/model-provider/providerModelDiscovery.js";
@@ -479,6 +480,45 @@ test("abort timeouts surface as a concise discovery error", async () => {
   }
 });
 
+test("direct endpoint discovery (custom provider path) reuses the same URL normalization", async () => {
+  const { fetch, requests } = createRecordingFetch(() => ({
+    body: JSON.stringify({
+      data: [
+        {
+          id: "custom-model",
+          context_length: 250000,
+          architecture: { input_modalities: ["text", "image"] },
+        },
+      ],
+    }),
+  }));
+  const result = await discoverModelsForEndpoint(
+    {
+      apiType: "openai-chat-completions",
+      baseUrl: "https://proxy.example.com",
+      apiKey: "custom-key",
+    },
+    { fetch },
+  );
+  assert.equal(requests.length, 1);
+  assert.equal(requests[0].url.toString(), "https://proxy.example.com/v1/models");
+  assert.equal(requests[0].headers.authorization, "Bearer custom-key");
+  assert.deepEqual(result, {
+    ok: true,
+    modelIds: ["custom-model"],
+    modelHints: { "custom-model": { contextWindow: 250000, supportsImage: true } },
+  });
+});
+
+test("direct endpoint discovery rejects invalid base urls without throwing", async () => {
+  const { fetch } = createRecordingFetch(() => ({ body: "{}" }));
+  const result = await discoverModelsForEndpoint(
+    { apiType: "openai-chat-completions", baseUrl: "not a url", apiKey: "k" },
+    { fetch },
+  );
+  assert.deepEqual(result, { ok: false, error: "invalid base url" });
+});
+
 test("createPersonalProvider seeds discovered ids and the resolver publishes executable models", async () => {
   const dir = await mkdtemp(join(tmpdir(), "zcode-model-discovery-"));
   setDataBaseDir(dir);
@@ -507,7 +547,7 @@ test("createPersonalProvider seeds discovered ids and the resolver publishes exe
 
     const creation = await runtime.configService.createPersonalProvider({
       templateId,
-      initialModelIds: ["discovered-b", "discovered-a", "discovered-b", " "],
+      initialModels: ["discovered-b", "discovered-a", "discovered-b", " "],
     });
     const next = await runtime.configService.read();
     const rule = next.personalProviders.getRule(creation.providerId);
@@ -535,6 +575,124 @@ test("createPersonalProvider seeds discovered ids and the resolver publishes exe
     );
     assert.equal(discovered.length, 2);
     assert.ok(discovered.every((model) => model.enabled));
+  } finally {
+    runtime.dispose();
+    setDataBaseDir(null);
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+// P1.1 spec §2：发现 hints 只填目录解析留空的字段，绝不覆盖目录规则；被采纳的 hint 以
+// personal 手动配置值落盘（“影子未来目录变更”已被接受并记录在 spec）。
+// “目录留空”按排除 .* 兜底 modelRule 后的特定解析判定——兜底为所有未知模型提供
+// 200k/无视觉默认值，它不是目录对该模型的认知，否则 hints 在任何模型上都无法生效。
+// 用 moonshot-kimi 模板钉死上下文：该 baseUrl 无 providerSite .* 覆盖、无 api 类型
+// 覆盖介入 ctx/inputFormat（zai/bigmodel anthropic 端点的站点级 image/video 覆盖会让
+// 断言依赖目录顺序），四个模型的能力取值均已按当前目录实测钉死。
+test("createPersonalProvider persists discovery hints as manual values only where the catalog leaves fields empty", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "zcode-model-discovery-hints-"));
+  setDataBaseDir(dir);
+  const configDir = getAppConfigDir();
+  await mkdir(configDir, { recursive: true });
+  const runtime = createProviderConfigRuntime({
+    zcodeBuiltinFilePath: fileURLToPath(
+      new URL("../../../config/provider/zcode-builtin.json", import.meta.url),
+    ),
+    personalFilePath: join(configDir, "personal.json"),
+    personalPollingIntervalMs: false,
+    watch: false,
+  });
+  try {
+    await runtime.start();
+    const templateId = "moonshot-kimi";
+    const template = (await runtime.configService.read()).zcodeBuiltinProviderTemplates.get(
+      templateId,
+    );
+    assert.ok(template, "内置目录必须保留 moonshot-kimi 模板（能力断言按其 api 上下文钉死）");
+
+    const creation = await runtime.configService.createPersonalProvider({
+      templateId,
+      initialModels: [
+        // 目录无特定规则的模型：ctx/image 由 hints 填空采纳（覆盖 .* 兜底的 200k/false）。
+        {
+          id: "unknown-model-x",
+          hints: { contextWindow: 1_000_000, supportsImage: true },
+        },
+        // glm-5.3 特定规则已提供 ctx=1M + image=false + video=false：hints 一律不覆盖，
+        // 也不得产生 personal 精确规则（否则会冻结字段并影子未来目录变更）。
+        { id: "glm-5.3", hints: { contextWindow: 12345, supportsImage: true } },
+        // glm-4v-flash 特定规则提供 ctx=16384 + image=true + video=false；pdf 留给兜底
+        // ⇒ 仅 pdf hint 采纳，ctx/video 保持目录值（特定规则的显式 false 也是目录认知）。
+        {
+          id: "glm-4v-flash",
+          hints: { contextWindow: 999_999, supportsVideo: true, supportsPdf: true },
+        },
+        // 纯字符串条目：与旧 initialModelIds 行为完全一致，不产生任何精确规则。
+        "plain-id-model",
+        // 重复 id 条目：去重保序（首个条目生效）。
+        "plain-id-model",
+      ],
+    });
+
+    const next = await runtime.configService.read();
+    const rule = next.personalProviders.getRule(creation.providerId);
+    assert.deepEqual(rule?.config.personalModelIds, [
+      "unknown-model-x",
+      "glm-5.3",
+      "glm-4v-flash",
+      "plain-id-model",
+    ]);
+
+    // unknown-model-x：手动规则落盘（useRecommendedConfig=false ⇒ manual-provider-model）。
+    const manualX = next.personalModels.getExactRule(creation.providerId, "unknown-model-x");
+    assert.equal(manualX?.type, "manual-provider-model");
+    assert.equal(manualX?.config.properties?.contextWindow, 1_000_000);
+    assert.equal(manualX?.config.properties?.inputFormat?.supportsImage, true);
+    // glm-5.3：目录已提供全部相关字段 ⇒ 不落 personal 精确规则。
+    assert.equal(next.personalModels.getExactRule(creation.providerId, "glm-5.3"), undefined);
+    // glm-4v-flash：仅 pdf 采纳；手动规则的其余叶子沿用创建时刻的目录有效值。
+    const manual4v = next.personalModels.getExactRule(creation.providerId, "glm-4v-flash");
+    assert.equal(manual4v?.type, "manual-provider-model");
+    assert.equal(manual4v?.config.properties?.contextWindow, 16_384);
+    assert.equal(manual4v?.config.properties?.inputFormat?.supportsImage, true);
+    assert.equal(manual4v?.config.properties?.inputFormat?.supportsVideo, false);
+    assert.equal(manual4v?.config.properties?.inputFormat?.supportsPdf, true);
+    // 纯字符串条目不产生精确规则。
+    assert.equal(
+      next.personalModels.getExactRule(creation.providerId, "plain-id-model"),
+      undefined,
+    );
+
+    // Resolver 有效配置：hints 填空生效、目录值保持、模型默认启用。
+    const resolution = new ProviderConfigResolver().resolve({
+      zcodeBuiltinProviders: next.zcodeBuiltinProviders,
+      zcodeBuiltinProviderTemplates: next.zcodeBuiltinProviderTemplates,
+      personalProviders: next.personalProviders,
+      zcodeBuiltinModelRules: next.zcodeBuiltinModelRules,
+      personalModels: next.personalModels,
+      accountProviders: ProviderConfigMap.empty(),
+      personalProviderOrder: next.personalProviderOrder,
+    });
+    const created = resolution.resolvedProviders.find(
+      (provider) => provider.providerId === creation.providerId,
+    );
+    assert.ok(created);
+    const models = new Map(created.models.map((model) => [model.modelId, model]));
+    const modelX = models.get("unknown-model-x");
+    assert.ok(modelX);
+    assert.equal(modelX.config.properties.contextWindow, 1_000_000);
+    assert.equal(modelX.config.properties.inputFormat?.supportsImage, true);
+    assert.equal(modelX.config.properties.inputFormat?.supportsVideo, false);
+    assert.equal(modelX.enabled, true);
+    const glm53 = models.get("glm-5.3");
+    assert.ok(glm53);
+    assert.equal(glm53.config.properties.contextWindow, 1_000_000);
+    assert.equal(glm53.config.properties.inputFormat?.supportsImage, false);
+    const glm4v = models.get("glm-4v-flash");
+    assert.ok(glm4v);
+    assert.equal(glm4v.config.properties.contextWindow, 16_384);
+    assert.equal(glm4v.config.properties.inputFormat?.supportsVideo, false);
+    assert.equal(glm4v.config.properties.inputFormat?.supportsPdf, true);
   } finally {
     runtime.dispose();
     setDataBaseDir(null);
