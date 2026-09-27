@@ -2,7 +2,10 @@
 
 Status: implemented-by P1 (`v3.14.3-alpha.4`); P1.1 (`v3.14.3-alpha.5`) refines the catalog
 invariant (A5 capability metadata), adds wizard auto-discover on save, settings-tab
-per-provider discovery, and discovery parser hardening. Owners: provider catalog
+per-provider discovery, and discovery parser hardening; P1.2 (`v3.14.3-alpha.6`) removes the
+two vendor anthropic inputFormat site rules (upstream conflation: endpoint wire-support ≠
+per-model vision) and extends the flash-family vision overlay to suffix variants (flashx).
+Owners: provider catalog
 (`config/provider/zcode-builtin.json` + `packages/provider/src/config/`), provider settings
 facade (`packages/services/src/model-provider/`), wizard key step
 (`packages/ui/src/login/LoginApiKeyForm.tsx`).
@@ -30,9 +33,14 @@ facade (`packages/services/src/model-provider/`), wizard key step
      vendor-free gate allowlist gains exactly the modelRules-metadata class. The single `.*`
      default modelRule stays.
    - Zero `supportsNativeWebSearch` properties in the catalog (the WebSearch tool dies in P4;
-     its catalog flags die now). Site rules keyed to `zcode.z.ai` platform URLs are deleted;
-     capability metadata (inputFormat, supportsMidConversationSystem) for surviving vendor
-     endpoints (`api.z.ai`, `open.bigmodel.cn`) and for deepseek/anthropic stays.
+     its catalog flags die now). Site rules keyed to `zcode.z.ai` platform URLs are deleted.
+     **(P1.2)** The two vendor anthropic `inputFormat` site rules (`api.z.ai`,
+     `open.bigmodel.cn`) are ALSO deleted — an upstream conflation of "endpoint accepts
+     image/video blocks" with "every model on it is vision" that blanket-overrode per-model
+     rules (site rules overlay after modelRules); only `supportsMidConversationSystem`
+     endpoint rules and per-model rules remain as capability sources, and the flash-family
+     vision overlay covers suffix variants (`glm-5.3-flashx` via `(?:x)?`). Catalog source
+     is the upstream v3.14.3 vendor catalog (rev 30, fork-maintained).
    - The catalog keeps ≥1 plain-`api-key` + `openai-chat-completions` template (the e2e mock
      provider clones one as its seed).
 2. **Model lists are discovered at runtime, not hardcoded.** A services-layer discovery client
