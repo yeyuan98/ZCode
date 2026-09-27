@@ -128,7 +128,6 @@ export function createOffPeakSchedulerController(
       modelSelection: task.modelSelection,
       ...(task.conversationId ? { conversationId: task.conversationId } : {}),
       ...(task.sessionId ? { sessionId: task.sessionId } : {}),
-      ...(task.serverTicketId ? { serverTicketId: task.serverTicketId } : {}),
       workspacePath: task.workspacePath,
       ...(task.workspaceIdentity ? { workspaceIdentity: task.workspaceIdentity } : {}),
     };

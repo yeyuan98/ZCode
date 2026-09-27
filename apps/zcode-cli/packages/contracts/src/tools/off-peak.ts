@@ -3,7 +3,8 @@
 // ============================================================
 // 闲时任务与 cron automation 是兄弟实体：schema 独立镜像，禁止互相复用。
 // workspace/凭证不是模型入参；permissionMode/model/thoughtLevel 缺省在 host 端解析
-// （yolo / allowed_models 末位 / 最高推理档），模型只在用户显式要求时覆盖。
+// （build / 用户默认模型 / 最高推理档），模型只在用户显式要求时覆盖。
+// P3：闲时执行无人值守（交互自动拒绝），工具缺省权限档从 yolo 收敛为 build。
 
 import { z } from "zod";
 import { toToolJsonSchema } from "./json-schema.js";
@@ -22,12 +23,12 @@ export const OffPeakCreateInputSchema = z
       .enum(["build", "edit", "plan", "yolo"])
       .optional()
       .describe(
-        "Unattended run permission mode. Omit for the default full-automatic mode (yolo). Set only when the user explicitly asks for confirmation-gated execution: 'build' pauses for approval before changes, 'edit' auto-applies edits, 'plan' is read-only planning.",
+        "Unattended run permission mode. Omit for the default conservative mode (build). Note questions and permission requests are auto-declined during unattended runs. Set only when the user explicitly asks: 'build' pauses for approval before changes, 'edit' auto-applies edits, 'plan' is read-only planning, 'yolo' skips approvals.",
       ),
     model: nonEmptyString
       .optional()
       .describe(
-        "Idle-plan model id. Must be one of the idle-time allowed models; omit to use the default (the newest allowed model). Set only when the user names a specific model.",
+        "Model id from the user's configured providers; omit to use the user's current default model. Set only when the user names a specific model.",
       ),
     thoughtLevel: nonEmptyString
       .optional()
@@ -50,13 +51,12 @@ export const OffPeakTaskStatusSchema = z.enum([
 ]);
 export type OffPeakTaskStatus = z.infer<typeof OffPeakTaskStatusSchema>;
 
-/** 轮尾卡片与 OffPeakList 的最小任务快照：不暴露 serverTicketId / providerName。 */
+/** 轮尾卡片与 OffPeakList 的最小任务快照（P3：无服务端位次/票据字段）。 */
 export const OffPeakTaskSummarySchema = z
   .object({
     offPeakTaskId: nonEmptyString,
     title: z.string(),
     status: OffPeakTaskStatusSchema,
-    queuePosition: z.number().int().positive().optional(),
     sessionId: nonEmptyString.optional(),
     createdAt: z.number().int().nonnegative(),
   })

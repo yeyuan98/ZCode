@@ -84,23 +84,16 @@ function throwOffPeakCreateFailure(
 ): never {
   const detail = (() => {
     switch (outcome.errorCategory) {
-      case "quota_3103":
-        return "The idle-time task quota is used up for now. Tell the user the free quota is exhausted and they can retry later or review tasks in Automations.";
-      case "eligibility_3101":
-        return "The current account has no eligible Coding Plan connection for idle-time tasks. Tell the user to select a ZAI/BigModel Coding Plan connection first.";
       case "client_validation":
         if (outcome.errorCode === "model_not_allowed") {
-          return "The requested model is not in the idle-time allowed model list. Omit the model field to use the default allowed model.";
+          return "The requested model is not available in the user's configured providers. Omit the model field to use the user's default model.";
         }
         if (outcome.errorCode === "session_bound") {
           return "This session already has a pending idle-time task. Tell the user to wait for it to finish or cancel it in Automations before creating another one here.";
         }
-        if (outcome.errorCode === "offpeak_disabled") {
-          return "Idle-time tasks are not enabled for this account right now. Tell the user the feature is unavailable; do not retry with different parameters.";
-        }
         return "The idle-time task input was rejected by validation.";
       case "network":
-        return "The idle-time ticket service is unreachable. Tell the user to retry later.";
+        return "The idle-time task service is unreachable. Tell the user to retry later.";
       default:
         return "Creating the idle-time task failed. Tell the user to retry from the Automations page.";
     }
@@ -132,10 +125,8 @@ const offPeakCreateHandler: ToolHandler = async (input, context) => {
   }
   return {
     task: outcome.task,
-    message:
-      typeof outcome.task.queuePosition === "number"
-        ? `Created idle-time task ${outcome.task.offPeakTaskId} (#${outcome.task.queuePosition} in queue).`
-        : `Created idle-time task ${outcome.task.offPeakTaskId}.`,
+    // P3：本地时间窗准入——无服务端位次；创建即入队，等待窗口或 Run-now。
+    message: `Created idle-time task ${outcome.task.offPeakTaskId}. It will run inside the configured off-peak window (questions are auto-declined during the run).`,
   } satisfies OffPeakCreateOutput;
 };
 

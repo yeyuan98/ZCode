@@ -189,10 +189,7 @@ export async function executeTurnCommand(
       try {
         admittedModel =
           rewindCommand === null
-            ? createTurnModel(this, {
-                requestDependencies: options?.modelExecution?.requestDependencies,
-                selection: admittedModelSelection,
-              })
+            ? createTurnModel(this, { selection: admittedModelSelection })
             : undefined;
       } catch (error) {
         // 同步滞后/模型失效可在内层 Turn try 之前创建失败。只写日志会让已接纳输入
@@ -582,7 +579,6 @@ export async function executeTurnCommand(
             ? {
                 subagentModelOverride: {
                   selection: options.intent.modelSelection,
-                  requestDependencies: options.modelExecution.requestDependencies,
                   background: options.modelExecution.subagents.background,
                 },
               }

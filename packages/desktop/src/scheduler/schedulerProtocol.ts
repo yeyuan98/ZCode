@@ -26,7 +26,6 @@ export type SchedulerToMainMessage =
       modelSelection: ModelSelection;
       conversationId?: string;
       sessionId?: string;
-      serverTicketId?: string;
       workspacePath: string;
       workspaceIdentity?: string;
     }

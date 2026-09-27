@@ -11,9 +11,6 @@ import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { Emitter } from "@zcode/rpc";
 import type { IDisposable } from "@zcode/rpc";
-import type { ModelSelectionView } from "@zcode/provider";
-import { completeNewModelSelection } from "@zcode/provider";
-import type { OffPeakClientConfig } from "#src/coding-plan-subscription/codingPlanSubscription.js";
 import {
   ZCODE_SESSION_RUNTIME_PREFERENCES_REQUEST_TIMEOUT_MS,
   formatLogPrefix,
@@ -59,7 +56,6 @@ import {
   zcodeAutomationUpdateParamsSchema,
   zcodeOffPeakCreateParamsSchema,
   zcodeOffPeakListParamsSchema,
-  OFF_PEAK_PROVIDER_IDS,
   zcodeComputerUseOperationEventSchema,
   zcodeProviderRuntimeHeadersCancelledSchema,
   zcodeProviderRuntimeHeadersRequestParamsSchema,
@@ -776,6 +772,8 @@ function providerRuntimeHeadersRequestKey(
  * 本地 Worker 自己持有完整 Registry；Host 只用这份投影判断模型执行是否可以启动，
  * 不能再把它扩张成 runtimeModel 并覆盖 Worker 的执行事实源。
  */
+import type { ModelSelectionView } from "@zcode/provider";
+
 interface ModelSelectionReadinessSource {
   getView(): Promise<ModelSelectionView>;
   onDidChange?: (listener: (view: ModelSelectionView) => void) => IDisposable;
@@ -864,12 +862,11 @@ interface CreateZCodeAgentServiceOptions extends Omit<
     run: ZCodeAutomationRun;
   }) => Promise<void>;
   /**
-   * Off-Peak 会话内创建。config 同时承担曝光门（enabled && Selection View 非空 →
-   * session create/resume 下发 offPeakToolEnabled）与缺省解析（model=白名单末位 /
-   * thoughtLevel=最高档）；service 供 offPeak/create、offPeak/list 协议 handler 调用。
-   * 两者任一缺省即整体关闭（纯 CLI / desktop-attached-remote 装配不传）。
+   * 闲时任务免打扰策略（P3 binding policy）：当某 session 的活跃 turn 属于闲时派发时，
+   * host 对该 session 的 permission/AskUserQuestion/plan-approval 反向请求自动拒绝。
+   * desktop host 注入（基于本进程派发注册表，turn 级归因）；缺省不拦截（普通会话语义不变）。
    */
-  resolveOffPeakClientConfig?: () => Promise<OffPeakClientConfig | undefined>;
+  shouldDeclineInteractionForSession?: (sessionId: string) => boolean;
   /**
    * 动态工作流灰度快照。Host 是唯一裁决者：
    * 结果既作为 workspace 级事实下发给 CLI，也决定 session create/resume/v4 是否带
@@ -877,7 +874,7 @@ interface CreateZCodeAgentServiceOptions extends Omit<
    */
   resolveDynamicWorkflowClientConfig?: () => Promise<DynamicWorkflowClientConfig | undefined>;
   resolveOffPeakTaskService?: () =>
-    | Pick<IOffPeakTaskService, "createTask" | "list" | "getCodingPlanSupport">
+    | Pick<IOffPeakTaskService, "createTask" | "list" | "resolveCreateSelection">
     | undefined;
   /**
    * browser-use 执行桥：把 agent 的 interaction/browserExecute 反向请求转发到 main
@@ -954,18 +951,14 @@ function toProtocolOffPeakTaskSnapshot(task: {
   offPeakTaskId: string;
   title: string;
   status: "queued" | "paused" | "running" | "completed" | "failed" | "cancelled";
-  queuePosition?: number;
   sessionId?: string;
   createdAt: number;
 }) {
-  // 协议最小面：不暴露 serverTicketId / providerName / workspace 细节。
+  // 协议最小面：不暴露 workspace 细节与内部执行字段（P3：位次/票据已删除）。
   return {
     offPeakTaskId: task.offPeakTaskId,
     title: task.title,
     status: task.status,
-    ...(typeof task.queuePosition === "number" && task.queuePosition > 0
-      ? { queuePosition: task.queuePosition }
-      : {}),
     ...(task.sessionId ? { sessionId: task.sessionId } : {}),
     createdAt: task.createdAt,
   };
@@ -998,47 +991,6 @@ async function respondOffPeakInternalError(
   });
 }
 
-/** 只有灰度有效开启且白名单非空才算"可创建"；其余一律视为关闭（空数组）。 */
-function resolveOffPeakAllowedModels(
-  grayConfig: OffPeakClientConfig | undefined,
-  providerId?: string,
-): readonly string[] {
-  if (grayConfig?.enabled !== true) return [];
-  return grayConfig.modelSelectionView.providers
-    .filter((provider) => providerId === undefined || provider.providerId === providerId)
-    .flatMap((provider) => provider.models.map((model) => model.modelId));
-}
-
-/**
- * model 解析：省略 → 白名单末位（服务端顺序末位≈最新最强）；显式 → trim + 大小写不敏感匹配，
- * 命中返回白名单原写法，未命中返回 null（调用方回 model_not_allowed）。
- */
-function resolveOffPeakCreateModel(
-  allowedModels: readonly string[],
-  requested: string | undefined,
-): string | null {
-  const wanted = requested?.trim();
-  if (!wanted) return allowedModels[allowedModels.length - 1] ?? null;
-  const lower = wanted.toLowerCase();
-  return allowedModels.find((model) => model.trim().toLowerCase() === lower) ?? null;
-}
-
-/**
- * 新工具任务复用公共最高档补全；旧 metadata/型号特判会偏离 values 的语义顺序。
- * 显式档位留给 createTask 的现有校验，不在入口擅自换档。
- */
-function resolveOffPeakToolSelection(
-  view: ModelSelectionView,
-  providerId: string,
-  modelId: string,
-  thoughtLevel?: string,
-): ModelSelection | undefined {
-  const selection = completeNewModelSelection(view, { providerId, modelId });
-  if (!selection) return undefined;
-  return thoughtLevel === undefined
-    ? selection
-    : { ...selection, options: { reasoningLevel: thoughtLevel } };
-}
 export function createZCodeAgentService(
   options?: CreateZCodeAgentServiceOptions,
 ): IZCodeAgentService & { disposeAllAndWait(): Promise<void> } {
@@ -1951,6 +1903,14 @@ export function createZCodeAgentService(
         }
       }),
       client.onRequest((request) => {
+        // 自动应答（闲时免打扰）失败只意味着 transport 已关；静默丢弃，不再补发第二个错误响应。
+        const reportInteractionResponseFailure = (error: unknown): void => {
+          logger.debug(undefined, "交互自动应答发送失败", {
+            error: error instanceof Error ? error.message : String(error),
+            requestId: request.id,
+            workspaceKey: resolveWorkspaceKey(workspace),
+          });
+        };
         if (request.method === zcodeProtocolMethods.sessionRequestRuntimePreferences) {
           const reportResponseFailure = (error: unknown): void => {
             logger.debug(undefined, "运行时偏好响应发送失败", {
@@ -2035,6 +1995,27 @@ export function createZCodeAgentService(
             });
             return;
           }
+          // 闲时免打扰（P3 binding policy）：闲时 run 的活跃 turn 内权限请求自动拒绝。
+          // 无人在场的确认只会永久挂起（最差结局：静默 hang、无通知、占用资源）；
+          // 拒绝可恢复且可见——run 以 blocked 结果落地，用户可调整后重试。
+          // 归因严格按 session 的活跃 turn（host 派发注册表），普通 turn 不受影响。
+          if (options?.shouldDeclineInteractionForSession?.(parsed.data.sessionId)) {
+            logger.info(request.trace?.traceId, "闲时 run 权限请求已自动拒绝", {
+              event: "zcode_agent.permission.off_peak_auto_denied",
+              module: "services.zcode_agent",
+              requestId: parsed.data.requestId,
+              sessionId: parsed.data.sessionId,
+              toolName: parsed.data.toolName,
+              workspaceKey: resolveWorkspaceKey(workspace),
+            });
+            void client
+              .respond(request.id, {
+                decision: "deny" as const,
+                reason: "off-peak unattended run: permission requests are auto-declined",
+              })
+              .catch(reportInteractionResponseFailure);
+            return;
+          }
           const key = permissionRequestKey({
             ...workspace,
             sessionId: parsed.data.sessionId,
@@ -2062,6 +2043,23 @@ export function createZCodeAgentService(
               message: "Invalid user input request params",
               data: parsed.error.flatten(),
             });
+            return;
+          }
+          // 闲时免打扰：AskUserQuestion / exit-plan-mode 审批与权限同口径自动拒绝。
+          if (options?.shouldDeclineInteractionForSession?.(parsed.data.sessionId)) {
+            logger.info(request.trace?.traceId, "闲时 run 交互请求已自动拒绝", {
+              event: "zcode_agent.user_input.off_peak_auto_declined",
+              module: "services.zcode_agent",
+              requestId: parsed.data.requestId,
+              sessionId: parsed.data.sessionId,
+              workspaceKey: resolveWorkspaceKey(workspace),
+            });
+            void client
+              .respond(request.id, {
+                action: "decline" as const,
+                reason: "off-peak unattended run: questions are auto-declined",
+              })
+              .catch(reportInteractionResponseFailure);
             return;
           }
           const key = userInputRequestKey({
@@ -2410,54 +2408,13 @@ export function createZCodeAgentService(
                 });
                 return;
               }
-              const grayConfig = await options
-                ?.resolveOffPeakClientConfig?.()
-                .catch(() => undefined);
-              // 工具注册后灰度被关闭/配置解析失败时，不能继续走"白名单为空"的推导
-              // （显式 model 会误报 model_not_allowed，省略 model 会以空模型落库）；直接返回稳定分类。
-              // 模型视图可同时包含两个域；必须用已有支持快照确认归属，不能从首个 Provider 猜。
-              const support =
-                resolveOffPeakAllowedModels(grayConfig).length > 0
-                  ? await offPeakTaskService.getCodingPlanSupport()
-                  : undefined;
-              const providerId = support?.supported
-                ? OFF_PEAK_PROVIDER_IDS[support.providerFamily]
-                : undefined;
-              const allowedModels = providerId
-                ? resolveOffPeakAllowedModels(grayConfig, providerId)
-                : [];
-              if (allowedModels.length === 0) {
-                await client.respond(request.id, {
-                  ok: false,
-                  failureStage: "client_validation",
-                  errorCategory: "client_validation",
-                  errorCode: "offpeak_disabled",
-                });
-                return;
-              }
-              // model 白名单预校：显式入参不在白名单返回稳定分类，
-              // 复用 client_validation 分类 + 专用 errorCode，不扩分类枚举。
-              // 匹配与 thoughtLevel/UI 同语义（trim + 大小写不敏感），命中后回写白名单原写法。
-              const model = resolveOffPeakCreateModel(allowedModels, parsed.data.model);
-              if (model === null) {
-                await client.respond(request.id, {
-                  ok: false,
-                  failureStage: "client_validation",
-                  errorCategory: "client_validation",
-                  errorCode: "model_not_allowed",
-                });
-                return;
-              }
-              const modelSelection =
-                grayConfig && providerId
-                  ? resolveOffPeakToolSelection(
-                      grayConfig.modelSelectionView,
-                      providerId,
-                      model,
-                      parsed.data.thoughtLevel,
-                    )
-                  : undefined;
-              if (!modelSelection) {
+              // P3：准入本地化——无灰度门/白名单；模型解析交给服务层
+              // （显式 model 按视图反查 Provider，省略回落用户默认，档位缺省补最高档）。
+              const resolved = await offPeakTaskService.resolveCreateSelection({
+                ...(parsed.data.model ? { modelId: parsed.data.model } : {}),
+                ...(parsed.data.thoughtLevel ? { reasoningLevel: parsed.data.thoughtLevel } : {}),
+              });
+              if (!resolved.ok) {
                 await client.respond(request.id, {
                   ok: false,
                   failureStage: "client_validation",
@@ -2469,8 +2426,10 @@ export function createZCodeAgentService(
               const result = await offPeakTaskService.createTask({
                 title: parsed.data.title,
                 prompt: parsed.data.prompt,
-                permissionMode: parsed.data.permissionMode ?? "yolo",
-                modelSelection,
+                // 工具缺省权限档改为 build（与 UI 表单一致）：无人值守默认全自动(yolo)
+                // 是在替用户做未显式选择的高危决定，保守档命中确认时由闲时免打扰拒绝。
+                permissionMode: parsed.data.permissionMode ?? "build",
+                modelSelection: resolved.selection,
                 // 会话内创建绑定当前会话，派发时 resume 该会话执行。
                 ...(parsed.data.boundSessionId
                   ? { boundSessionId: parsed.data.boundSessionId }
@@ -3076,13 +3035,13 @@ export function createZCodeAgentService(
     runtimeLifecycleDisposable.dispose();
   }
 
-  // 3.12.2：远端灰度读取不能放进客户端就绪与创建命令：失败时串行重试会阻塞普通聊天。
-  // 注册只判断本地支持能力；灰度、套餐与模型准入仍由 offPeak/create handler 在取号前校验。
+  // P3：闲时工具面门禁只剩本地能力判断（服务可用 + 非远程 workspace）；
+  // 灰度/套餐准入已删除——创建资格 = 存在可解析的模型选择（offPeak/create handler 校验）。
   function isOffPeakToolSupported(params: {
     workspaceIdentity?: string;
     remoteSessionId?: string;
   }): boolean {
-    if (!options?.resolveOffPeakClientConfig || !options.resolveOffPeakTaskService) return false;
+    if (!options?.resolveOffPeakTaskService) return false;
     if (params.remoteSessionId) return false;
     return !params.workspaceIdentity || !isRemoteWorkspaceIdentity(params.workspaceIdentity);
   }
