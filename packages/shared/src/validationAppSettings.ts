@@ -453,9 +453,10 @@ const appSettingsObjectSchema = z.object({
   zcodeInteractionBehavior: zcodeInteractionBehaviorSchema.default("queue"),
   askUserQuestionAutoResolutionEnabled: z.boolean().default(true),
   modelIoFullRetentionEnabled: z.boolean().default(false),
-  startPlanRecommendationDismissed: z.boolean().default(false),
   // P1：providerFamilyDomain / providerFamilyConnectionSelections 字段族已删除；
-  // zod object 默认 strip 未知键，旧 setting.json 中的残留键会被静默丢弃，无需迁移。
+  // P3 C4：startPlanRecommendationDismissed（Start Plan 推荐关闭标记）已随设置页
+  // de-plan 删除。zod object 默认 strip 未知键，旧 setting.json 中的残留键会被
+  // 静默丢弃，无需迁移。
   // 跳过时间必须是可选 ISO 字符串：settings 加载走宽松解析，必填新字段会让老用户整体回退默认值。
   providerOnboardingDismissedAt: z.string().datetime().optional(),
   nativeSearchEnhancementsEnabled: z.boolean().default(true),
@@ -522,7 +523,6 @@ export const appSettingsPatchSchema = z.object({
   zcodeInteractionBehavior: zcodeInteractionBehaviorSchema.optional(),
   askUserQuestionAutoResolutionEnabled: z.boolean().optional(),
   modelIoFullRetentionEnabled: z.boolean().optional(),
-  startPlanRecommendationDismissed: z.boolean().optional(),
   // 空串先经 normalizeSettingsPatch 归一成 undefined（重置跳过状态），这里只接受合法 ISO 时间。
   providerOnboardingDismissedAt: z.string().datetime().optional(),
   nativeSearchEnhancementsEnabled: z.boolean().optional(),

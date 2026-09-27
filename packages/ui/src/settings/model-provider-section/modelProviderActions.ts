@@ -14,7 +14,9 @@ export async function confirmAndDeleteModelProvider({
   intl: IntlInstance;
   deleteProvider: (providerId: string) => Promise<void>;
 }) {
-  if (provider.config.group === "zai-family" || provider.config.group === "bigmodel-family") {
+  // P3 C4 供应商 family/specs 删除：family 品牌组判断改为按组中性收口——
+  // 只有用户自建（standard-personal）的 Provider 允许从设置页删除。
+  if (provider.config.group !== "standard-personal") {
     return;
   }
 
@@ -51,38 +53,10 @@ export async function confirmAndDeleteModelProvider({
   }
 }
 
-export async function refreshModelProviderSection({
-  refresh,
-}: {
-  refresh: () => Promise<void>;
-  // P3 C2 供应商套餐/计费面删除：refreshTeamPlanProducts（企业 pricing/customerInfo
-  // 刷新）已随数据源删除，顶部刷新只刷新 provider 列表。
-}) {
-  // Model Provider 顶部刷新是账号权益刷新入口。
+export async function refreshModelProviderSection({ refresh }: { refresh: () => Promise<void> }) {
+  // P3 C4 供应商账号删除：顶部刷新只刷新 provider 列表，不再附带套餐/权益面。
   await refresh();
 }
 
-export async function refreshProviderPanelAfterAuthChange({
-  refreshModelProviders,
-  refreshCodingPlanEntitlements,
-  refreshCodingPlanProducts,
-  refreshPurchaseTokenState,
-  refreshPlanSnapshots = true,
-}: {
-  refreshModelProviders: () => Promise<void>;
-  refreshCodingPlanEntitlements: () => Promise<void>;
-  // P3 C2：refreshTeamPlanProducts（企业 pricing/customerInfo 刷新）已随数据源删除。
-  refreshCodingPlanProducts: () => void;
-  refreshPurchaseTokenState: () => Promise<unknown>;
-  refreshPlanSnapshots?: boolean;
-}): Promise<void> {
-  await refreshPurchaseTokenState();
-  if (refreshPlanSnapshots) {
-    await Promise.all([refreshModelProviders(), refreshCodingPlanEntitlements()]);
-  } else {
-    // 切换连接方式只是保存本地连接选择和刷新目标 provider key。
-    // 不能顺手刷新今日余额/套餐快照，否则 Start Plan balance 与 entitlement 查询会并发放大。
-    await refreshModelProviders();
-  }
-  refreshCodingPlanProducts();
-}
+// P3 C4 供应商账号删除：refreshProviderPanelAfterAuthChange（登录/解绑后的
+// 套餐权益与购买面板刷新编排）已随设置页 de-plan 移除。

@@ -1,25 +1,15 @@
 import type { ZCodeEnv } from "./env.js";
 
 export const DEFAULT_ZCODE_ENDPOINT_ORIGIN = "https://zcode.z.ai";
-export const DEFAULT_BIGMODEL_API_ORIGIN = "https://bigmodel.cn";
-export const DEFAULT_ZAI_OAUTH_ORIGIN = "https://chat.z.ai";
-export const DEFAULT_ZAI_OAUTH_CLIENT_ID = "client_P8X5CMWmlaRO9gyO-KSqtg";
 
 // 构建仅注入公开链接；Node 调用方仍可显式传 env，避免读取另一进程的配置。
 declare const __ZCODE_ENDPOINT_ENV__: Record<string, string | undefined> | undefined;
 export function pickProductEndpointEnv(
   env: Record<string, string | undefined>,
 ): Record<string, string> {
-  // P3 C2 供应商套餐/计费面删除：ZAI_BUSINESS_BASE_URL（官网购买 webview / 业务端点）
-  // 已随购买链路移除，不再参与端点 env 挑选。
-  const keys = [
-    "ZCODE_BASE_URL",
-    "ZCODE_ENDPOINT_ORIGIN",
-    "BIGMODEL_API_BASE_URL",
-    "ZAI_OAUTH_ORIGIN",
-    "ZAI_OAUTH_CLIENT_ID",
-    "ZAI_OAUTH_APP_ID",
-  ];
+  // P3 C4 供应商 family/specs 删除：BIGMODEL_API_BASE_URL / ZAI_OAUTH_*（供应商 OAuth
+  // 与 bigmodel API 端点 env）已随账号套餐链路移除，不再参与端点 env 挑选。
+  const keys = ["ZCODE_BASE_URL", "ZCODE_ENDPOINT_ORIGIN"];
   return Object.fromEntries(
     keys.flatMap((key) => (env[key]?.trim() ? [[key, env[key]!.trim()]] : [])),
   );
@@ -35,10 +25,6 @@ export interface ZCodeEndpointUrls {
   origin: string;
   apiBaseUrl: string;
   webShareCallbackUrl: string;
-  zcodePlanOpenAiBaseUrl: string;
-  zcodePlanAnthropicBaseUrl: string;
-  zcodePlanBillingCurrentUrl: string;
-  zcodePlanBillingBalanceUrl: string;
 }
 
 export interface RuntimeZCodeEndpointEnv {
@@ -48,22 +34,10 @@ export interface RuntimeZCodeEndpointEnv {
   ZCODE_ENDPOINT_ORIGIN?: string;
 }
 
-export interface RuntimeBigModelApiEnv {
-  [key: string]: string | undefined;
-  ZCODE_ENV?: string;
-  BIGMODEL_API_BASE_URL?: string;
-}
-
-export interface RuntimeZaiEndpointEnv {
-  [key: string]: string | undefined;
-  ZCODE_ENV?: string;
-  ZAI_OAUTH_ORIGIN?: string;
-  ZAI_OAUTH_CLIENT_ID?: string;
-  ZAI_OAUTH_APP_ID?: string;
-}
-
-export interface RuntimeProductEndpointEnv
-  extends RuntimeZCodeEndpointEnv, RuntimeBigModelApiEnv, RuntimeZaiEndpointEnv {}
+// P3 C4 端点 trim（keep-list 生效）：ZAI OAuth 地址/ClientId 解析、bigmodel API
+// origin/套餐管理页 builder、RuntimeBigModelApiEnv / RuntimeZaiEndpointEnv /
+// RuntimeProductEndpointEnv 组合类型与 ZCodeEndpointUrls 的 zcodePlan* 计费字段
+// 已随供应商账号链路移除；保留 ZCode 主端点解析与通用 URL 改写能力（P4/P5 前不变）。
 
 function readRuntimeEnvValue(
   env: Record<string, string | undefined>,
@@ -130,78 +104,12 @@ export function buildRuntimeZCodeApiUrl(
   return `${resolveRuntimeZCodeEndpointOrigin(env)}${normalizedPath}`;
 }
 
-export function resolveBigModelApiOrigin(
-  env: RuntimeBigModelApiEnv = readProductEndpointEnv(),
-): string {
-  return normalizeZCodeEndpointOrigin(
-    readRuntimeEnvValue(env, "BIGMODEL_API_BASE_URL") ?? DEFAULT_BIGMODEL_API_ORIGIN,
-  );
-}
-
-export function buildBigModelApiUrl(
-  env: RuntimeBigModelApiEnv = readProductEndpointEnv(),
-  path: string,
-): string {
-  const normalizedPath = path.startsWith("/") ? path : `/${path}`;
-  return `${resolveBigModelApiOrigin(env)}${normalizedPath}`;
-}
-
-export function buildBigModelCodingPlanPersonalManageUrl(
-  env: RuntimeBigModelApiEnv = readProductEndpointEnv(),
-): string {
-  // 管理页与业务 API 共用显式 origin，避免把已登录账号带到另一个部署。
-  return buildBigModelApiUrl(env, "/coding-plan/personal/overview");
-}
-
-export function buildBigModelCodingPlanTeamManageUrl(
-  env: RuntimeBigModelApiEnv = readProductEndpointEnv(),
-): string {
-  return buildBigModelApiUrl(env, "/coding-plan/team/plans");
-}
-
-export function resolveZaiOAuthOrigin(
-  env: RuntimeZaiEndpointEnv = readProductEndpointEnv(),
-): string {
-  return normalizeZCodeEndpointOrigin(
-    readRuntimeEnvValue(env, "ZAI_OAUTH_ORIGIN") ?? DEFAULT_ZAI_OAUTH_ORIGIN,
-  );
-}
-
-// P3 C2 供应商套餐/计费面删除：resolveZaiBusinessBaseUrl / buildRuntimeZaiBusinessUrl
-// （Z.AI 业务端点解析，购买 webview 与 team-plan API key 链路消费）已移除。
-
-export function resolveZaiOAuthClientId(
-  env: RuntimeZaiEndpointEnv = readProductEndpointEnv(),
-): string {
-  return (
-    readRuntimeEnvValue(env, "ZAI_OAUTH_CLIENT_ID") ??
-    readRuntimeEnvValue(env, "ZAI_OAUTH_APP_ID") ??
-    DEFAULT_ZAI_OAUTH_CLIENT_ID
-  );
-}
-
-export function buildZaiOAuthUrl(origin: string, path: string): string {
-  const normalizedPath = path.startsWith("/") ? path : `/${path}`;
-  return `${normalizeZCodeEndpointOrigin(origin)}${normalizedPath}`;
-}
-
-export function buildRuntimeZaiOAuthUrl(
-  env: RuntimeZaiEndpointEnv = readProductEndpointEnv(),
-  path: string,
-): string {
-  return buildZaiOAuthUrl(resolveZaiOAuthOrigin(env), path);
-}
-
 export function buildZCodeEndpointUrls(origin: string): ZCodeEndpointUrls {
   const normalizedOrigin = normalizeZCodeEndpointOrigin(origin);
   return {
     origin: normalizedOrigin,
     apiBaseUrl: `${normalizedOrigin}/api/v1`,
     webShareCallbackUrl: `${normalizedOrigin}/cn/share/callback`,
-    zcodePlanOpenAiBaseUrl: `${normalizedOrigin}/api/v1/zcode-plan`,
-    zcodePlanAnthropicBaseUrl: `${normalizedOrigin}/api/v1/zcode-plan/anthropic`,
-    zcodePlanBillingCurrentUrl: `${normalizedOrigin}/api/v1/zcode-plan/billing/current`,
-    zcodePlanBillingBalanceUrl: `${normalizedOrigin}/api/v1/zcode-plan/billing/balance`,
   };
 }
 

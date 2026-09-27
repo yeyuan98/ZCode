@@ -1483,35 +1483,13 @@ export function AutomationEditView({
   const effectiveReasoningLevel = effectiveSelection?.options?.reasoningLevel ?? "";
   const modelSelectGroups = useMemo(() => {
     if (!modelSelectionView) return [];
+    // P3 C4 供应商 family/specs 删除：分组改为中性按 provider 名称聚合，
+    // 套餐/API Key 徽标 labels 参数已移除。
     return buildAutomationModelSelectGroups({
       selectedProvider: ZCODE_AGENT_PROVIDER,
-      labels: {
-        apiKeyLabel: intl.formatMessage({ id: "settings.modelProvider.apiKey" }),
-        apiKeyBadgeLabel: intl.formatMessage({
-          id: "settings.modelProvider.connectionMode.apiKeyBadge",
-        }),
-        codingPlanLabel: intl.formatMessage({
-          id: "settings.modelProvider.connectionMode.codingPlan",
-        }),
-        codingPlanBadgeLabel: intl.formatMessage({
-          id: "settings.modelProvider.connectionMode.codingPlanBadge",
-        }),
-        startPlanLabel: intl.formatMessage({
-          id: "settings.modelProvider.connectionMode.startPlan",
-        }),
-        startPlanBadgeLabel: intl.formatMessage({
-          id: "settings.modelProvider.connectionMode.startPlanBadge",
-        }),
-        teamPlanBadgeLabel: intl.formatMessage({
-          id: "settings.modelProvider.connectionMode.teamPlanBadge",
-        }),
-        teamPlanFallbackLabel: intl.formatMessage({
-          id: "settings.modelProvider.connectionMode.teamPlan",
-        }),
-      },
       registrySelectionView: modelSelectionView,
     });
-  }, [intl, modelSelectionView]);
+  }, [modelSelectionView]);
   const isSelectedConversationWorkspace = selectedWorkspace?.workspacePurpose === "conversation";
   // automation 数据只持久化 workspaceKey/path，编辑态曾直接把 conversation
   // backing path 当项目展示成 default。匹配当前 canonical 候选恢复 purpose 后，

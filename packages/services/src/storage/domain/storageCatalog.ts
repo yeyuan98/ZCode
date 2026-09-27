@@ -61,6 +61,9 @@ const FILE_RULES: FileRule[] = [
   { categoryId: "backups", pattern: /^v2\/[^/]+\.backup\.json$/ },
   { categoryId: "backups", pattern: /^v2\/setting\.json\.(?:corrupt-|[^/]*backup)[^/]*$/ },
   { categoryId: "backups", pattern: /^v2\/config\.json\.pre-[^/]+$/ },
+  // P3 C4 供应商账号删除：coding-plan-cache.json 的写入方已随 C2 套餐服务删除；
+  // 保留该分类规则作为清理墓碑，让 alpha 存量残留文件继续按 toolOutputs（可清理）
+  // 呈现，而不是落入不可清理的 config 类目。
   { categoryId: "toolOutputs", pattern: /^v2\/coding-plan-cache\.json$/ },
   // Bot 历史缓存仅供资源管理器识别展示，不加载配置或启动渠道。
   { categoryId: "toolOutputs", pattern: /^v2\/bots-model-cache[^/]*\.json$/ },

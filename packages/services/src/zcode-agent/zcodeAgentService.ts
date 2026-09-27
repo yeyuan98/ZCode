@@ -57,7 +57,6 @@ import {
   zcodeOffPeakCreateParamsSchema,
   zcodeOffPeakListParamsSchema,
   zcodeComputerUseOperationEventSchema,
-  zcodeProviderRuntimeHeadersCancelledSchema,
   zcodeProviderRuntimeHeadersRequestParamsSchema,
   zcodeProviderTestModelConnectivityResultSchema,
   zcodeProtocolEmptyResultSchema,
@@ -95,10 +94,8 @@ import {
 } from "@zcode/shared";
 import { createServiceLogger } from "#src/logger/serviceLogger.js";
 // P3 C3：官方 MCP（Z.ai 托管）服务删除，发放审计（officialMcpIssuanceAudit）随之移除。
-import type {
-  AccountRequestAuthMaterial,
-  IAccountRequestAuthService,
-} from "#src/model-provider/accountRequestAuthService.js";
+// P3 C4 供应商账号删除：IAccountRequestAuthService（runtime-headers 请求期鉴权）依赖
+// 已随 accountAccess 分支移除。
 import {
   mergeAutomationMutationToolDenylist,
   mergeOffPeakMutationToolDenylist,
@@ -107,7 +104,6 @@ import { ZCODE_AGENT_RUNTIME_UNAVAILABLE_CODE } from "./zcodeAgent.js";
 import type {
   ZCodeProtocolRequestId,
   ModelSelection,
-  ZCodeProviderRuntimeHeadersRequestParams,
   ZCodeSessionEvent,
   ZCodeSessionRuntimePreferencesScope,
   ZCodeSavedWorkflowScope,
@@ -314,10 +310,9 @@ interface PendingPermissionRequest {
   protocolRequestId: ZCodeProtocolRequestId;
 }
 
-interface PendingProviderRuntimeHeadersRequest extends PendingPermissionRequest {
-  request: ZCodeProviderRuntimeHeadersRequestParams;
-  responding?: boolean;
-}
+// P3 C4 供应商账号删除：PendingProviderRuntimeHeadersRequest 及 pending 登记表只服务
+// accountAccess 自动应答链，已随之移除；runtime-headers 请求现在同步快速失败，
+// 不再保留挂起簿记。
 
 interface PendingSessionRuntimePreferencesRequest extends PendingPermissionRequest {
   request: ZCodeAgentSessionRuntimePreferencesRequest;
@@ -758,12 +753,6 @@ function userInputRequestKey(params: ZCodeAgentSessionTarget & { requestId: stri
   return `${sessionEventKey(params)}\u0000${params.requestId}`;
 }
 
-function providerRuntimeHeadersRequestKey(
-  params: ZCodeAgentSessionTarget & { requestId: string },
-): string {
-  return `${sessionEventKey(params)}\u0000${params.requestId}`;
-}
-
 /**
  * 进程级 Provider Registry 的只读选择投影。
  *
@@ -846,7 +835,6 @@ interface CreateZCodeAgentServiceOptions extends Omit<
 > {
   /** 仅供 MCP 状态探测进程使用，不能把空闲回收传给 chat。 */
   mcpStatusIdleTimeoutMs?: number;
-  accountRequestAuthService?: IAccountRequestAuthService;
   /** Desktop Host 请求 Main 登记 Agent 已授权的精确本地视频路径。 */
   authorizeLocalMediaPreviewPath?: (path: string) => Promise<string>;
   modelSelectionReadinessSource?: ModelSelectionReadinessSource;
@@ -999,18 +987,6 @@ export function createZCodeAgentService(
     idleTimeoutMs: options?.mcpStatusIdleTimeoutMs ?? MCP_STATUS_LANE_IDLE_TIMEOUT_MS,
   });
   const sessionEmitters = new Map<string, Emitter<ZCodeAgentServiceEvent>>();
-  function cancelProviderRuntimeHeaders(
-    key: string,
-    pending: PendingProviderRuntimeHeadersRequest,
-  ): void {
-    pendingProviderRuntimeHeaders.delete(key);
-    const { requestId, sessionId, workspace } = pending.request;
-    logger.info(undefined, "Provider runtime headers 请求已取消", {
-      requestId,
-      sessionId,
-      workspaceKey: resolveWorkspaceKey(workspace),
-    });
-  }
   const sessionRuntimePreferencesRequestEmitter =
     new Emitter<ZCodeAgentSessionRuntimePreferencesRequest>();
   const pluginOperationProgressEmitters = new Map<
@@ -1056,7 +1032,6 @@ export function createZCodeAgentService(
     pendingPermissions: pendingPermissions.size,
     pendingUserInputs: pendingUserInputs.size,
   }));
-  const pendingProviderRuntimeHeaders = new Map<string, PendingProviderRuntimeHeadersRequest>();
   const pendingSessionRuntimePreferences = new Map<
     string,
     PendingSessionRuntimePreferencesRequest
@@ -1081,7 +1056,6 @@ export function createZCodeAgentService(
     waitingWorkspaceStartups.clear();
   }
   const sessionTraceIdBySessionKey = new Map<string, TraceId>();
-  const accountRequestAuthService = options?.accountRequestAuthService;
   const modelSelectionReadinessSource = options?.modelSelectionReadinessSource;
   const sessionRuntimePreferencesAuthority = options?.sessionRuntimePreferencesAuthority ?? "local";
   const resolveSessionRuntimePreferences = options?.resolveSessionRuntimePreferences;
@@ -1095,11 +1069,6 @@ export function createZCodeAgentService(
     for (const [key, pending] of pendingUserInputs) {
       if (pending.client === client) {
         pendingUserInputs.delete(key);
-      }
-    }
-    for (const [key, pending] of pendingProviderRuntimeHeaders) {
-      if (pending.client === client) {
-        cancelProviderRuntimeHeaders(key, pending);
       }
     }
     for (const [key, pending] of pendingSessionRuntimePreferences) {
@@ -1138,63 +1107,10 @@ export function createZCodeAgentService(
     invalidateWorkspaceClient(event.workspaceKey, active.client);
   });
 
-  async function resolveAccountRequestAuth(
-    request: ZCodeProviderRuntimeHeadersRequestParams,
-  ): Promise<AccountRequestAuthMaterial | undefined> {
-    if (!request.accountAccess || !accountRequestAuthService) {
-      return undefined;
-    }
-    return accountRequestAuthService.resolveCurrent({
-      providerId: request.providerId,
-      modelId: request.modelSelection.modelId,
-      accountAccess: request.accountAccess,
-      reason: request.reason,
-    });
-  }
-
-  async function respondAccountRequestAuthWithoutInteraction(params: {
-    key: string;
-    pending: PendingProviderRuntimeHeadersRequest;
-  }): Promise<void> {
-    params.pending.responding = true;
-    try {
-      const requestAuth = await resolveAccountRequestAuth(params.pending.request);
-      // 账号解析是异步 IO；取消/进程退出后不能把迟到材料发给已撤销的请求。
-      if (pendingProviderRuntimeHeaders.get(params.key) !== params.pending) return;
-      if (!requestAuth) {
-        throw new Error("Account request auth resolver returned no material");
-      }
-      await params.pending.client.respond(params.pending.protocolRequestId, {
-        headersApplied: true,
-        requestAuth,
-      });
-      logger.info(undefined, "ZCode provider runtime headers 已应用", {
-        modelId: params.pending.request.modelSelection.modelId,
-        providerId: params.pending.request.providerId,
-        requestId: params.pending.request.requestId,
-        sessionId: params.pending.request.sessionId,
-        workspaceKey: resolveWorkspaceKey(params.pending.request.workspace),
-      });
-    } catch (error) {
-      if (pendingProviderRuntimeHeaders.get(params.key) !== params.pending) return;
-      logger.warn(undefined, "ZCode provider runtime headers 应用失败", {
-        modelId: params.pending.request.modelSelection.modelId,
-        providerId: params.pending.request.providerId,
-        requestId: params.pending.request.requestId,
-        sessionId: params.pending.request.sessionId,
-        error: error instanceof Error ? error.message : String(error),
-        workspaceKey: resolveWorkspaceKey(params.pending.request.workspace),
-      });
-      await params.pending.client.respond(params.pending.protocolRequestId, {
-        headersApplied: false,
-        errorMessage: error instanceof Error ? error.message : String(error),
-      });
-    } finally {
-      if (pendingProviderRuntimeHeaders.get(params.key) === params.pending) {
-        pendingProviderRuntimeHeaders.delete(params.key);
-      }
-    }
-  }
+  // P3 C4 供应商账号删除：runtime-headers 的 accountAccess 自动应答链
+  // （resolveAccountRequestAuth / respondAccountRequestAuthWithoutInteraction）已随
+  // zhipu-account 请求期鉴权概念移除；协议方法保留通用请求定位字段，当前无本地
+  // 解析器，请求统一走下方快速失败分支。
 
   function takePendingSessionRuntimePreferences(
     requestId: string,
@@ -1660,23 +1576,9 @@ export function createZCodeAgentService(
     wiredClients.add(client);
     const disposables = [
       client.onNotification((message) => {
-        if (message.method === zcodeProtocolNotifications.providerRuntimeHeadersCancelled) {
-          const parsed = zcodeProviderRuntimeHeadersCancelledSchema.safeParse(message.params);
-          if (
-            !parsed.success ||
-            resolveWorkspaceKey(parsed.data.workspace) !== resolveWorkspaceKey(workspace)
-          )
-            return;
-          const key = providerRuntimeHeadersRequestKey({
-            ...workspace,
-            sessionId: parsed.data.sessionId,
-            requestId: parsed.data.requestId,
-          });
-          const pending = pendingProviderRuntimeHeaders.get(key);
-          // 旧 client 或同路径不同 identity 的取消不能删除新 runtime/其他工作区的请求。
-          if (pending?.client === client) cancelProviderRuntimeHeaders(key, pending);
-          return;
-        }
+        // P3 C4 供应商账号删除：providerRuntimeHeadersCancelled 取消转发只服务
+        // accountAccess 自动应答链的挂起簿记，已随之移除；CLI 侧取消通知不再需要
+        // Host 侧处理（请求本身已同步快速失败）。
         // 已移除厂商资源/MCP 遥测转发：CLI 仍可能推送 processResourceSample /
         // toolExecResource / mcpResourceSamples / mcpTelemetry 通知，这里不再解析。
         if (message.method === zcodeProtocolNotifications.pluginOperationProgress) {
@@ -2045,17 +1947,8 @@ export function createZCodeAgentService(
             });
             return;
           }
-          const pendingKey = providerRuntimeHeadersRequestKey({
-            ...workspace,
-            sessionId: parsed.data.sessionId,
-            requestId: parsed.data.requestId,
-          });
-          const pending = {
-            client,
-            protocolRequestId: request.id,
-            request: parsed.data,
-          };
-          pendingProviderRuntimeHeaders.set(pendingKey, pending);
+          // P3 C4 供应商账号删除：accountAccess 自动应答分支已移除；本地无请求期
+          // 鉴权解析器，请求统一快速失败，避免滞留到 CLI 侧 180s 超时。
           logger.info(request.trace?.traceId, "收到 ZCode provider runtime headers 请求", {
             modelId: parsed.data.modelSelection.modelId,
             providerId: parsed.data.providerId,
@@ -2065,19 +1958,7 @@ export function createZCodeAgentService(
             workspaceKey: resolveWorkspaceKey(workspace),
             workspacePath: workspace.workspacePath,
           });
-          const accountAccess = parsed.data.accountAccess;
-          if (accountRequestAuthService && accountAccess) {
-            // Account API Key / Team Runtime Key / Start Plan JWT 都不需要 Renderer 交互。
-            // Host 按 Model 固定的 Account Access 自动应答，避免后台任务和无 pane 会话依赖 UI 订阅者。
-            void respondAccountRequestAuthWithoutInteraction({
-              key: pendingKey,
-              pending,
-            });
-            return;
-          }
-          // 没有账号凭据解析器的请求无人应答只会滞留到 CLI 侧 180s 超时，直接快速失败。
-          pendingProviderRuntimeHeaders.delete(pendingKey);
-          void pending.client.respond(pending.protocolRequestId, {
+          void client.respond(request.id, {
             headersApplied: false,
             errorMessage: "Provider request auth is unavailable",
           });
@@ -2872,7 +2753,6 @@ export function createZCodeAgentService(
     sessionEventSequenceStates.clear();
     pendingPermissions.clear();
     pendingUserInputs.clear();
-    pendingProviderRuntimeHeaders.clear();
     for (const pending of pendingSessionRuntimePreferences.values()) {
       clearTimeout(pending.timeout);
     }

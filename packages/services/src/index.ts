@@ -13,13 +13,8 @@ export {
   type ProviderSettingsProviderView,
   type ProviderSettingsView,
 } from "./model-provider/providerFacadeServices.js";
-export {
-  createAccountRequestAuthService,
-  type IAccountRequestAuthService,
-  type AccountRequestAuthInput,
-  type AccountRequestAuthMaterial,
-  type AccountRequestAuthResolver,
-} from "./model-provider/accountRequestAuthService.js";
+// P3 C4 供应商账号删除：IAccountRequestAuthService 及其工厂 re-export
+// （accountRequestAuthService.ts）已随 runtime-headers accountAccess 分支移除。
 export { IProviderProvisioningTargetService } from "./model-provider/providerProvisioning.js";
 export {
   collectServiceMemoryDiagnostics,

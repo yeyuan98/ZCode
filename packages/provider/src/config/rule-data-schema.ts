@@ -114,10 +114,12 @@ const personalProviderConfigRuleSchema = providerConfigRuleSchema
   })
   .superRefine((rule, context) => {
     if (rule.providerId.startsWith("account:") && rule.config.access !== undefined) {
+      // P3 C4 供应商账号删除：account: 前缀是已下线的内置账号 Provider 保留段，
+      // 文案改为中性描述；守卫保留以继续拒绝旧配置文件里的越权 Access 声明。
       context.addIssue({
         code: "custom",
         path: ["config", "access"],
-        message: "固定 Account Provider 的 Access 只能由 ZCode Built-in Config 声明",
+        message: "account: 前缀为内置保留的 Provider id，个人配置不允许声明 Access",
       });
     }
   });

@@ -1,20 +1,12 @@
 import { ModelSelectionFacade, type ProviderRegistryFacadeSource } from "@zcode/provider";
-import { isBuiltinModelProviderId, isStartPlanModelProviderId } from "@zcode/shared";
 import { resolveLegacyReasoningLevel } from "./legacy-reasoning-level.js";
 
-/** Host 与受管理 Worker 共用身份分类；解析仍由纯 Provider Facade 负责。
- *  P3：off-peak 供应商专属 Provider 身份类已删除——闲时执行用用户自己的普通 Provider。 */
+/** Host 与受管 Worker 共用身份分类；解析仍由纯 Provider Facade 负责。
+ *  P3 C4 供应商 family/specs 删除：account:* 套餐 provider 身份判定
+ *  （isBuiltinModelProviderId / isStartPlanModelProviderId）已随账号概念移除，
+ *  所有 provider id 统一按普通 API-key Provider 分类。 */
 export function createNodeModelSelectionFacade(
   source: ProviderRegistryFacadeSource,
 ): ModelSelectionFacade {
-  return new ModelSelectionFacade(
-    source,
-    (providerId) => {
-      // Start 按真实 ID 解析；不能参与付费连接唯一性判断或被映射到付费额度。
-      if (isStartPlanModelProviderId(providerId)) return "ordinary";
-      if (isBuiltinModelProviderId(providerId)) return "account-plan";
-      return "ordinary";
-    },
-    resolveLegacyReasoningLevel,
-  );
+  return new ModelSelectionFacade(source, () => "ordinary", resolveLegacyReasoningLevel);
 }

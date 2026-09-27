@@ -150,19 +150,9 @@ function WorkflowRunSettingsForm({
   const view = modelRead.state.status === "ready" ? modelRead.state.view : null;
   const groups = useMemo(
     () =>
-      view === null
-        ? []
-        : buildRegistryModelSelectGroups(ZCODE_AGENT_PROVIDER, view, {
-            apiKeyLabel: format("settings.modelProvider.apiKey"),
-            apiKeyBadgeLabel: format("settings.modelProvider.connectionMode.apiKeyBadge"),
-            codingPlanLabel: format("settings.modelProvider.connectionMode.codingPlan"),
-            codingPlanBadgeLabel: format("settings.modelProvider.connectionMode.codingPlanBadge"),
-            startPlanLabel: format("settings.modelProvider.connectionMode.startPlan"),
-            startPlanBadgeLabel: format("settings.modelProvider.connectionMode.startPlanBadge"),
-            teamPlanBadgeLabel: format("settings.modelProvider.connectionMode.teamPlanBadge"),
-            teamPlanFallbackLabel: format("settings.modelProvider.connectionMode.teamPlan"),
-          }),
-    [format, view],
+      // P3 C4 供应商 family/specs 删除：分组改为中性按 provider 名称聚合，labels 参数已移除。
+      view === null ? [] : buildRegistryModelSelectGroups(ZCODE_AGENT_PROVIDER, view),
+    [view],
   );
   const providerName = useCallback(
     (providerId: string) =>
