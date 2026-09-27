@@ -22,7 +22,15 @@ import {
   TID_MODEL_PROVIDER_NAME_INPUT,
   testId,
 } from "@zcode/shared";
-import { InfoIcon, LockKeyholeIcon, Plus, Pencil, Trash2, MoreHorizontal } from "lucide-react";
+import {
+  InfoIcon,
+  Loader2Icon,
+  LockKeyholeIcon,
+  Plus,
+  Pencil,
+  Trash2,
+  MoreHorizontal,
+} from "lucide-react";
 import { Button } from "@/components/ui/button.js";
 import { Input } from "@/components/ui/input.js";
 import {
@@ -34,10 +42,12 @@ import {
 } from "@/components/ui/dropdown-menu.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import { useServices } from "@/hooks/useServices.js";
+import { useDiscoverProviderModels } from "@/hooks/useDiscoverProviderModels.js";
 import { TECHNICAL_INPUT_ATTRIBUTES } from "@/lib/technicalInputAttributes.js";
 import { ApiKeyInput } from "./ApiKeyInput.js";
 import { ModelRowInput } from "./ProviderFormControls.js";
 import { PresetProviderApiKeyBanner } from "./PresetProviderApiKeyBanner.js";
+import { useProviderDetailFeedback } from "./ProviderDetailFeedback.js";
 import { type ProviderModelDraftValues } from "@/settings/model-provider-section/ProviderModelMetadata.js";
 import { ProviderModelMetadataDialog } from "@/settings/model-provider-section/ProviderModelMetadataDialog.js";
 import {
@@ -374,6 +384,8 @@ export function ProviderModelsSection({
 }) {
   const { intl } = useZCodeIntl();
   const { providerSettingsService } = useServices();
+  const { showFeedback } = useProviderDetailFeedback();
+  const { state: discoveryState, discover: discoverModels } = useDiscoverProviderModels(providerId);
   const [addDialogOpen, setAddDialogOpen] = useState(false);
   const [addSaving, setAddSaving] = useState(false);
   const addSavingRef = useRef(false);
@@ -462,23 +474,73 @@ export function ProviderModelsSection({
       })
     : null;
 
+  // 发现模型复用本卡片既有的反馈横幅模式（pending 常驻，成功/失败按默认时长收尾）。
+  const handleDiscoverModels = useCallback(async () => {
+    const feedbackKey = `discover-models:${providerId}`;
+    showFeedback({
+      key: feedbackKey,
+      message: intl.formatMessage({ id: "settings.modelProvider.discoverModels" }),
+      state: "pending",
+      durationMs: 0,
+    });
+    const finalState = await discoverModels();
+    if (finalState.status === "success") {
+      showFeedback({
+        key: feedbackKey,
+        message: intl.formatMessage(
+          { id: "settings.modelProvider.discoverModelsSuccess" },
+          { count: finalState.addedCount },
+        ),
+        state: "success",
+      });
+    } else if (finalState.status === "failure") {
+      showFeedback({
+        key: feedbackKey,
+        message: intl.formatMessage(
+          { id: "settings.modelProvider.discoverModelsFail" },
+          { error: finalState.error },
+        ),
+        state: "failure",
+        dismissible: true,
+        dismissLabel: intl.formatMessage({ id: "common.close" }),
+      });
+    }
+  }, [discoverModels, intl, providerId, showFeedback]);
+
   return (
     <div>
       <div className="mb-1 flex flex-wrap items-center justify-between gap-3">
         <span className="text-ui-base text-foreground-subtle">
           {intl.formatMessage({ id: "settings.modelProvider.models" })}
         </span>
-        <Button
-          type="button"
-          variant="secondary"
-          size="default"
-          className="rounded-lg"
-          data-testid={TID_MODEL_PROVIDER_ADD_MODEL_BUTTON}
-          onClick={openAddDialog}
-        >
-          <Plus data-icon="inline-start" aria-hidden="true" />
-          {intl.formatMessage({ id: "settings.modelProvider.addModel" })}
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button
+            type="button"
+            variant="secondary"
+            size="default"
+            className="rounded-lg"
+            disabled={discoveryState.status === "testing"}
+            onClick={() => {
+              void handleDiscoverModels();
+            }}
+          >
+            {discoveryState.status === "testing" ? (
+              <Loader2Icon data-icon="inline-start" className="animate-spin" aria-hidden="true" />
+            ) : null}
+            {intl.formatMessage({ id: "settings.modelProvider.discoverModels" })}
+          </Button>
+          <Button
+            type="button"
+            variant="secondary"
+            size="default"
+            className="rounded-lg"
+            data-testid={TID_MODEL_PROVIDER_ADD_MODEL_BUTTON}
+            onClick={openAddDialog}
+          >
+            <Plus data-icon="inline-start" aria-hidden="true" />
+            {intl.formatMessage({ id: "settings.modelProvider.addModel" })}
+          </Button>
+        </div>
       </div>
       {models.length > 0 ? (
         <div className="overflow-hidden rounded-lg border border-input-border bg-input">

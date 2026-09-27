@@ -284,21 +284,12 @@ export class ProviderConfigService implements ProviderSource<ProviderConfigSnaps
       // P1.1（spec §2）：端点 hints 只填目录解析留空的字段，绝不覆盖目录规则。规则解析
       // 使用与 Resolver 相同的 api 上下文（模板实例的有效 api = 模板配置在底、个人覆盖在顶）。
       const effectiveApi = (template ? template.config.overlay(baseConfig) : baseConfig).api;
-      let models = current.models;
-      for (const entry of initialModels) {
-        if (!entry.hints) continue;
-        const manualConfig = buildInitialModelManualConfig(zcodeBuiltin.models, {
-          providerId,
-          ...(templateId ? { templateId } : {}),
-          modelId: entry.id,
-          apiType: effectiveApi?.type,
-          baseUrl: effectiveApi?.baseUrl,
-          hints: entry.hints,
-        });
-        if (manualConfig) {
-          models = models.setExact(providerId, entry.id, manualConfig, false);
-        }
-      }
+      const models = applyInitialModelHints(current.models, zcodeBuiltin.models, initialModels, {
+        providerId,
+        ...(templateId ? { templateId } : {}),
+        apiType: effectiveApi?.type,
+        baseUrl: effectiveApi?.baseUrl,
+      });
       return {
         providers,
         models,
@@ -404,6 +395,65 @@ export class ProviderConfigService implements ProviderSource<ProviderConfigSnaps
         providerOrder: current.providerOrder,
       };
     });
+  }
+
+  /**
+   * 批量合并发现到的模型（P1.1 spec §4）：与 personal 现有 id、builtin 继承 id、批内
+   * 重复 id 重复的条目全部静默跳过（发现可反复执行，重复合并不得抛错），单次
+   * #updatePersonal 事务完成全部写入，返回实际新增数量。带 hints 的条目与创建路径
+   * 共用 applyInitialModelHints 的同一套 gap-filling 落盘语义。
+   */
+  async addPersonalModels(
+    providerId: ProviderId,
+    models: ReadonlyArray<InitialModelEntry>,
+    membership?: ProviderModelMembership,
+  ): Promise<number> {
+    const normalizedProviderId = normalizeId("providerId", providerId);
+    const normalizedModels = normalizeInitialModels(models);
+    const zcodeBuiltin = await this.#zcodeBuiltinSource.read();
+    let addedCount = 0;
+    await this.#updatePersonal((current) => {
+      assertMembershipCurrent(membership, normalizedProviderId, current);
+      const provider = writableProviderOverlay(zcodeBuiltin, current, normalizedProviderId);
+      const builtinModelIds =
+        membership?.inheritedModelIds ??
+        resolveProviderBuiltinModelIds(zcodeBuiltin, current.providers, normalizedProviderId);
+      const existingIds = new Set<ModelId>([
+        ...builtinModelIds,
+        ...(provider.personalModelIds ?? []),
+      ]);
+      const pending = normalizedModels.filter((entry) => !existingIds.has(entry.id));
+      if (pending.length === 0) {
+        return {
+          providers: current.providers,
+          models: current.models,
+          providerOrder: current.providerOrder,
+        };
+      }
+      addedCount = pending.length;
+      const nextModelIds = [...(provider.personalModelIds ?? []), ...pending.map((e) => e.id)];
+      const templateId = current.providers.getRule(normalizedProviderId)?.templateId;
+      const template = templateId ? zcodeBuiltin.providerTemplates?.get(templateId) : undefined;
+      // 与创建路径相同的 api 上下文：模板基线在底、personal 覆盖在顶的有效 api。
+      const effectiveApi = (template ? template.config.overlay(provider) : provider).api;
+      return {
+        providers: current.providers.set(
+          normalizedProviderId,
+          provider.withPersonalModelIds(nextModelIds).withModelOrder(
+            // 批量追加不能重排用户已保存的顺序（与 addPersonalModel 同一约束）。
+            normalizeModelOrder(builtinModelIds, nextModelIds, provider.modelOrder ?? []),
+          ),
+        ),
+        models: applyInitialModelHints(current.models, zcodeBuiltin.models, pending, {
+          providerId: normalizedProviderId,
+          ...(templateId ? { templateId } : {}),
+          apiType: effectiveApi?.type,
+          baseUrl: effectiveApi?.baseUrl,
+        }),
+        providerOrder: current.providerOrder,
+      };
+    });
+    return addedCount;
   }
 
   async renamePersonalModel(
@@ -778,6 +828,37 @@ function buildInitialModelManualConfig(
       }),
     }),
   });
+}
+
+/**
+ * 把端点 hints 以 personal 手动规则落盘（spec §2 gap-filling：只填目录留空的字段，
+ * 目录已提供全部字段时不产生精确规则）。向导创建种子与设置页批量合并共用此函数，
+ * 保证两条写入路径的 hints 语义完全一致，不各写一份覆盖判定。
+ */
+function applyInitialModelHints(
+  models: ModelConfigRules,
+  builtinRules: ModelConfigRules,
+  entries: readonly NormalizedInitialModel[],
+  context: {
+    readonly providerId: ProviderId;
+    readonly templateId?: ProviderTemplateId;
+    readonly apiType?: string | null;
+    readonly baseUrl?: string | null;
+  },
+): ModelConfigRules {
+  let next = models;
+  for (const entry of entries) {
+    if (!entry.hints) continue;
+    const manualConfig = buildInitialModelManualConfig(builtinRules, {
+      ...context,
+      modelId: entry.id,
+      hints: entry.hints,
+    });
+    if (manualConfig) {
+      next = next.setExact(context.providerId, entry.id, manualConfig, false);
+    }
+  }
+  return next;
 }
 
 function assertProviderLabelMutationIsUnique(
