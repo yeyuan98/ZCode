@@ -53,4 +53,4 @@ export { useGitActions } from "./useGitActions.js";
 // workspace provider 配置路径
 export { useTaskNativeSessionLogFile } from "./useTaskNativeSessionLogFile.js";
 export { useTaskSessionFilePath } from "./useTaskSessionFilePath.js";
-export { useUsageStats } from "./useUsageStats.js";
+// P3 供应商套餐/配额面删除：monitor 版 useUsageStats 已删除，仅保留 App Usage hook（AppUsagePanel 直接引用）。

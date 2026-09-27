@@ -1,19 +1,15 @@
 import type { ComponentProps } from "react";
 import { Button } from "@/components/ui/button.js";
-import { useZCodeIntl } from "@/i18n/IntlProvider.js";
-import { useOptionalCodingPlanUpgradeDialog } from "@/settings/CodingPlanUpgradeDialogProvider.js";
 
-export function useCodingPlanEntryGate() {
-  const dialog = useOptionalCodingPlanUpgradeDialog();
-  const { intl } = useZCodeIntl();
-  const status = dialog?.inventory?.status ?? "ready";
-  const label =
-    status === "ready"
-      ? undefined
-      : intl.formatMessage({
-          id: status === "loading" ? "purchase.entry.loading" : "purchase.entry.retry",
-        });
-  return { status, label, retry: dialog?.inventory?.retry };
+// P3 供应商套餐/配额面删除：购买入口盘点（useCodingPlanEntryPlanList，经升级弹窗
+// Provider 下发）已删除；gate 退化为恒 ready，按钮行为不再有 loading/error 分支。
+// C4 设置页 de-plan 时随升级入口整体移除。
+export function useCodingPlanEntryGate(): {
+  status: "loading" | "error" | "ready";
+  label: string | undefined;
+  retry: (() => void) | undefined;
+} {
+  return { status: "ready", label: undefined, retry: undefined };
 }
 
 /** 各入口共享同一查询状态；失败时按钮只重试，不继续执行购买动作。 */

@@ -52,7 +52,6 @@ import {
 import { resolveStartPlanEntitlementSummary } from "./StartPlanCard.js";
 import { useCodingPlanProducts } from "./useCodingPlanProducts.js";
 import { useEnterpriseCodingPlanProducts } from "./useEnterpriseCodingPlanProducts.js";
-import { useUsageEntitlement } from "@/hooks/useUsageEntitlement.js";
 import { useCodingPlanUpgradeDialog } from "@/settings/CodingPlanUpgradeDialogProvider.js";
 import { useProviderSettingsView } from "@/hooks/useProviderSettingsView.js";
 import type { ProviderSettingsView } from "@zcode/services";
@@ -72,112 +71,10 @@ function isPlanNavItem(
   return item?.type === "codingPlan" || item?.type === "teamPlan";
 }
 
-function hasTeamPlanContext(item: ModelProviderNavItem | null): item is Extract<
-  ModelProviderNavItem,
-  { type: "teamPlan" }
-> & {
-  organizationId: string;
-  projectId: string;
-} {
-  return (
-    item?.type === "teamPlan" &&
-    (item.organizationId?.trim().length ?? 0) > 0 &&
-    (item.projectId?.trim().length ?? 0) > 0
-  );
-}
-
 function resolveTeamScopedPlanNavItem(
   item: Extract<ModelProviderNavItem, { type: "codingPlan" | "teamPlan" }>,
-  entitlement: ReturnType<typeof useUsageEntitlement>,
 ): Extract<ModelProviderNavItem, { type: "codingPlan" | "teamPlan" }> {
-  if (item.type !== "teamPlan" || !hasTeamPlanContext(item)) {
-    return item;
-  }
-  if (
-    item.availabilityReason === "credential-unavailable" &&
-    entitlement.snapshot?.unavailableReason !== "no_plan"
-  ) {
-    // 已知 Project Key 不可用时，后续 quota loading/error 不能把真实原因改写成
-    // “正在检查”或“团队套餐未分配”。Provider 配置仍由 Settings View 独立展示。
-    return {
-      ...item,
-      status: "unavailable" as const,
-      statusLabelId: undefined,
-      statusActive: false,
-      quotaLimits: [],
-    };
-  }
-  const snapshot = entitlement.snapshot;
-  if (!snapshot) {
-    if (entitlement.loading) {
-      return {
-        ...item,
-        // Team Plan 额度按组织 / 项目重新查询，切换团队时不能继续展示上一团队额度。
-        status: "checking" as const,
-        statusLabelId: undefined,
-        availabilityReason: undefined,
-        statusActive: false,
-        quotaLimits: [],
-      };
-    }
-    if (entitlement.error) {
-      return {
-        ...item,
-        // 请求失败只证明权益状态未知，不能等价成服务端明确判定“团队套餐未分配”。
-        status: "unavailable" as const,
-        statusLabelId: undefined,
-        availabilityReason: undefined,
-        statusActive: false,
-        quotaLimits: [],
-      };
-    }
-    return item;
-  }
-  if (entitlement.loading && !snapshot.subscription) {
-    return {
-      ...item,
-      status: "checking" as const,
-      statusLabelId: undefined,
-      availabilityReason: undefined,
-      statusActive: false,
-      quotaLimits: [],
-    };
-  }
-  if (entitlement.error && !snapshot.subscription) {
-    return {
-      ...item,
-      status: "unavailable" as const,
-      statusLabelId: undefined,
-      availabilityReason: undefined,
-      statusActive: false,
-      quotaLimits: [],
-    };
-  }
-  const hasTeamSubscription = Boolean(snapshot.subscription?.details.length);
-  const noPlan = snapshot.unavailableReason === "no_plan";
-  const expired = noPlan && snapshot.teamPlanUnavailableReason === "expired";
-  return {
-    ...item,
-    // 权益只来自团队订阅查询；quota 查询失败不能撤销订阅，也不能被解释成未分配。
-    status: hasTeamSubscription ? ("purchased" as const) : ("unavailable" as const),
-    planLevel: item.teamPlanName?.trim() || item.planLevel,
-    currentProductId: item.currentProductId,
-    subscriptionBillingCycle: null,
-    subscriptionRenewTime: null,
-    subscriptionExpireTime: null,
-    subscriptionDetails: [],
-    quotaLimits: snapshot.quota?.limits ?? [],
-    statusLabelId:
-      !hasTeamSubscription && noPlan
-        ? expired
-          ? "settings.modelProvider.codingPlan.status.teamExpired"
-          : "settings.modelProvider.codingPlan.status.teamUnavailable"
-        : undefined,
-    statusMessage: noPlan ? undefined : item.statusMessage,
-    availabilityReason:
-      !hasTeamSubscription && noPlan ? (expired ? "expired" : "not-allocated") : undefined,
-    statusActive: hasTeamSubscription,
-  };
+  return item;
 }
 
 function resolveTeamPlanInspectionAccess(
@@ -317,41 +214,10 @@ export function ModelProviderSectionDetail({
       return resolveTeamPlanInspectionAccess(selectedNavItem);
     return undefined;
   }, [selectedNavItem]);
-  const selectedTeamPlanContext = useMemo(
-    () =>
-      hasTeamPlanContext(selectedNavItem)
-        ? {
-            organizationId: selectedNavItem.organizationId.trim(),
-            projectId: selectedNavItem.projectId.trim(),
-          }
-        : null,
-    [selectedNavItem],
-  );
-  const selectedTeamPlanEntitlement = useUsageEntitlement({
-    enabled: Boolean(selectedTeamPlanContext),
-    includeSubscription: true,
-    preferredProviderId:
-      selectedNavItem?.type === "teamPlan" ? selectedNavItem.presetId : undefined,
-    accountAccess: selectedPlanAccess,
-    // 已购 Team Plan 时，个人 Coding Plan provider 可能因个人权益不可用被标记 disabled。
-    // Team 额度查询仍复用 Coding Plan quota 链路，并追加组织 / 项目上下文，不能在服务选择阶段被过滤。
-    allowDisabledPreferredProvider: selectedNavItem?.type === "teamPlan",
-    requirePreferredProvider: true,
-    allowEnvApiKey: false,
-    cacheKey: selectedNavItem?.key ?? undefined,
-    refreshOnMount: false,
-  });
-  useEffect(() => {
-    if (!selectedTeamPlanContext) {
-      return;
-    }
-    void selectedTeamPlanEntitlement.refresh({
-      silent: true,
-      reason: "access",
-    });
-  }, [selectedTeamPlanContext, selectedTeamPlanEntitlement.refresh]);
+  // P3 供应商套餐/配额面删除：selectedTeamPlanEntitlement（useUsageEntitlement）、
+  // team 上下文与 access 刷新 effect 已随 entitlement 服务面删除。
   const effectiveSelectedPlanNavItem = isPlanNavItem(selectedNavItem)
-    ? resolveTeamScopedPlanNavItem(selectedNavItem, selectedTeamPlanEntitlement)
+    ? resolveTeamScopedPlanNavItem(selectedNavItem)
     : null;
   const planModeSwitch = (
     <ProviderFamilyPlanModeSwitch
@@ -476,7 +342,6 @@ export function ModelProviderSectionDetail({
       onRetryCodingPlan
         ? async () => {
             await onRetryCodingPlan();
-            await selectedTeamPlanEntitlement.refresh({ force: true, reason: "manual" });
           }
         : undefined;
     const accessBanner =
@@ -573,15 +438,7 @@ export function ModelProviderSectionDetail({
             selectedNavItem.type === "teamPlan" ? selectedNavItem.key : selectedNavItem.presetId
           }
           quotaResetAccountAccess={selectedPlanAccess}
-          onQuotaResetEntitlementRefresh={
-            selectedNavItem.type === "teamPlan"
-              ? () =>
-                  selectedTeamPlanEntitlement.refresh({
-                    force: true,
-                    reason: "manual",
-                  })
-              : onCodingPlanPurchaseComplete
-          }
+          onQuotaResetEntitlementRefresh={onCodingPlanPurchaseComplete}
           onOpenPurchase={onOpenApiKeyUrl}
           onDisconnect={
             (selectedNavItem.oauthProviderId === BIGMODEL_PROVIDER_ID ||
@@ -687,15 +544,7 @@ export function ModelProviderSectionDetail({
               selectedNavItem.type === "teamPlan" ? selectedNavItem.key : selectedNavItem.presetId
             }
             quotaResetAccountAccess={selectedPlanAccess}
-            onQuotaResetEntitlementRefresh={
-              selectedNavItem.type === "teamPlan"
-                ? () =>
-                    selectedTeamPlanEntitlement.refresh({
-                      force: true,
-                      reason: "manual",
-                    })
-                : onCodingPlanPurchaseComplete
-            }
+            onQuotaResetEntitlementRefresh={onCodingPlanPurchaseComplete}
             subscriptionRenewTime={selectedNavItem.subscriptionRenewTime}
             subscriptionExpireTime={selectedNavItem.subscriptionExpireTime}
             subscriptionDetails={selectedNavItem.subscriptionDetails}

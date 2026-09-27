@@ -14,20 +14,8 @@ import { useState, type ReactNode } from "react";
 import { Button } from "@/components/ui/button.js";
 import { ControlHintTooltip } from "@/ControlHintTooltip.js";
 import { logger } from "@/logger.js";
-import { LocalizedCodingPlanQuotaResetAction } from "@/components/coding-plan-quota-reset/CodingPlanQuotaResetAction.js";
-import { CodingPlanQuotaResetOpportunity } from "@/components/coding-plan-quota-reset/CodingPlanQuotaResetOpportunity.js";
-import { buildCodingPlanQuotaResetDialogConfig } from "@/components/coding-plan-quota-reset/buildCodingPlanQuotaResetDialogConfig.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
-import { useCodingPlanQuotaResetUi } from "@/hooks/useCodingPlanQuotaResetUi.js";
-import {
-  formatQuotaResetTime,
-  isCodingPlanQuotaLimitFull,
-  isSameLimitCategory,
-} from "@/lib/codingPlanQuotaPresentation.js";
-import {
-  mergeCodingPlanQuotaResetOpportunityBadges,
-  resolveCodingPlanQuotaResetLimit,
-} from "@/lib/codingPlanQuotaResetUi.js";
+import { formatQuotaResetTime, isSameLimitCategory } from "@/lib/codingPlanQuotaPresentation.js";
 import {
   type CodingPlanStatus,
   type CodingPlanProviderId,
@@ -675,25 +663,15 @@ function CodingPlanUsageSummaryCards({
   accountAccess?: ZCodeProviderAccountAccess | ZCodeAccountAccess;
   onEntitlementRefresh?: () => void | Promise<void>;
 }) {
-  const { intl, locale } = useZCodeIntl();
-  const [quotaResetDialogOpen, setQuotaResetDialogOpen] = useState(false);
-  const resetUi = useCodingPlanQuotaResetUi({
-    sourceKey,
-    preferredProviderId,
-    accountAccess,
-    onEntitlementRefresh,
-  });
-  const fiveHourLimit = resolveCodingPlanQuotaResetLimit(
-    findUsageLimit(limits, "TOKENS_LIMIT", 3, 5),
-    resetUi.entry,
-  );
-  const weeklyLimit = resolveCodingPlanQuotaResetLimit(
-    findUsageLimit(limits, "TOKENS_LIMIT", 6),
-    resetUi.week.entry,
-  );
-  // 额度剩余 100% 时重置没有收益:隐藏重置按钮与机会徽标(纯展示,不影响发放与轮询)。
-  const fiveHourQuotaFull = isCodingPlanQuotaLimitFull(fiveHourLimit);
-  const weeklyQuotaFull = isCodingPlanQuotaLimitFull(weeklyLimit);
+  const { intl } = useZCodeIntl();
+  // P3 供应商套餐/配额面删除：额度重置 UI（useCodingPlanQuotaResetUi、机会徽标、
+  // LocalizedCodingPlanQuotaResetAction）已删除，额度卡只读展示 limit 本身。
+  void sourceKey;
+  void preferredProviderId;
+  void accountAccess;
+  void onEntitlementRefresh;
+  const fiveHourLimit = findUsageLimit(limits, "TOKENS_LIMIT", 3, 5);
+  const weeklyLimit = findUsageLimit(limits, "TOKENS_LIMIT", 6);
   const standardCards = [
     createCodingPlanUsageSummaryCard({
       key: "fiveHour",
@@ -749,44 +727,7 @@ function CodingPlanUsageSummaryCards({
             resetTimeFormat: "date" as const,
           }));
 
-  const fiveHourCardVisible = cards.some((card) => card.key === "fiveHour");
-  const weeklyCardVisible = cards.some((card) => card.key === "weekly");
-  // 五小时与周机会合并为一个徽标,次数累加,倒计时取最早到期的一档。
-  const opportunityBadge = mergeCodingPlanQuotaResetOpportunityBadges([
-    {
-      count: resetUi.entry?.opportunityCount ?? 0,
-      expiresAt: resetUi.entry?.opportunityExpiresAt ?? null,
-      visible: fiveHourCardVisible && resetUi.opportunityVisible && !fiveHourQuotaFull,
-    },
-    {
-      count: resetUi.week.entry?.opportunityCount ?? 0,
-      expiresAt: resetUi.week.entry?.opportunityExpiresAt ?? null,
-      visible: weeklyCardVisible && resetUi.week.opportunityVisible && !weeklyQuotaFull,
-    },
-  ]);
-  const quotaResetDialog = buildCodingPlanQuotaResetDialogConfig({
-    fiveHourEnabled: Boolean(fiveHourLimit),
-    fiveHourQuotaFull,
-    resetUi,
-    usageItems: cards.map((card) => {
-      const percentage = resolveLimitRemainingPercentage(card.limit);
-      return {
-        color: card.progressColor,
-        id: card.key,
-        label: card.label,
-        percentage,
-        resetTime: formatQuotaResetTime({
-          locale,
-          value: card.limit.nextResetTime,
-          format: card.resetTimeFormat,
-          compactToday: card.resetTimeFormat === "dateTime",
-        }),
-        value: formatRemainingPercentage(locale, percentage),
-      };
-    }),
-    weekEnabled: Boolean(weeklyLimit),
-    weekQuotaFull: weeklyQuotaFull,
-  });
+  // P3：quotaResetDialog / opportunityBadge 随额度重置 UI 一并删除。
 
   return (
     <div className="space-y-2">
@@ -794,49 +735,11 @@ function CodingPlanUsageSummaryCards({
         <h4 className="text-ui-base font-medium text-foreground">
           {intl.formatMessage({ id: "settings.usage.quotaTitle" })}
         </h4>
-        {(fiveHourCardVisible && resetUi.entry) || (weeklyCardVisible && resetUi.week.entry) ? (
-          <CodingPlanQuotaResetOpportunity
-            count={opportunityBadge.count}
-            dialog={quotaResetDialog}
-            dialogOpen={quotaResetDialogOpen}
-            expiresAt={opportunityBadge.expiresAt}
-            placement="inline"
-            visible={opportunityBadge.visible}
-            onDialogOpenChange={setQuotaResetDialogOpen}
-          />
-        ) : null}
       </div>
       <div className="flex w-full gap-2 max-sm:flex-col">
         {cards.map((card) => (
           <PlanUsageMetricCard
             key={card.key}
-            action={
-              // 额度标题旁入口只打开统一弹窗；真正核销由弹窗内对应类型按钮触发。
-              card.key === "fiveHour" &&
-              resetUi.entry &&
-              ((resetUi.opportunityVisible && !fiveHourQuotaFull && opportunityBadge.count <= 1) ||
-                resetUi.processing ||
-                resetUi.entry.status === "completed") ? (
-                <LocalizedCodingPlanQuotaResetAction
-                  completedAt={resetUi.entry.completedAt}
-                  processing={resetUi.processing}
-                  onOpenDialog={() => setQuotaResetDialogOpen(true)}
-                />
-              ) : card.key === "weekly" &&
-                resetUi.week.entry &&
-                ((resetUi.week.opportunityVisible &&
-                  !weeklyQuotaFull &&
-                  opportunityBadge.count <= 1) ||
-                  resetUi.week.processing ||
-                  resetUi.week.entry.status === "completed") ? (
-                <LocalizedCodingPlanQuotaResetAction
-                  completedAt={resetUi.week.entry.completedAt}
-                  processing={resetUi.week.processing}
-                  resetType="WEEK"
-                  onOpenDialog={() => setQuotaResetDialogOpen(true)}
-                />
-              ) : undefined
-            }
             label={card.label}
             limit={card.limit}
             infoDescription={

@@ -17,11 +17,9 @@
  */
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  BUILTIN_MODEL_PROVIDER_IDS,
   TID_V4_MODEL_CONFIG,
   TID_V4_COMPOSER_INPUT,
   ZCODE_AGENT_PROVIDER,
-  type ProviderFamilyDomain,
   type ZCodeConfigOption,
   type ZCodeProvider,
 } from "@zcode/shared";
@@ -33,11 +31,6 @@ import type {
 import { ModelConfigSelect, type ModelSelectGroup } from "@/ModelConfigSelect.js";
 import { Button } from "@/components/ui/button.js";
 import { ChatContextUsage } from "@/chat-input-toolbar/display.js";
-import {} from "@/chat-input-toolbar/CodingPlanContextUsage.js";
-import {
-  hasChatStartPlanBalance,
-  type ChatStartPlanBalanceConfig,
-} from "@/chat-input-toolbar/StartPlanContextBalance.js";
 import { ThoughtLevelCycleControl } from "@/chat-input-toolbar/ThoughtLevelCycleControl.js";
 import { getNextThoughtLevelValue } from "@/chat-input-toolbar/thoughtLevelOptions.js";
 import type { V4ComposerConfigPicker } from "@/v4/composer/configPickerState.js";
@@ -51,13 +44,10 @@ import { setPendingSettingsSectionIntent } from "@/lib/settingsNavigation.js";
 import { useTabStore } from "@/store/TabStoreProvider.js";
 import type { ModelSelectionView } from "@zcode/services";
 import type { ModelSelectionState } from "@/hooks/useModelSelectionView.js";
-import { useProviderSettingsView } from "@/hooks/useProviderSettingsView.js";
 import { useToolbarConfigOptions } from "@/hooks/useZCodeConfig.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import { useShortcutCommandLabel } from "@/shortcuts/useShortcutBindings.js";
 import { logger } from "@/logger.js";
-import { useCodingPlanUpgradeDialog } from "@/settings/CodingPlanUpgradeDialogProvider.js";
-import { useCodingPlanEntitlements } from "@/settings/model-provider-section/useCodingPlanEntitlements.js";
 import { decodeCustomModelValue, encodeCustomModelValue } from "@/lib/zcodeCustomModelValue.js";
 import { buildRegistryModelSelectGroups } from "@/lib/modelSelectionGroups.js";
 import {
@@ -81,60 +71,8 @@ export interface ModelSelectionSource {
   model: string;
 }
 
-type V4ContextPlanConnection =
-  | { kind: "none" }
-  | {
-      family: ProviderFamilyDomain;
-      kind: "start";
-      providerId:
-        | typeof BUILTIN_MODEL_PROVIDER_IDS.zaiStartPlan
-        | typeof BUILTIN_MODEL_PROVIDER_IDS.bigmodelStartPlan;
-    };
-
-function resolveFamilyForPlanProviderId(providerId: string | null | undefined): {
-  family: ProviderFamilyDomain;
-  kind: "personalCoding" | "teamCoding" | "start";
-} | null {
-  switch (providerId?.trim()) {
-    case BUILTIN_MODEL_PROVIDER_IDS.zaiIndividualCodingPlan:
-      return { family: "zai", kind: "personalCoding" };
-    case BUILTIN_MODEL_PROVIDER_IDS.zaiTeamCodingPlan:
-      return { family: "zai", kind: "teamCoding" };
-    case BUILTIN_MODEL_PROVIDER_IDS.zaiStartPlan:
-      return { family: "zai", kind: "start" };
-    case BUILTIN_MODEL_PROVIDER_IDS.bigmodelIndividualCodingPlan:
-      return { family: "bigmodel", kind: "personalCoding" };
-    case BUILTIN_MODEL_PROVIDER_IDS.bigmodelTeamCodingPlan:
-      return { family: "bigmodel", kind: "teamCoding" };
-    case BUILTIN_MODEL_PROVIDER_IDS.bigmodelStartPlan:
-      return { family: "bigmodel", kind: "start" };
-    default:
-      return null;
-  }
-}
-
-function resolveV4ContextPlanConnection(params: {
-  providerId?: string | null;
-}): V4ContextPlanConnection {
-  // P1：providerFamilyConnectionSelections 已删除，context 连接只保留 Start Plan
-  // （它属于输入框的有效模型，不依赖已保存连接）；个人/Team 连接方式待 P3 重建。
-  const providerFamily = resolveFamilyForPlanProviderId(params.providerId);
-  if (providerFamily?.kind !== "start") {
-    return { kind: "none" };
-  }
-  const providerId = params.providerId?.trim();
-  if (
-    providerId !== BUILTIN_MODEL_PROVIDER_IDS.zaiStartPlan &&
-    providerId !== BUILTIN_MODEL_PROVIDER_IDS.bigmodelStartPlan
-  ) {
-    return { kind: "none" };
-  }
-  return {
-    family: providerFamily.family,
-    kind: "start",
-    providerId,
-  };
-}
+// P3 供应商套餐/配额面删除：context 面板的 Start Plan / Coding Plan 余额与升级入口
+// （V4ContextPlanConnection 及其解析）随 entitlement 服务面删除，ChatContextUsage 只剩 context 统计。
 
 export interface V4ComposerToolbarProps {
   workspacePath: string;
@@ -194,7 +132,6 @@ function V4ComposerModelControlsImpl({
   onRecoverCustomModelSelection,
 }: V4ComposerToolbarProps) {
   const { intl, locale } = useZCodeIntl();
-  const { openCodingPlanUpgrade } = useCodingPlanUpgradeDialog();
   const displayProvider = provider ?? ZCODE_AGENT_PROVIDER;
   // 配置面读取：workspace 缺省目录（taskId=null），不读旧会话态。
   const { error: configOptionsError } = useToolbarConfigOptions(
@@ -202,19 +139,6 @@ function V4ComposerModelControlsImpl({
     null,
     workspaceIdentity,
   );
-  const providerSettingsRead = useProviderSettingsView();
-  const providerSettingsView =
-    providerSettingsRead.state.status === "ready" ? providerSettingsRead.state.view : null;
-  const providerSourcesLoading = providerSettingsRead.state.status !== "ready";
-  const {
-    entitlements,
-    enabledStartPlanProviderIds,
-    refresh: refreshCodingPlanEntitlements,
-  } = useCodingPlanEntitlements({
-    providerSettingsView,
-    // Context 只在用户 hover/open 时刷新，不在 composer 挂载时请求额度。
-    suppressProviderFingerprintAutoRefresh: true,
-  });
   const openSettingsTab = useTabStore((state) => state.openSettingsTab);
   const modelTriggerRef = useRef<HTMLSpanElement | null>(null);
   const thoughtTriggerRef = useRef<HTMLSpanElement | null>(null);
@@ -254,65 +178,9 @@ function V4ComposerModelControlsImpl({
     return resolveDraftDisplayedConfig(draftConfig ?? {});
   }, [draftConfig]);
 
-  const handleOpenStartPlanUpgrade = useCallback(
-    (providerId: string) => {
-      openCodingPlanUpgrade({ providerId });
-    },
-    [openCodingPlanUpgrade],
-  );
-  // P1：连接选择字段已删除，context 额度“更多”入口不再携带来源偏好直达（P3 重建）。
-
-  const contextPlanConnection = useMemo(
-    () =>
-      resolveV4ContextPlanConnection({
-        providerId: effectiveConfig?.provider,
-      }),
-    [effectiveConfig?.provider],
-  );
-  // P1：个人/Team 连接方式依赖已删除的 providerFamilyConnectionSelections，
-  // context 面板不再解析 Coding Plan 访问身份与用量刷新链（P3 重建）。
-  const contextStartPlanBalanceConfig = useMemo<ChatStartPlanBalanceConfig | undefined>(() => {
-    if (contextPlanConnection.kind !== "start") {
-      return undefined;
-    }
-    const entitlement = entitlements[contextPlanConnection.providerId];
-    // Start Plan 只有具备独立 Account Access 时才挂载 hover 查询入口。
-    const startPlanEntitlementEnabled = enabledStartPlanProviderIds.includes(
-      contextPlanConnection.providerId,
-    );
-    return {
-      loading: entitlement?.loading ?? providerSourcesLoading,
-      // hover access 刷新入口不能只在 Coding Plan 配置上（onAccess）：
-      // start plan 用户 hover context 面板从不主动刷新今日余额，只能等设置页/侧栏
-      // 刷新后被动同步。接入与 Coding Plan 相同的静默 access 刷新；60s access 窗口
-      // 与 in-flight 合并由刷新策略层自动生效，不会因反复 hover 放大 billing/balance 请求。
-      ...(startPlanEntitlementEnabled
-        ? {
-            onAccess: () => refreshCodingPlanEntitlements({ silent: true, reason: "access" }),
-          }
-        : {}),
-      onUpgradeClick: () => handleOpenStartPlanUpgrade(contextPlanConnection.providerId),
-      snapshot:
-        entitlement?.snapshot?.provider?.id === contextPlanConnection.providerId
-          ? entitlement.snapshot
-          : null,
-    };
-  }, [
-    contextPlanConnection,
-    enabledStartPlanProviderIds,
-    entitlements,
-    handleOpenStartPlanUpgrade,
-    providerSourcesLoading,
-    refreshCodingPlanEntitlements,
-  ]);
-  const contextStartPlanBalance = hasChatStartPlanBalance(contextStartPlanBalanceConfig)
-    ? contextStartPlanBalanceConfig
-    : undefined;
-
-  // P1：连接选择字段已删除，输入框 context 不再组建 Team/Coding Plan 用量来源（P3 重建）。
-
-  // P1：连接选择字段已删除，输入框 context 的 Coding Plan 剩余额度区域不再组建（P3 重建）。
-  const codingPlanUsageRemaining = undefined;
+  // P3 供应商套餐/配额面删除：输入框 context 的 Start Plan 余额、Coding Plan 剩余额度
+  // 与升级入口（handleOpenStartPlanUpgrade / contextPlanConnection / codingPlanUsageRemaining）
+  // 随 entitlement 服务面删除；ChatContextUsage 只消费 taskUsage（context 统计）。
 
   // 高频交互排障只走 debug，避免生产日志量随每次选择增长。
   useEffect(() => {
@@ -607,9 +475,7 @@ function V4ComposerModelControlsImpl({
         className="hidden"
       />
       <ChatContextUsage
-        codingPlanUsageRemaining={codingPlanUsageRemaining}
         taskUsage={taskUsage}
-        startPlanBalance={contextStartPlanBalance}
         selectedProvider={displayProvider}
         intl={intl}
         locale={locale}

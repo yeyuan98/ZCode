@@ -21,12 +21,10 @@ export type SettingsSectionId =
   | "automations"
   | "shortcuts";
 
-type SettingsUsageTabTarget = "app" | "codingPlan";
 type SettingsPluginTabTarget = "plugins" | "mcps" | "skills" | "commands";
 type SettingsPluginNavigationOrigin = "plugin-store";
 
 const SETTINGS_SECTION_INTENT_KEY = "zcode-settings-section-intent",
-  SETTINGS_USAGE_TAB_INTENT_KEY = "zcode-settings-usage-tab-intent",
   SETTINGS_PLUGIN_TAB_INTENT_KEY = "zcode-settings-plugin-tab-intent",
   SETTINGS_PLUGIN_ORIGIN_INTENT_KEY = "zcode-settings-plugin-origin-intent",
   SETTINGS_PLUGIN_SCOPE_KEY_INTENT_KEY = "zcode-settings-plugin-scope-key-intent";
@@ -50,7 +48,6 @@ interface SettingsSectionIntentEventDetail {
   pluginTab?: SettingsPluginTabTarget;
   pluginOrigin?: SettingsPluginNavigationOrigin;
   pluginScopeKey?: string;
-  usageTab?: SettingsUsageTabTarget;
   modelProviderId?: string;
 }
 
@@ -213,7 +210,6 @@ export function setPendingSettingsSectionIntent(
     pluginOrigin?: SettingsPluginNavigationOrigin;
     pluginScopeKey?: string;
     modelProviderId?: string;
-    usageTab?: SettingsUsageTabTarget;
   } = {},
 ): void {
   if (typeof window === "undefined") {
@@ -238,9 +234,6 @@ export function setPendingSettingsSectionIntent(
     } else {
       window.sessionStorage.removeItem(SETTINGS_PLUGIN_SCOPE_KEY_INTENT_KEY);
     }
-    if (options.usageTab) {
-      window.sessionStorage.setItem(SETTINGS_USAGE_TAB_INTENT_KEY, options.usageTab);
-    }
     if (options.modelProviderId) {
       window.sessionStorage.setItem(SETTINGS_MODEL_PROVIDER_ID_INTENT_KEY, options.modelProviderId);
     } else {
@@ -259,7 +252,6 @@ export function setPendingSettingsSectionIntent(
         pluginTab: options.pluginTab,
         pluginOrigin: options.pluginOrigin,
         pluginScopeKey: options.pluginScopeKey?.trim() || undefined,
-        usageTab: options.usageTab,
         modelProviderId: options.modelProviderId,
       },
     }),
@@ -273,7 +265,6 @@ function clearPendingSettingsSectionIntent(): void {
 
   try {
     window.sessionStorage.removeItem(SETTINGS_SECTION_INTENT_KEY);
-    window.sessionStorage.removeItem(SETTINGS_USAGE_TAB_INTENT_KEY);
     window.sessionStorage.removeItem(SETTINGS_MODEL_PROVIDER_ID_INTENT_KEY);
     window.sessionStorage.removeItem(SETTINGS_PLUGIN_TAB_INTENT_KEY);
     window.sessionStorage.removeItem(SETTINGS_PLUGIN_ORIGIN_INTENT_KEY);
@@ -368,22 +359,8 @@ export function clearPendingSettingsPluginOrigin(): void {
   }
 }
 
-export function consumePendingSettingsUsageTab(): SettingsUsageTabTarget | undefined {
-  if (typeof window === "undefined") {
-    return undefined;
-  }
-
-  try {
-    const raw = window.sessionStorage.getItem(SETTINGS_USAGE_TAB_INTENT_KEY);
-    if (raw !== null) {
-      window.sessionStorage.removeItem(SETTINGS_USAGE_TAB_INTENT_KEY);
-    }
-    return raw === "app" || raw === "codingPlan" ? raw : undefined;
-  } catch {
-    // 忽略浏览器存储异常，不影响主流程。
-    return undefined;
-  }
-}
+// P3 供应商套餐/配额面删除：Usage 分区只剩单一 App Usage 页，
+// consumePendingSettingsUsageTab / shouldFallbackSettingsUsageTabToApp 随 tab 意图一并删除。
 
 export function consumePendingSettingsModelProviderTarget():
   | SettingsModelProviderTarget
@@ -405,27 +382,6 @@ export function consumePendingSettingsModelProviderTarget():
     // 忽略浏览器存储异常，不影响主流程。
     return undefined;
   }
-}
-
-export function shouldFallbackSettingsUsageTabToApp({
-  activeTab,
-  checkingCodingPlanTab,
-  loadingModelProviders,
-  showCodingPlanTab,
-}: {
-  activeTab: SettingsUsageTabTarget;
-  checkingCodingPlanTab: boolean;
-  loadingModelProviders: boolean;
-  showCodingPlanTab: boolean;
-}): boolean {
-  // Coding Plan 跳转意图可能先于 provider/entitlement 数据完成加载。
-  // 只有确认不再 loading 且仍没有有效套餐时才回退到 App Usage，避免“更多”点击后被首帧误改回默认 tab。
-  return (
-    activeTab === "codingPlan" &&
-    !showCodingPlanTab &&
-    !loadingModelProviders &&
-    !checkingCodingPlanTab
-  );
 }
 
 export function addPendingSettingsSectionListener(
