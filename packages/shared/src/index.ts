@@ -245,7 +245,8 @@ export * from "./uuid.js";
 // P3 供应商套餐/配额面删除：usage-stats.ts（vendor 半边）与 usage-quota.ts 已删除，
 // 仅保留通用 App Usage 形状（app-usage.ts）。
 export * from "./app-usage.js";
-export * from "./coding-plan-subscription.js";
+// P3 C2 供应商套餐/计费面删除：coding-plan-subscription.ts（购买/企业订单协议类型）
+// 已整体删除；ForceUpdateConfig 已由 forceUpdate.ts 本地内联（S0）。
 export * from "./forceUpdate.js";
 export * from "./intranetProbe.js";
 export * from "./intranetDefaults.js";

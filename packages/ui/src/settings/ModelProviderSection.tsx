@@ -57,7 +57,8 @@ import {
   consumePendingSettingsModelProviderTarget,
   type SettingsModelProviderTarget,
 } from "@/lib/settingsNavigation.js";
-import { useEnterpriseCodingPlanProducts } from "@/settings/model-provider-section/useEnterpriseCodingPlanProducts.js";
+// P3 C2 供应商套餐/计费面删除：useEnterpriseCodingPlanProducts（企业 pricing 目录，
+// 经 coding-plan 订阅服务拉取）已随购买链路删除；团队入口只由 entitlement 快照派生。
 
 type CodingPlanConnectionNavItem = Extract<
   ModelProviderNavGroup["items"][number],
@@ -297,10 +298,9 @@ export function ModelProviderSection({
       }),
     [applyModelProviderTarget],
   );
-  const [
-    codingPlanPurchaseTokenAuthenticatedByProviderId,
-    setCodingPlanPurchaseTokenAuthenticatedByProviderId,
-  ] = useState<Partial<Record<BuiltinModelProviderId, boolean>>>({});
+  // P3 C2 供应商套餐/计费面删除：codingPlanPurchaseTokenAuthenticatedByProviderId
+  // （购买 token 鉴权态映射，仅购买入口横幅消费）已随购买链路删除；
+  // 这里只保留 activeOAuthProvider（family 过滤与套餐状态同步仍依赖）。
   const [activeOAuthProvider, setActiveOAuthProvider] = useState<OAuthProviderId | null>(null);
   const presetSubscriptionCompletionProviderIdRef = useRef<BuiltinModelProviderId | null>(null);
   const codingPlanStatusSyncAttemptsRef = useRef(
@@ -311,45 +311,8 @@ export function ModelProviderSection({
   // 套餐面板的鉴权错误位（codingPlanAuthError）暂传 null，C4 随设置套餐簇一并清理。
   // P1：providerFamilyDomain / providerFamilyConnectionSelections 已删除，
   // 设置页不再读取连接选择快照；family 过滤改用 OAuth active provider 推导。
-  const authenticatedEnterpriseProducts = useEnterpriseCodingPlanProducts({
-    enabled:
-      codingPlanPurchaseTokenAuthenticatedByProviderId[
-        BUILTIN_MODEL_PROVIDER_IDS.bigmodelTeamCodingPlan
-      ] === true,
-    authenticated: true,
-    family: "bigmodel",
-  });
-  // zai 与 bigmodel Team Plan 对称化。原仅 bigmodel 调 hook，
-  // zai 团队订阅永远拉不到、也无法展示对应团队。
-  // zai 独立调 hook（zai family 走 zai provider），下游合并两 family 的订阅产品。
-  const authenticatedZaiEnterpriseProducts = useEnterpriseCodingPlanProducts({
-    enabled:
-      codingPlanPurchaseTokenAuthenticatedByProviderId[
-        BUILTIN_MODEL_PROVIDER_IDS.zaiTeamCodingPlan
-      ] === true,
-    authenticated: true,
-    family: "zai",
-  });
-  const refreshAuthenticatedEnterpriseProducts = useCallback(async () => {
-    await Promise.all([
-      authenticatedEnterpriseProducts.refresh(),
-      authenticatedZaiEnterpriseProducts.refresh(),
-    ]);
-  }, [authenticatedEnterpriseProducts, authenticatedZaiEnterpriseProducts]);
-  const subscribedTeamProducts = useMemo(
-    () => [
-      ...(authenticatedEnterpriseProducts.snapshot?.productList.filter(
-        (product) => product.subscribed === true,
-      ) ?? []),
-      ...(authenticatedZaiEnterpriseProducts.snapshot?.productList.filter(
-        (product) => product.subscribed === true,
-      ) ?? []),
-    ],
-    [
-      authenticatedEnterpriseProducts.snapshot?.productList,
-      authenticatedZaiEnterpriseProducts.snapshot?.productList,
-    ],
-  );
+  // P3 C2：企业定价目录 hooks（authenticatedEnterprise/ZaiEnterpriseProducts）与
+  // subscribedTeamProducts 派生已随购买链路删除。
   const activeProviderFamilyDomain =
     resolveProviderFamilyDomainFromOAuthProvider(activeOAuthProvider);
   const { entitlements: codingPlanEntitlements, refresh: refreshCodingPlanEntitlements } =
@@ -369,11 +332,9 @@ export function ModelProviderSection({
         shouldApply?: () => boolean;
       } = {},
     ) => {
-      const [activeProvider, zaiToken, bigmodelToken] = await Promise.all([
-        credentialService.load("oauth:active_provider"),
-        credentialService.load(`oauth:${ZAI_PROVIDER_ID}:access_token`),
-        credentialService.load(`oauth:${BIGMODEL_PROVIDER_ID}:access_token`),
-      ]);
+      // P3 C2：购买 token 存在性读取（zaiToken/bigmodelToken）已随购买入口横幅删除，
+      // 这里只读取 active provider 归一化 family 过滤用的登录身份。
+      const activeProvider = await credentialService.load("oauth:active_provider");
       if (options.shouldApply && !options.shouldApply()) {
         return null;
       }
@@ -382,23 +343,6 @@ export function ModelProviderSection({
           ? activeProvider
           : null;
       setActiveOAuthProvider(normalizedActiveProvider);
-      setCodingPlanPurchaseTokenAuthenticatedByProviderId({
-        [BUILTIN_MODEL_PROVIDER_IDS.zaiIndividualCodingPlan]:
-          normalizedActiveProvider === ZAI_PROVIDER_ID && (zaiToken?.trim().length ?? 0) > 0,
-        [BUILTIN_MODEL_PROVIDER_IDS.zaiTeamCodingPlan]:
-          normalizedActiveProvider === ZAI_PROVIDER_ID && (zaiToken?.trim().length ?? 0) > 0,
-        [BUILTIN_MODEL_PROVIDER_IDS.zaiStartPlan]:
-          normalizedActiveProvider === ZAI_PROVIDER_ID && (zaiToken?.trim().length ?? 0) > 0,
-        [BUILTIN_MODEL_PROVIDER_IDS.bigmodelIndividualCodingPlan]:
-          normalizedActiveProvider === BIGMODEL_PROVIDER_ID &&
-          (bigmodelToken?.trim().length ?? 0) > 0,
-        [BUILTIN_MODEL_PROVIDER_IDS.bigmodelTeamCodingPlan]:
-          normalizedActiveProvider === BIGMODEL_PROVIDER_ID &&
-          (bigmodelToken?.trim().length ?? 0) > 0,
-        [BUILTIN_MODEL_PROVIDER_IDS.bigmodelStartPlan]:
-          normalizedActiveProvider === BIGMODEL_PROVIDER_ID &&
-          (bigmodelToken?.trim().length ?? 0) > 0,
-      });
       // P3 C1 供应商 OAuth 删除：provider Unlink 后同步清空 Zustand user/OAuth 错误的
       // 回调块已删除（休眠用户框架下无登录态可清）。
       return normalizedActiveProvider;
@@ -418,7 +362,6 @@ export function ModelProviderSection({
         refreshModelProviders: refresh,
         refreshCodingPlanEntitlements: () =>
           refreshCodingPlanEntitlements({ force: true, reason: refreshReason }),
-        refreshTeamPlanProducts: refreshAuthenticatedEnterpriseProducts,
         refreshCodingPlanProducts,
         refreshPurchaseTokenState: refreshCodingPlanPurchaseTokenState,
         refreshPlanSnapshots,
@@ -426,7 +369,6 @@ export function ModelProviderSection({
     },
     [
       refresh,
-      refreshAuthenticatedEnterpriseProducts,
       refreshCodingPlanEntitlements,
       refreshCodingPlanProducts,
       refreshCodingPlanPurchaseTokenState,
@@ -568,7 +510,6 @@ export function ModelProviderSection({
     modelProvidersLoading: loading,
     displayOrder,
     codingPlanEntitlements,
-    subscribedTeamProducts,
     providerFamilyDomain: activeProviderFamilyDomain,
     selectedNodeKey,
     setSelectedNodeKey,
@@ -814,11 +755,9 @@ export function ModelProviderSection({
       presetLoading={presetLoading}
       customLoading={customLoading}
       onRefresh={() => {
+        // P3 C2：手动刷新不再附带企业 Team Plan 目录刷新（数据源已删除）。
         void refreshModelProviderSection({
           refresh,
-          // 手动刷新设置页时也要同时刷新 Z.ai / BigModel Team Plan 快照；
-          // 原来只刷新 BigModel，Z.ai Team Plan 购买或订阅变化后会继续显示旧项目。
-          refreshTeamPlanProducts: refreshAuthenticatedEnterpriseProducts,
         });
         refreshCodingPlanEntitlements();
       }}
@@ -868,9 +807,6 @@ export function ModelProviderSection({
           })()}
           presetLoading={presetLoading}
           codingPlanAuthError={null}
-          codingPlanPurchaseTokenAuthenticatedByProviderId={
-            codingPlanPurchaseTokenAuthenticatedByProviderId
-          }
           presetSubscriptionProviderId={presetSubscriptionProviderId}
           codingPlanStatusSyncProviderId={codingPlanStatusSyncProviderId}
           codingPlanDisconnectProviderId={codingPlanDisconnectProviderId}

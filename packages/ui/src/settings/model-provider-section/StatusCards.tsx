@@ -1,4 +1,6 @@
-import { CodingPlanEntryButton } from "@/settings/CodingPlanEntryButton.js";
+// P3 C2 供应商套餐/计费面删除：CodingPlanEntryButton（购买入口 gate 包装）与
+// useStartPlanPreview / StartPlanCard（官网购买预览）已随购买链路删除；
+// 未购买入口直接使用 Button，Start Plan 预览卡不再渲染（C4 设置页 de-plan 收尾）。
 /* eslint-disable max-lines -- Coding Plan/Start Plan 状态卡集中编排状态、动作和套餐区块，当前先保持同一文件避免拆散状态语义。 */
 import {
   BIGMODEL_PROVIDER_ID,
@@ -29,10 +31,8 @@ import { CodingPlanStatusMeta, StartPlanStatusMeta } from "./CodingPlanStatusMet
 import { CodingPlanStatusActions, CodingPlanUpgradeAction } from "./CodingPlanStatusActions.js";
 import type { CodingPlanLoginOptions } from "./codingPlanPricingCards.js";
 import type { PurchaseAudience } from "./codingPlanEnterpriseTiers.js";
-import { StartPlanCard } from "./StartPlanCard.js";
 import { StartPlanQuotaStatusCard } from "./StartPlanQuotaStatusCard.js";
 import { resolveStartPlanQuotaCardEntries } from "./StartPlanBalanceCard.js";
-import { useStartPlanPreview } from "./useStartPlanPreview.js";
 import {
   BigModelRegistrationHint,
   isBigModelUnregisteredAuthError,
@@ -149,7 +149,6 @@ export function CodingPlanStatusPanel({
   upgradeActionVisible = true,
   upgradePlansVisible: controlledUpgradePlansVisible,
   onUpgradePlansVisibleChange,
-  startPlanPreviewVisible = true,
   statusLabelId,
   statusMessage,
   teamPlanAvailabilityReason,
@@ -190,7 +189,6 @@ export function CodingPlanStatusPanel({
   upgradeActionVisible?: boolean;
   upgradePlansVisible?: boolean;
   onUpgradePlansVisibleChange?: (visible: boolean) => void;
-  startPlanPreviewVisible?: boolean;
   statusLabelId?: string;
   statusMessage?: string | null;
   teamPlanAvailabilityReason?: TeamPlanAvailabilityReason;
@@ -307,13 +305,8 @@ export function CodingPlanStatusPanel({
     isPurchased &&
     Boolean(purchaseUrl) &&
     Boolean(onOpenPurchase);
-  const disconnectedStartPlanPricingVisible =
-    isStartPlanProvider && (isDisconnected || isNotPurchased);
-  const startPlanCardVisible =
-    startPlanPreviewVisible && disconnectedStartPlanPricingVisible && !upgradePlansVisible;
-  const startPlanPreview = useStartPlanPreview({
-    enabled: startPlanCardVisible,
-  });
+  // P3 C2 供应商套餐/计费面删除：未连接/未购买 Start Plan 的购买预览卡
+  // （useStartPlanPreview + StartPlanCard）已随购买链路删除，不再渲染。
   const shouldShowBigModelRegistrationHint =
     isChecking &&
     providerIcon === BIGMODEL_PROVIDER_ID &&
@@ -347,7 +340,7 @@ export function CodingPlanStatusPanel({
   ) : null;
   const buyAction =
     !isStartPlanProvider && !canUpgrade && isNotPurchased && !isChecking && !isUnsupported ? (
-      <CodingPlanEntryButton
+      <Button
         type="button"
         size="lg"
         // 未购买状态也可能正在等待权益接口返回；此时必须和 Upgrade
@@ -362,7 +355,7 @@ export function CodingPlanStatusPanel({
         {intl.formatMessage({
           id: "settings.modelProvider.codingPlan.subscribe",
         })}
-      </CodingPlanEntryButton>
+      </Button>
     ) : null;
   const inlineDisconnectVisible = canDisconnectProvider && !isPurchased;
   const planTitle = resolveCodingPlanStatusCardTitle({
@@ -582,15 +575,7 @@ export function CodingPlanStatusPanel({
           />,
         ];
 
-  return (
-    <div className="space-y-3">
-      {planCards}
-
-      {startPlanCardVisible && !startPlanPreview.loading && startPlanPreview.preview ? (
-        <StartPlanCard preview={startPlanPreview.preview} />
-      ) : null}
-    </div>
-  );
+  return <div className="space-y-3">{planCards}</div>;
 }
 
 function hasStartPlanEntitlementQuota(

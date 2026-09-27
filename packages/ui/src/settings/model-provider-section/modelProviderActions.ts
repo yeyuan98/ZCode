@@ -53,38 +53,32 @@ export async function confirmAndDeleteModelProvider({
 
 export async function refreshModelProviderSection({
   refresh,
-  refreshTeamPlanProducts,
 }: {
   refresh: () => Promise<void>;
-  refreshTeamPlanProducts?: () => Promise<void>;
+  // P3 C2 供应商套餐/计费面删除：refreshTeamPlanProducts（企业 pricing/customerInfo
+  // 刷新）已随数据源删除，顶部刷新只刷新 provider 列表。
 }) {
   // Model Provider 顶部刷新是账号权益刷新入口。
-  // Team Plan 连接方式来自企业 pricing/customerInfo，不会被普通 provider list refresh 更新。
-  await Promise.all([refresh(), refreshTeamPlanProducts?.()]);
+  await refresh();
 }
 
 export async function refreshProviderPanelAfterAuthChange({
   refreshModelProviders,
   refreshCodingPlanEntitlements,
-  refreshTeamPlanProducts,
   refreshCodingPlanProducts,
   refreshPurchaseTokenState,
   refreshPlanSnapshots = true,
 }: {
   refreshModelProviders: () => Promise<void>;
   refreshCodingPlanEntitlements: () => Promise<void>;
-  refreshTeamPlanProducts: (options?: { force?: boolean }) => Promise<void>;
+  // P3 C2：refreshTeamPlanProducts（企业 pricing/customerInfo 刷新）已随数据源删除。
   refreshCodingPlanProducts: () => void;
   refreshPurchaseTokenState: () => Promise<unknown>;
   refreshPlanSnapshots?: boolean;
 }): Promise<void> {
   await refreshPurchaseTokenState();
   if (refreshPlanSnapshots) {
-    await Promise.all([
-      refreshModelProviders(),
-      refreshCodingPlanEntitlements(),
-      refreshTeamPlanProducts({ force: true }),
-    ]);
+    await Promise.all([refreshModelProviders(), refreshCodingPlanEntitlements()]);
   } else {
     // 切换连接方式只是保存本地连接选择和刷新目标 provider key。
     // 不能顺手刷新今日余额/套餐快照，否则 Start Plan balance 与 entitlement 查询会并发放大。
