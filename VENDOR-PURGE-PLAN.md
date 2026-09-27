@@ -213,6 +213,19 @@ vision rules (glm-5v-turbo, glm-4.xv) predate the current 11-model lineup and ar
 
 ### P3 — Services purge + off-peak local backend → **alpha.7**
 
+**Amendments (P3, in-phase; investigation- and review-driven; user rulings 2026-09-27):**
+
+- **A6 (P3)** Web conversation-share landing is compile-coupled to vendor web OAuth (`web/main.tsx` imports `web/src/auth/**`): P3 deletes the web login + landing owner-login; public viewing stays; desktop share publishing stays compiled but runtime-broken until P5 item 4 (documented known issue).
+- **A7 (P3)** `shared/src/usage-stats.ts` is split, not deleted: generic `AppUsage*` + `ESTIMATED_TOKEN_CHAR_DIVISOR` rehome (protocol/v4-transport/CLI/UI import them); `IUsageStatsService` keeps `getAppUsageSnapshot` only.
+- **A8 (P3)** CLI is compile-coupled to the A1-protected account schemas today (`ZCodeProviderAccountAccess` ×3 files, `BUILTIN_MODEL_PROVIDER_IDS` in reasoning-history-normalization, offpeak retry/requestAuth paths, official-mcp port): those CLI edits land in P3's same commits; the already-dead vendor auth trio (`cli-oauth.ts`, `bigmodel-oauth.ts`, `coding-plan-api-key.ts`) is pulled forward from P4 so the bigmodel endpoint builders can be trimmed.
+- **A9 (P3)** All vendor `/api/v1/client/configs` consumers die in P3 (off-peak gray, dynamicWorkflow gray → local constant OFF, context-prompt rollout → local default, plugin-store order → bundled) plus the remote builtin-catalog download (`zcode-builtin-download.ts` chain → bundled fallback); `clientConfigService` dies with them.
+- **A10 (P3)** `desktopOAuthDeepLink.ts` splits: OAuth state/callback machinery dies; generic workspace deep-link machinery (incl. P5 share-import delivery) moves to a neutral module. Preload/channels OAuth IPC + `IPlatformService` OAuth methods die with it.
+- **A11 (P3)** image-search removed from the pinned default-enabled plugin list (host auth resolver death makes it permanently failing); plugin definition cleanup stays in P5 item 3.
+- **A12 (P3)** Off-peak local admission = **time-window only** (default 00:00–07:00, disable-able) + "Run now" override; idle and AC-power detection considered and REJECTED (user ruling 1). Admission evaluated at claim time by the scheduler (main-process evaluator via correlated scheduler-protocol request; window-open wake timer). Ticket columns hard-cut (`schedulable` concept becomes claim-time). See `specs/off-peak-local-admission.md`.
+- **A13 (P3)** Off-peak runs are always hands-off: permission / AskUserQuestion / plan-approval interactions auto-declined while the off-peak turn is the session's active turn; no presence detection; `OffPeakCreate` tool default `yolo` → `build`. Rationale recorded in the spec (user ruling 2: policy approved, rationale must be documented).
+- **A14 (P3)** User framework kept **dormant** (user ruling 6): `UserInfo` relocated to `shared/src/user.ts`; store keeps `user/setUser/authSessionSeq`; one hidden local user `user` auto-registered at startup; all user UI unrendered (incl. `handleLogout` chain); occupation questionnaire re-triggers once for existing alpha users (accepted, documented). Revival = replace the initializer.
+- Free deletes verified + delivered in S0: `plan-identity.ts`, `provider-family-connection-selection.ts`, `account-provider-state.ts`, dead `provider/updateAccountConfig` wire (schemas + method id), `resolveRuntimeProductEndpointConfig`; `ForceUpdateConfig` inlined into `forceUpdate.ts`. `.env.example` ZAI/BIGMODEL platform vars are trimmed in the domain commits where their last readers die (C1/C4), not at S0.
+
 **Changes (deletions):**
 
 1. OAuth: `packages/services/src/oauth/**`, `packages/web/src/auth/**` (incl. `browserOAuthCredentialRepo.ts`).
