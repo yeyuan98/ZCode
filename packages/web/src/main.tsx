@@ -225,7 +225,8 @@ function createWebPlatform(): IPlatformService {
     openInFileManager: () =>
       Promise.resolve({ success: false, error: "Not supported in web mode" }),
     openExternalFile: () => Promise.resolve({ success: false, error: "Not supported in web mode" }),
-    onPaymentCallback: () => () => {},
+    // P3 C2 供应商套餐/计费面删除：onPaymentCallback（zcode://payment 购买回调）
+    // 已随官网购买 webview 链路移除。
     onShareImport: () => () => {},
     notifyRendererReady: () => {},
     showTaskNotification: (payload) => {

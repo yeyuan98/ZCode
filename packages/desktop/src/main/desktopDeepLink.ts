@@ -1,7 +1,9 @@
 /* oxlint-disable eslint(max-lines) -- Deep Link 路由必须在同一模块内保持协议校验和投递原子性。 */
 // P3 C1 供应商 OAuth 删除：本模块由 desktopOAuthDeepLink.ts 拆分而来，只保留通用的
-// workspace 打开 / 支付回调 / 分享导入 deep link 机制；OAuth state/callback 路由
+// workspace 打开 / 分享导入 deep link 机制；OAuth state/callback 路由
 // （oauthStateToWindow、registerOAuthState、OAuth 回调分支）已随登录链路删除。
+// P3 C2 供应商套餐/计费面删除：zcode://payment/callback 购买回调路由随官网购买
+// webview 链路移除（renderer 侧无消费方）。
 import { statSync } from "node:fs";
 import { isAbsolute, resolve } from "node:path";
 import { app, BrowserWindow, dialog } from "electron";
@@ -10,7 +12,6 @@ import { type Locale, PlatformChannels } from "@zcode/shared";
 import {
   extractWorkspaceOpenPath,
   extractShareImportCode,
-  isPaymentCallbackUrl,
   isWorkspaceOpenUrl,
   isShareImportUrl,
 } from "./desktopDeepLinkUrl.js";
@@ -32,7 +33,6 @@ export interface ExternalWorkspaceOpenDialogCopy {
 }
 
 const rendererReadyWebContentsIds = new Set<number>();
-let pendingPaymentDeepLinkUrl: string | null = null;
 let pendingOpenWorkspaceRequest: {
   path: string;
   targetWebContentsId?: number;
@@ -254,29 +254,6 @@ export function handleDeepLink(
     });
   }
 
-  if (isPaymentCallbackUrl(parsedUrl)) {
-    const targetWindow = options.resolveApplicationWindow
-      ? options.resolveApplicationWindow()
-      : (BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0] ?? null);
-    if (targetWindow) {
-      targetWindow.webContents.send(PlatformChannels.PaymentCallback, url);
-      focusDeepLinkTargetWindow(targetWindow);
-      logger.info("[deep-link] 支付回调路由成功", {
-        windowId: targetWindow.webContents.id,
-        host: parsedUrl.hostname,
-        path: parsedUrl.pathname,
-      });
-      return true;
-    }
-
-    pendingPaymentDeepLinkUrl = url;
-    logger.warn("[deep-link] 支付回调暂未命中窗口，先缓存等待 renderer ready", {
-      host: parsedUrl.hostname,
-      path: parsedUrl.pathname,
-    });
-    return false;
-  }
-
   if (isShareImportUrl(parsedUrl)) {
     const shareCode = extractShareImportCode(parsedUrl);
     if (!shareCode) {
@@ -380,10 +357,6 @@ export function deliverPendingDeepLink(webContents: WebContents): void {
     }
   }
   pendingShareImports.push(...undeliveredShareImports);
-  if (pendingPaymentDeepLinkUrl) {
-    webContents.send(PlatformChannels.PaymentCallback, pendingPaymentDeepLinkUrl);
-    pendingPaymentDeepLinkUrl = null;
-  }
   if (
     pendingOpenWorkspaceRequest &&
     (pendingOpenWorkspaceRequest.targetWebContentsId == null ||
