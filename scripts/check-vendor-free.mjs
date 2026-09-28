@@ -36,9 +36,30 @@ export const EXCLUDED_PATHS = new Set([
 ]);
 export const EXCLUDED_PREFIXES = ["specs/"];
 export const BINARY_EXTENSIONS = new Set([
-  ".png", ".ico", ".icns", ".webp", ".gif", ".bmp", ".mp3", ".wav", ".gz", ".zip",
-  ".tar", ".node", ".exe", ".dll", ".so", ".dylib", ".woff", ".woff2", ".ttf",
-  ".otf", ".map", ".wasm", ".pdf", ".jar",
+  ".png",
+  ".ico",
+  ".icns",
+  ".webp",
+  ".gif",
+  ".bmp",
+  ".mp3",
+  ".wav",
+  ".gz",
+  ".zip",
+  ".tar",
+  ".node",
+  ".exe",
+  ".dll",
+  ".so",
+  ".dylib",
+  ".woff",
+  ".woff2",
+  ".ttf",
+  ".otf",
+  ".map",
+  ".wasm",
+  ".pdf",
+  ".jar",
 ]);
 
 export const ALLOWLIST = [

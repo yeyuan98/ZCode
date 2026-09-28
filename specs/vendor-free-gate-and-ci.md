@@ -51,7 +51,7 @@
      `node_modules/.bin` 供 turbo）。
   3. 单测：各包 `npm test`（shared/ui/services/desktop/server）+ scripts 测试
      （显式 `node --test scripts/check-vendor-free.test.mjs
-     scripts/flat-asset-names.test.mjs` —— scripts 测试此前无任何 runner）。
+scripts/flat-asset-names.test.mjs` —— scripts 测试此前无任何 runner）。
   4. vendor-free gate：`node scripts/check-vendor-free.mjs`。
   5. e2e：先 `pnpm exec playwright install --with-deps chromium`，再
      `pnpm test:e2e`（套件自身先 build web，保持既有顺序）。

@@ -115,18 +115,18 @@ node apps/zcode-cli/packages/cli/dist/zcode.cjs --help
 
 ## 测试与门禁
 
-| 用途 | 命令 |
-| --- | --- |
-| 类型检查 | `pnpm typecheck` |
-| Lint / 格式检查 | `pnpm lint` / `pnpm fmt:check` |
-| 架构检查 | `pnpm architecture:check --changed` |
-| 未使用依赖与导出 | `pnpm knip` |
-| 各包单测 | 各包 `npm test`（shared / ui / services / desktop / server） |
-| scripts 单测 | `node --test scripts/*.test.mjs` |
-| 厂商标识门禁 | `node scripts/check-vendor-free.mjs` |
-| E2E（先构建 web） | `pnpm test:e2e` |
-| 提交前检查 | `pnpm verify:pre-push`（Lint + 架构 + vendor-free） |
-| Windows 打包冒烟 | `pnpm smoke:windows-bundle` |
+| 用途              | 命令                                                         |
+| ----------------- | ------------------------------------------------------------ |
+| 类型检查          | `pnpm typecheck`                                             |
+| Lint / 格式检查   | `pnpm lint` / `pnpm fmt:check`                               |
+| 架构检查          | `pnpm architecture:check --changed`                          |
+| 未使用依赖与导出  | `pnpm knip`                                                  |
+| 各包单测          | 各包 `npm test`（shared / ui / services / desktop / server） |
+| scripts 单测      | `node --test scripts/*.test.mjs`                             |
+| 厂商标识门禁      | `node scripts/check-vendor-free.mjs`                         |
+| E2E（先构建 web） | `pnpm test:e2e`                                              |
+| 提交前检查        | `pnpm verify:pre-push`（Lint + 架构 + vendor-free）          |
+| Windows 打包冒烟  | `pnpm smoke:windows-bundle`                                  |
 
 CLI 工作区（`apps/zcode-cli`，独立 pnpm workspace）的检查：`typecheck` / `lint` /
 `format:check` / `registry:check`（turbo 需根 `node_modules/.bin` 在 PATH 上）。

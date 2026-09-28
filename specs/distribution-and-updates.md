@@ -201,7 +201,7 @@ icons).
   描述本地化，不做名称本地化）。
 - **已知市场记录严格化**：撤销 §7 "legacy known_marketplaces guard" 的 inert 语义
   （ensure-skip / update-skip 两层随之下线）。`apps/zcode-cli/packages/adapters/
-  src/plugins/marketplace.ts` 的 `isKnownMarketplaceRecord` 收紧为当前记录形状（含
+src/plugins/marketplace.ts` 的 `isKnownMarketplaceRecord` 收紧为当前记录形状（含
   `source` 的具体形状校验），`loadKnownMarketplacesSync` 不再接受 array 容器格式；
   不匹配的旧格式记录（含 pre-P5 vendor CDN source 形状）**加载即丢弃**。保留
   reserved-id 守卫（`RESERVED_PLUGIN_MARKETPLACE_IDS`）。默认市场经

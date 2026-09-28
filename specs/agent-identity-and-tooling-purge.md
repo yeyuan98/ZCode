@@ -73,9 +73,9 @@ domain travel in one commit):
    icon component/assets rename (+ delete orphan `icon-glm.png`; regenerate
    `third-party/inventory.json` coverage); literal sites in services/desktop (task adapter
    alias renamed to neutral, skills, host, bots schema/labels, task-model recovery); comment
-    rot cleanup where touched. **Keep:** GLM model-id capability rules in the catalog (A5),
-    zai/bigmodel provider display names/baseUrls/logos/key-management links（both-strings
-    legacy decode 的保留裁决已被 P6 撤销，见文末 A-P6）。
+   rot cleanup where touched. **Keep:** GLM model-id capability rules in the catalog (A5),
+   zai/bigmodel provider display names/baseUrls/logos/key-management links（both-strings
+   legacy decode 的保留裁决已被 P6 撤销，见文末 A-P6）。
 4. **Theme rename + fetch identity + comment neutralization (E).** `zai-dark`/`zai-light` →
    `zcode-dark`/`zcode-light` (ids, CSS classes, persistence default, i18n keys, web seed +
    share route, desktop renderer/resource-manager; no old-value fallback); WebFetch
