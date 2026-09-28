@@ -148,6 +148,7 @@ export class AiSdkModelExecution {
   private readonly network: AiSdkNetworkConfig;
   private readonly logger?: Logger;
   private readonly baseTransport?: ProviderFetch;
+  private networkFetch: ProviderFetch | undefined;
 
   constructor(config: AiSdkModelExecutionConfig = {}, options: AiSdkModelExecutionOptions = {}) {
     this.env = config.env ?? process.env;
@@ -155,6 +156,17 @@ export class AiSdkModelExecution {
     this.network = { ...config.network };
     this.logger = options.logger;
     this.baseTransport = options.transport;
+  }
+
+  private resolveNetworkFetch(): ProviderFetch {
+    this.networkFetch ??= createProviderProxyFetch({
+      caCertFile: this.network.caCertFile,
+      env: this.env,
+      fetch: this.baseTransport,
+      httpProxy: this.network.httpProxy,
+      noProxy: this.network.noProxy,
+    });
+    return this.networkFetch;
   }
 
   /**
@@ -251,11 +263,10 @@ export class AiSdkModelExecution {
     const apiKey = this.resolveApiKey(providerConfig);
     const headers = providerConfig.headers;
     const fetch = createProviderBusinessErrorFetch({
-      caCertFile: this.network.caCertFile,
-      env: this.env,
-      fetch: this.baseTransport,
-      httpProxy: this.network.httpProxy,
-      noProxy: this.network.noProxy,
+      // P4 review fix: official gateway 的 per-provider transport 缓存删除后，若每次绑定都
+      // 重建 proxy fetch，配置了 caCertFile 时会随请求反复读盘；网络配置在单个实例内
+      // 不可变，统一走实例级 memo（见 resolveNetworkFetch）。
+      fetch: this.resolveNetworkFetch(),
       providerId,
       providerKind: providerConfig.kind,
     });

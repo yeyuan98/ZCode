@@ -41,7 +41,14 @@
         };
 
         try {
-          const saved = localStorage.getItem(STORAGE_KEY) || DEFAULT_THEME;
+          // P4 review fix：主题标识重命名后，旧 zai-* 存量值按未知值处理并回写默认，
+          // 保证首屏底色与 bundle 内的解析一致，重置只发生一次。
+          const knownThemes = new Set(["light", "dark", "zcode-light", "zcode-dark", "system"]);
+          const rawSaved = localStorage.getItem(STORAGE_KEY);
+          const saved = knownThemes.has(rawSaved) ? rawSaved : DEFAULT_THEME;
+          if (!knownThemes.has(rawSaved)) {
+            localStorage.setItem(STORAGE_KEY, DEFAULT_THEME);
+          }
           const resolved =
             saved === "system"
               ? window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches

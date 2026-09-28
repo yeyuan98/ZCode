@@ -70,9 +70,16 @@ function registerE2EStoreBridgesIfEnabled() {
   });
 }
 
-// 初始化主题：默认 Zai dark，后续由 useTheme hook 接管
+// 初始化主题：默认 zcode-dark，后续由 useTheme hook 接管
 {
-  const saved = localStorage.getItem("zcode-theme") || "zcode-dark";
+  // P4 review fix：旧 zai-* 存量值必须校验后使用并回写兜底，避免首屏主题类缺失
+  // 且每次启动重复闪回；重置一次后由 useTheme 正常接管。
+  const knownThemes = new Set(["light", "dark", "zcode-light", "zcode-dark", "system"]);
+  const rawSaved = localStorage.getItem("zcode-theme");
+  const saved = rawSaved && knownThemes.has(rawSaved) ? rawSaved : "zcode-dark";
+  if (!rawSaved || !knownThemes.has(rawSaved)) {
+    localStorage.setItem("zcode-theme", "zcode-dark");
+  }
   const resolved =
     saved === "system"
       ? window.matchMedia("(prefers-color-scheme: dark)").matches
