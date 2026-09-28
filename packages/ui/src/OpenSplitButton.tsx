@@ -21,8 +21,8 @@ import { getWorkspaceFileRelativePath } from "@/workspace-file-tree/model.js";
 import { resolveWorkspaceEditorSelection } from "@/lib/workspaceEditorSelection.js";
 import { logger } from "@/logger.js";
 
-// 导出类型供共用时间线以 import type 引用（构建期擦除，不把 open-with 子树带进公开页 bundle）。
-export type OpenSplitButtonTarget =
+// P5 W4：共用时间线侧的 import type 引用已随 share 选择链删除，回落为本文件内部类型。
+type OpenSplitButtonTarget =
   | {
       type: "website";
       url: string;
