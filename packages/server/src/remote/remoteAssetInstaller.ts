@@ -552,7 +552,7 @@ export class LocalUploadAssetInstaller implements RemoteAssetInstaller {
       this.loggers.logWarn(
         `[remote-assets] local upload CDN fallback failed for ${componentIds.join(",")}: ${String(error)}`,
       );
-      // App 版本变化时必须重新获取当前 manifest 对应的 GLM 制品。
+      // App 版本变化时必须重新获取当前 manifest 对应的 zcode-agent 制品。
       // 强制刷新失败后若继续回退旧 cache，会让上传和部署表面成功但远端仍运行旧资源。
       if (forceRefresh) {
         throw error;
@@ -718,7 +718,7 @@ export class RemoteDownloadAssetInstaller implements RemoteAssetInstaller {
     requiredRelativePaths: readonly string[] = [],
     forceRefresh = false,
   ): Promise<RemoteComponentRef> {
-    // GLM bundle 与官方插件来自同一个 component，但会依次调用两次安装。
+    // zcode-agent bundle 与官方插件来自同一个 component，但会依次调用两次安装。
     // 强制刷新若每次都绕过进程内 task，会连续删除并下载两次同一制品；同一次 installer
     // 生命周期内只强刷一次，并让后续 mount 复用这份已校验组件。
     const existing = forceRefresh
@@ -804,7 +804,7 @@ export class RemoteDownloadAssetInstaller implements RemoteAssetInstaller {
       throw new Error(`[remote-assets] manifest is missing requested component: ${componentId}`);
     }
 
-    // server-bundle 和 GLM 都允许语义版本不变但制品内容更新，cache
+    // server-bundle 和 zcode-agent 都允许语义版本不变但制品内容更新，cache
     // 必须直接按 manifest SHA 隔离；其它资源包继续沿用原有语义版本 key。
     const componentCacheSegment = usesRemoteAssetContentAddressedCacheIdentity(component.id)
       ? component.sha256

@@ -94,7 +94,7 @@ export function buildPromptCompletionUsageFallback(
   }
 
   // Bugfix: task_complete.usage 是本轮 prompt 的 token 统计，不是上下文窗口快照。
-  // 只有从未收到过正数 usage_update 的 provider 才把它当弱 fallback，避免覆盖 zcode-cli/GLM 的真实 context used。
+  // 只有从未收到过正数 usage_update 的 provider 才把它当弱 fallback，避免覆盖 zcode-cli 的真实 context used。
   return {
     ...currentUsage,
     size: contextWindow,

@@ -233,7 +233,7 @@ async function resolveFreshComponentManifest(
         platformArch,
         manifestRequestTimeoutMs: options.manifestRequestTimeoutMs,
         remoteAssetNetwork: options.remoteAssetNetwork,
-        // server-bundle/GLM 允许在 app/version 不变时重发制品，每次部署必须重新取
+        // server-bundle/zcode-agent 允许在 app/version 不变时重发制品，每次部署必须重新取
         // manifest，不能复用进程内旧 SHA；promise 保证本次部署只刷新一次。
         refreshManifest: true,
       },

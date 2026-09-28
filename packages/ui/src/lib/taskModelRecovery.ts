@@ -24,7 +24,7 @@ function isSyntheticModelPlaceholder(model: string): boolean {
   return model.trim().toLocaleLowerCase() === "<synthetic>";
 }
 
-function resolveGlmRecoveredTaskModelValue(taskModel: string | undefined): string | null {
+function resolveAgentRecoveredTaskModelValue(taskModel: string | undefined): string | null {
   const normalizedTaskModel = taskModel?.trim();
   if (!normalizedTaskModel || isSyntheticModelPlaceholder(normalizedTaskModel)) {
     return null;
@@ -54,8 +54,10 @@ function resolveRecoveredTaskModelValue(
     return null;
   }
 
-  if (taskMeta.provider === "glm") {
-    return resolveGlmRecoveredTaskModelValue(normalizedTaskModel);
+  // P4 身份重命名后按新 provider 值判断；旧持久化 taskMeta 的旧 provider 值按 Ruling 1
+  // hard-cut 有意孤儿化（旧任务不再恢复 model/mode/thought 回显），不做双读。
+  if (taskMeta.provider === "zcode") {
+    return resolveAgentRecoveredTaskModelValue(normalizedTaskModel);
   }
 
   return normalizedTaskModel;
@@ -213,7 +215,7 @@ export function resolveTaskRestorePreloadConfigOptions({
   }
 
   const mode = taskMeta.mode?.trim();
-  if (taskMeta.provider === "glm" && mode) {
+  if (taskMeta.provider === "zcode" && mode) {
     let hasModeOption = false;
     cachedOptions = cachedOptions.map((option) => {
       if (option.category !== "mode" || option.type !== "select") {
@@ -230,7 +232,7 @@ export function resolveTaskRestorePreloadConfigOptions({
   }
 
   const thoughtLevel = taskMeta.thoughtLevel?.trim();
-  if (taskMeta.provider === "glm" && thoughtLevel) {
+  if (taskMeta.provider === "zcode" && thoughtLevel) {
     let hasThoughtOption = false;
     cachedOptions = cachedOptions.map((option) => {
       if (option.category !== "thought_level" || option.type !== "select") {

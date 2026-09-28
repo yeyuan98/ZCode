@@ -1,21 +1,21 @@
 import type { ImgHTMLAttributes } from "react";
-import glmDarkIcon from "@/assets/cli-icons/icon-glm-for-dark.png";
-import glmLightIcon from "@/assets/cli-icons/icon-glm-for-light.png";
+import zcodeDarkIcon from "@/assets/cli-icons/icon-zcode-for-dark.png";
+import zcodeLightIcon from "@/assets/cli-icons/icon-zcode-for-light.png";
 import { cn } from "@/components/lib/utils.js";
 import { useZCodeStore } from "@/store/StoreProvider.js";
 import { resolveTheme } from "@/useTheme.js";
 
-type GlmMonochromeIconProps = Omit<ImgHTMLAttributes<HTMLImageElement>, "src">;
+type ZcodeMonochromeIconProps = Omit<ImgHTMLAttributes<HTMLImageElement>, "src">;
 
-export function GlmMonochromeIcon({
+export function ZcodeMonochromeIcon({
   className,
   alt = "",
   style,
   ...props
-}: GlmMonochromeIconProps) {
+}: ZcodeMonochromeIconProps) {
   const theme = useZCodeStore((state) => state.theme);
   const isDark = resolveTheme(theme) === "dark";
-  const src = isDark ? glmDarkIcon : glmLightIcon;
+  const src = isDark ? zcodeDarkIcon : zcodeLightIcon;
 
   // 线框化版本会破坏原始 logo 的识别度，视觉上也偏轻。
   // 这里恢复原始位图，只做去色和明度压缩：

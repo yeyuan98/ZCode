@@ -4946,7 +4946,9 @@ export function createZCodeAgentService(
             await automationTaskIndexRepo.listTaskMetas({
               workspacePath: params.workspacePath,
               workspaceIdentity: params.workspaceIdentity,
-              provider: "glm",
+              // P4 身份重命名（glm→zcode）后按新值查询；旧持久化行的 glm provider
+              // 按 Ruling 1 hard-cut 有意孤儿化，不做双读迁移。
+              provider: "zcode",
             })
           )
             .slice(0, MAX_LEGACY_TASK_IDS_PER_SUBSCRIBE)

@@ -22,11 +22,11 @@ const meta = {
   createdAt: 1,
   updatedAt: 2,
   mode: "build",
-  provider: "glm",
+  provider: "zcode",
 };
 
 test("current task metadata is accepted without upgrading third-party Agent identities", () => {
-  assert.equal(zcodeTaskMetaSchema.parse(meta).provider, "glm");
+  assert.equal(zcodeTaskMetaSchema.parse(meta).provider, "zcode");
   for (const provider of ["claude", "codex", "gemini", "opencode"]) {
     assert.equal(zcodeTaskMetaSchema.safeParse({ ...meta, provider }).success, false, provider);
   }

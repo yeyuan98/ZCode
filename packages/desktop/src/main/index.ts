@@ -136,7 +136,7 @@ import {
   listAvailableDockerContainers,
   listAvailableWSLDistros,
   loadHostProcessEnvFromLocalFiles,
-  resolveBundledGlmBinaryPath,
+  resolveBundledAgentBinaryPath,
   resolveRemoteAssetDirs,
   resolveZCodeEndpointEnvBaseOrigin,
   runtimeApplicationName,
@@ -1121,7 +1121,7 @@ function logWindowsBundledRuntimeIntegrityDiagnostic() {
   }
 
   const binaryPaths = {
-    glm: resolveBundledGlmBinaryPath(),
+    zcode: resolveBundledAgentBinaryPath(),
   };
   const missingProviders = Object.entries(binaryPaths)
     .filter(([, binaryPath]) => !binaryPath)
@@ -1173,7 +1173,7 @@ async function prepareWindowsProcessesForUpdateInstall() {
   }
 
   // 少量 Windows 用户更新后安装目录里的 bundled agent 文件会缺失。
-  // 根因通常是 NSIS 覆盖 resources/glm 等目录时，旧 agent/helper 进程或杀软触发的残留进程仍持有句柄；
+  // 根因通常是 NSIS 覆盖 resources/zcode 等目录时，旧 agent/helper 进程或杀软触发的残留进程仍持有句柄；
   // 只杀 host 上报过的 agent pid 会漏掉未登记或已经脱离登记的后代。这里在更新前按命令行再扫描一次安装资源路径，
   // 对仍引用随包资源的进程树做强制清理，降低半更新导致环境损坏的概率。
   logger.info(
