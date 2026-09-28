@@ -95,7 +95,6 @@ export * from "./zcode-tool-projection-memory.js";
 export * from "./zcode-slash-command-help.js";
 export * from "./zcodeEndpoint.js";
 export * from "./zcode-source-headers.js";
-export * from "./updateFeedPolicy.js";
 export * from "./zcode-agent-policy.js";
 export * from "./zcode-media-policy.js";
 export * from "./media-preview.js";
@@ -249,8 +248,8 @@ export * from "./uuid.js";
 // 仅保留通用 App Usage 形状（app-usage.ts）。
 export * from "./app-usage.js";
 // P3 C2 供应商套餐/计费面删除：coding-plan-subscription.ts（购买/企业订单协议类型）
-// 已整体删除；ForceUpdateConfig 已由 forceUpdate.ts 本地内联（S0）。
-export * from "./forceUpdate.js";
+// 已整体删除。P5 更新域硬切：forceUpdate.ts（强更 gate 最小类型）与 updateFeedPolicy.ts
+// （厂商 manifest feed 策略开关）已随 GitHub provider 切换删除。
 export * from "./intranetProbe.js";
 export * from "./intranetDefaults.js";
 export * from "./hooks.js";

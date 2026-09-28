@@ -34,7 +34,6 @@ const nonEmptyStringSchema = z.string().trim().min(1);
 export const localeSchema = z.enum(["zh-CN", "en-US"]);
 const localePreferenceSchema = z.enum(["system", "zh-CN", "en-US"]);
 const zcodeInteractionBehaviorSchema = z.enum(["queue", "guide"]);
-const electronReleaseChannelSchema = z.enum(["stable", "preview"]);
 const desktopZoomLevelSchema = z.number().int().min(-3).max(5);
 const desktopWindowSizeSchema = z.object({
   width: z.number().int().min(480),
@@ -67,9 +66,13 @@ export const postUpdateReleaseNotesPayloadSchema = z.object({
     .optional(),
 });
 
-const skippedElectronUpdateVersionsSchema = z
-  .partialRecord(electronReleaseChannelSchema, nonEmptyStringSchema)
-  .default({});
+// P5 硬切：skippedElectronUpdateVersions 由按通道嵌套扁平化为版本列表（单 channel 文件）。
+// 旧持久化形状（{stable:"x.y.z"}）直接丢弃；不能因该字段形状变化让整份 settings 解析失败
+// 回退默认值，所以非数组输入一律归一为空列表。
+const skippedElectronUpdateVersionsSchema = z.preprocess(
+  (value) => (Array.isArray(value) ? value : []),
+  z.array(nonEmptyStringSchema).default([]),
+);
 
 const remoteWorkspaceTargetSchema = z.discriminatedUnion("kind", [
   z.object({
@@ -553,9 +556,7 @@ export const appSettingsPatchSchema = z.object({
   pendingPostUpdateReleaseNotes: postUpdateReleaseNotesPayloadSchema.optional(),
   receivePreviewUpdates: z.boolean().optional(),
   autoDownloadAndInstallUpdates: z.boolean().optional(),
-  skippedElectronUpdateVersions: z
-    .partialRecord(electronReleaseChannelSchema, nonEmptyStringSchema)
-    .optional(),
+  skippedElectronUpdateVersions: z.array(nonEmptyStringSchema).optional(),
   settingsSyncFirstRunPromptHandled: z.boolean().optional(),
   zcodeEndpointOrigin: zcodeEndpointOriginSchema.optional(),
 });

@@ -56,7 +56,12 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: windows-x64-installer
-          path: packages/desktop/dist/ZCode-*-win-x64.exe
+          # P5：latest.yml + .exe.blockmap 与安装包同属 electron-updater feed，
+          # 一并上传 artifact 便于核对（安装包 glob 保持 error-on-missing）。
+          path: |
+            packages/desktop/dist/ZCode-*-win-x64.exe
+            packages/desktop/dist/latest.yml
+            packages/desktop/dist/*.exe.blockmap
           if-no-files-found: error
 
       # workflow_dispatch（无 tag）调试运行只出 artifact，不碰 Release。
@@ -64,7 +69,12 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
-          files: packages/desktop/dist/ZCode-*-win-x64.exe
+          # P5：electron-updater github provider 依赖同 Release 上的 latest.yml +
+          # blockmap（差分下载）；softprops 是唯一上传通道（bundle.mjs --publish never）。
+          files: |
+            packages/desktop/dist/ZCode-*-win-x64.exe
+            packages/desktop/dist/latest.yml
+            packages/desktop/dist/*.exe.blockmap
           fail_on_unmatched_files: true
           generate_release_notes: true
           # 阶段测试版（v3.14.3-alpha.N）标记为 pre-release，正式版（v3.14.3）不受影响。
