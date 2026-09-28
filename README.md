@@ -23,13 +23,13 @@ ZCode 是 AI 编程工作台，提供桌面应用、浏览器界面和终端 Age
 
 ## 文档
 
-| 文档 | 内容 |
-| --- | --- |
-| [docs/providers.md](docs/providers.md) | 供应商与模型配置：API Key、Ollama、vLLM、配置参考 |
-| [docs/updates.md](docs/updates.md) | 应用更新、预发布通道、网络受限环境的镜像覆盖 |
-| [docs/plugins.md](docs/plugins.md) | 插件、官方内置与自由市场、个人市场来源 |
-| [docs/development.md](docs/development.md) | 开发环境、各端开发工作流、测试与门禁、仓库结构 |
-| [docs/packaging.md](docs/packaging.md) | 桌面/命令行打包、Windows 打包冒烟、发布流程 |
+| 文档                                       | 内容                                              |
+| ------------------------------------------ | ------------------------------------------------- |
+| [docs/providers.md](docs/providers.md)     | 供应商与模型配置：API Key、Ollama、vLLM、配置参考 |
+| [docs/updates.md](docs/updates.md)         | 应用更新、预发布通道、网络受限环境的镜像覆盖      |
+| [docs/plugins.md](docs/plugins.md)         | 插件、官方内置与自由市场、个人市场来源            |
+| [docs/development.md](docs/development.md) | 开发环境、各端开发工作流、测试与门禁、仓库结构    |
+| [docs/packaging.md](docs/packaging.md)     | 桌面/命令行打包、Windows 打包冒烟、发布流程       |
 
 ## 项目声明
 

@@ -23,13 +23,13 @@ ZCode is an AI coding workspace with desktop, browser, and terminal interfaces. 
 
 ## Documentation
 
-| Doc | Contents |
-| --- | --- |
-| [docs/providers.md](docs/providers.md) | Providers & models: API keys, Ollama, vLLM, configuration reference |
-| [docs/updates.md](docs/updates.md) | App updates, prerelease channel, mirror overrides for restricted networks |
-| [docs/plugins.md](docs/plugins.md) | Plugins, bundled & libre marketplaces, personal sources |
-| [docs/development.md](docs/development.md) | Dev environment, per-target workflows, tests & gates, repo layout |
-| [docs/packaging.md](docs/packaging.md) | Desktop/CLI packaging, Windows bundle smoke test, release process |
+| Doc                                        | Contents                                                                  |
+| ------------------------------------------ | ------------------------------------------------------------------------- |
+| [docs/providers.md](docs/providers.md)     | Providers & models: API keys, Ollama, vLLM, configuration reference       |
+| [docs/updates.md](docs/updates.md)         | App updates, prerelease channel, mirror overrides for restricted networks |
+| [docs/plugins.md](docs/plugins.md)         | Plugins, bundled & libre marketplaces, personal sources                   |
+| [docs/development.md](docs/development.md) | Dev environment, per-target workflows, tests & gates, repo layout         |
+| [docs/packaging.md](docs/packaging.md)     | Desktop/CLI packaging, Windows bundle smoke test, release process         |
 
 ## Project Notice
 

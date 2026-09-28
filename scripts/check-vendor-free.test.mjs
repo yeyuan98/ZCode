@@ -1,12 +1,7 @@
 import assert from "node:assert/strict";
 import { accessSync } from "node:fs";
 import test from "node:test";
-import {
-  ALLOWLIST,
-  classifyPath,
-  runScan,
-  scanText,
-} from "./check-vendor-free.mjs";
+import { ALLOWLIST, classifyPath, runScan, scanText } from "./check-vendor-free.mjs";
 
 test("scanText：五个模式全部命中且大小写不敏感", () => {
   const text = [
