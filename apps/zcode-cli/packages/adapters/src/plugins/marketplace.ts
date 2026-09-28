@@ -5,7 +5,11 @@ import { basename, dirname, join, resolve } from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import type { PluginDiagnostic, PluginManifest, PluginStoreListing } from "@zcode/contracts";
-import { isOfficialMarketplaceId, ZCODE_OFFICIAL_PLUGIN_MARKETPLACE } from "@zcode/contracts";
+import {
+  isOfficialMarketplaceId,
+  isReservedPluginMarketplaceId,
+  ZCODE_OFFICIAL_PLUGIN_MARKETPLACE,
+} from "@zcode/contracts";
 import { DEFAULT_PLUGIN_MARKETPLACES, sanitizeZCodeRuntimeEnv } from "@zcode/shared";
 import { loadPluginMcpServerDefinitions, resolvePluginMcpServers } from "./mcp.js";
 import {
@@ -20,7 +24,6 @@ import {
 import { enumeratePluginComponents, type PluginComponentGroup } from "./plugin-components.js";
 import { applyNetworkEgressEnv } from "../network/subprocess-env.js";
 import { createNodeWebFetchHttpClientAdapter } from "../http/index.js";
-import { writeCdnOfficialMarketplacePartitionSync } from "./official-marketplace.js";
 import {
   isZipPluginUrlSource,
   readZipPluginSourceSha256,
@@ -72,7 +75,10 @@ export type MarketplaceSource =
   | { source: "directory"; path: string }
   | { hostPattern: string; source: "hostPattern" }
   | { pathPattern: string; source: "pathPattern" }
-  | { source: "settings"; marketplace: PluginMarketplaceManifest };
+  | { source: "settings"; marketplace: PluginMarketplaceManifest }
+  // P5：官方市场 bundled-only 的落盘表示——无网络源，manifest 由应用内置 seed 维护，
+  // 任何网络刷新路径（含旧安装遗留的 vendor CDN source）都会被守卫拒绝。
+  | { source: "bundled" };
 
 export interface PluginMarketplaceEntry {
   name: string;
@@ -98,8 +104,6 @@ export interface PluginMarketplaceManifest {
   plugins: PluginMarketplaceEntry[];
   allowCrossMarketplaceDependenciesOn?: string[];
   pluginRoot?: string;
-  // 商店「公开」分段 Featured 区的策展名单（插件 name，按序）；由目录 JSON 顶层 featured 字段远程控制。
-  featured?: string[];
   raw: Record<string, unknown>;
 }
 
@@ -285,7 +289,11 @@ export function ensureDefaultPluginMarketplaces(storageRoot: string): KnownMarke
   ).map(
     (marketplace): KnownMarketplaceRecord => ({
       id: marketplace.id,
-      source: defaultMarketplaceSourceFromString(marketplace.source),
+      // P5：官方市场无网络 source，落盘为 bundled-only；旧安装遗留的官方 record（携带
+      // vendor CDN source）保持原样，但刷新守卫会一律拒绝其网络刷新。
+      source: marketplace.source
+        ? defaultMarketplaceSourceFromString(marketplace.source)
+        : { source: "bundled" },
       name: marketplace.name,
       description: marketplace.description,
       addedAt: now,
@@ -317,8 +325,12 @@ export async function ensureMarketplaceManifestAvailable(input: {
     (item) => item.id === input.marketplace,
   );
   if (!record) return null;
+  // P5 去供应商化：官方市场 bundled-only，一律不做网络刷新。旧安装的 known record 可能
+  // 仍携带 vendor CDN source——若照旧走 addMarketplace 会永远继续拉取 cdn-zcode.z.ai，
+  // 因此这里直接返回 record：manifest 由 bootstrap 的内置 seed 重建，网络路径彻底关闭。
+  if (isOfficialMarketplaceId(input.marketplace)) return record;
   // 受信任的内部懒加载：用 known record 的规范 source 拉取，并以 record.id 作为 trustedId，
-  // 使官方 id 只能由本来就是该官方 id 的记录刷新得到。
+  // 使保留 id（libre）只能由本来就是该 id 的记录刷新得到。
   return await addMarketplace({
     signal: input.signal,
     source: record.source,
@@ -332,11 +344,11 @@ export async function addMarketplace(input: {
   signal?: AbortSignal;
   source: MarketplaceSource;
   storageRoot: string;
-  // 受信任的内部刷新传入正在刷新的 known record 规范 id。守卫只在 manifest 声明了官方 id
-  // 且该 id 不等于本次刷新的 trustedId 时拒绝，避免来源在刷新过程中被改名冒用：
-  //   - 用户侧新增（trustedId 缺失）声明官方 id → 拒绝；
-  //   - 非官方市场日后把 manifest 改名成官方 id，刷新时 trustedId 不匹配 → 拒绝；
-  // 非官方 manifest 名不受此约束，保持既有行为。
+  // 受信任的内部刷新传入正在刷新的 known record 规范 id。守卫只在 manifest 声明了保留 id
+  // （官方/libre）且该 id 不等于本次刷新的 trustedId 时拒绝，避免来源在刷新过程中被改名冒用：
+  //   - 用户侧新增（trustedId 缺失）声明保留 id → 拒绝；
+  //   - 非保留市场日后把 manifest 改名成保留 id，刷新时 trustedId 不匹配 → 拒绝；
+  // 非保留 manifest 名不受此约束，保持既有行为。
   trustedId?: string;
 }): Promise<KnownMarketplaceRecord> {
   // persist:false 先只解析 manifest，不落盘——否则 marketplace 目录激活会用
@@ -353,9 +365,15 @@ export async function addMarketplace(input: {
       signal: operationSignal,
     });
     throwIfPluginOperationAborted(operationSignal);
-    if (isOfficialMarketplaceId(loaded.manifest.name) && loaded.manifest.name !== input.trustedId) {
+    // P5 保留 id 守卫（R6）：libre 只能由 trustedId 匹配的内部刷新物化；官方 id 一律拒绝
+    // ——本构建中官方市场 bundled-only，即便 trustedId 匹配（旧安装 known record 遗留的
+    // vendor CDN source 走刷新路径）也不允许经网络声明复活，杜绝 cdn-zcode.z.ai 残留流量。
+    if (
+      isReservedPluginMarketplaceId(loaded.manifest.name) &&
+      (loaded.manifest.name !== input.trustedId || isOfficialMarketplaceId(loaded.manifest.name))
+    ) {
       throw new Error(
-        `Cannot add a marketplace named "${loaded.manifest.name}": that id is reserved for the official marketplace.`,
+        `Cannot add a marketplace named "${loaded.manifest.name}": that id is reserved for a built-in marketplace.`,
       );
     }
     if (input.expectedId && loaded.manifest.name !== input.expectedId) {
@@ -371,26 +389,19 @@ export async function addMarketplace(input: {
         `Official marketplace source must provide ${ZCODE_OFFICIAL_PLUGIN_MARKETPLACE}, received ${loaded.manifest.name}`,
       );
     }
-    const persistedManifest =
-      loaded.manifest.name === ZCODE_OFFICIAL_PLUGIN_MARKETPLACE
-        ? parseRequiredMarketplaceManifest(
-            writeCdnOfficialMarketplacePartitionSync({
-              manifest: loaded.manifest.raw,
-              storageRoot: input.storageRoot,
-            }),
-          )
-        : loaded.manifest;
     // 旧流程先删 marketplace target 再复制 source，刷新失败会丢失最后成功快照。
     // source tree 与规范 manifest 在同一 staging 目录准备完毕后一次 rename 激活。
+    // P5（D8）：官方 CDN 分片合并路径（writeCdnOfficialMarketplacePartitionSync）已删除，
+    // 官方 manifest 不再有网络写入方；保留 id 之外的目录照常按 sourceRoot 有无落盘。
     if (loaded.sourceRoot) {
       marketplaceActivation = await stageMarketplaceDirectoryPlugins(
         loaded.sourceRoot,
         input.storageRoot,
         loaded.manifest.name,
-        persistedManifest.raw,
+        loaded.manifest.raw,
         operationSignal,
       );
-    } else if (loaded.manifest.name !== ZCODE_OFFICIAL_PLUGIN_MARKETPLACE) {
+    } else {
       marketplaceActivation = await stageMarketplaceManifest(
         input.storageRoot,
         loaded.manifest.name,
@@ -407,7 +418,7 @@ export async function addMarketplace(input: {
       ...(loaded.manifest.description ? { description: loaded.manifest.description } : {}),
       addedAt: now,
       lastUpdated: now,
-      pluginCount: persistedManifest.plugins.length,
+      pluginCount: loaded.manifest.plugins.length,
       ...(marketplaceActivation ? { cacheTransactionId: marketplaceActivation.transactionId } : {}),
     };
     knownMarketplaceActivation = await upsertKnownMarketplace(input.storageRoot, record);
@@ -510,8 +521,13 @@ export async function updateMarketplace(input: {
   for (const record of selected) {
     throwIfPluginOperationAborted(input.signal);
 
+    // P5 去供应商化：官方市场 bundled-only，跳过网络刷新（与 ensureMarketplaceManifestAvailable
+    // 的自动路径同口径）。旧安装 record 里遗留的 vendor CDN source 由此彻底停止拉取；
+    // 手动刷新官方源表现为显式 no-op，不落 refresh failure。
+    if (isOfficialMarketplaceId(record.id)) continue;
+
     // 受信任的刷新会重新拉取已知 marketplace 自带的 source；record.id 作为 trustedId，
-    // 使官方 id 只能由原本就是该 id 的记录刷新得到。
+    // 使保留 id（libre）只能由原本就是该 id 的记录刷新得到。
     try {
       updated.push(
         await addMarketplace({
@@ -1497,7 +1513,6 @@ function createManifestFromMarketplaceEntry(
   delete raw.heroImage;
   delete raw.examplePrompts;
   delete raw.examplePrompts_i18n;
-  delete raw.requiresPaidPlan;
   return {
     ...raw,
     name: entry.name,
@@ -1606,6 +1621,10 @@ async function loadMarketplaceFromSource(
       throw new UnsupportedMarketplaceSourceError("hostPattern");
     case "pathPattern":
       throw new UnsupportedMarketplaceSourceError("pathPattern");
+    case "bundled":
+      // bundled 市场没有网络源：官方 manifest 由 bootstrap 内置 seed 写入（P5），
+      // 正常流程不会走到这里；防御性拒绝，避免未来调用方误把 bundled 当可拉取源。
+      throw new UnsupportedMarketplaceSourceError("bundled");
   }
 }
 
@@ -2021,12 +2040,8 @@ function normalizeMarketplaceManifest(
         (item): item is string => typeof item === "string",
       )
     : undefined;
-  // 目录顶层的 Featured 策展名单：仅接受非空字符串数组，去掉空白项。
-  const featured = Array.isArray(value.featured)
-    ? value.featured.filter(
-        (item): item is string => typeof item === "string" && item.trim().length > 0,
-      )
-    : undefined;
+  // P5：目录顶层 featured 策展名单解析删除——远程策展 Featured 机制整体下线
+  // （无任何 writer；UI 侧 selectFeaturedItems/渲染同步移除），未知字段随 raw 原样保留。
   return {
     name: String(value.name),
     ...(typeof value.description === "string"
@@ -2037,7 +2052,6 @@ function normalizeMarketplaceManifest(
     plugins,
     ...(allowCrossMarketplaceDependenciesOn ? { allowCrossMarketplaceDependenciesOn } : {}),
     ...(typeof metadata.pluginRoot === "string" ? { pluginRoot: metadata.pluginRoot } : {}),
-    ...(featured && featured.length > 0 ? { featured } : {}),
     raw: value,
   };
 }
@@ -2103,9 +2117,6 @@ export function parseEntryStoreListing(
   if (examplePrompts && examplePrompts.length > 0) listing.examplePrompts = examplePrompts;
   const examplePromptsI18n = readStringListMap("examplePrompts_i18n");
   if (examplePromptsI18n) listing.examplePromptsI18n = examplePromptsI18n;
-  // 付费套餐提示只认显式布尔 true；字符串 "true"、1 等歧义写法一律按无需套餐处理，
-  // 避免目录写错就给免费插件挂上付费提示。
-  if (entry.requiresPaidPlan === true) listing.requiresPaidPlan = true;
   return Object.keys(listing).length > 0 ? listing : undefined;
 }
 

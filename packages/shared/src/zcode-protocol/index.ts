@@ -2843,12 +2843,6 @@ export const zcodePluginStoreListingSchema = z
     heroImage: z.string().optional(),
     examplePrompts: z.array(z.string()).optional(),
     examplePromptsI18n: z.record(z.string(), z.array(z.string())).optional(),
-    /**
-     * 需要付费套餐才好用的插件：市场目录条目声明 `requiresPaidPlan: true`，
-     * UI 在标题右侧展示提示图标。描述的是「使用条件」而非「插件是收费商品」——
-     * 不参与安装门禁与计费，命名也不绑定具体套餐商品名。
-     */
-    requiresPaidPlan: z.boolean().optional(),
   })
   .strict();
 export type ZCodePluginStoreListing = z.infer<typeof zcodePluginStoreListingSchema>;
