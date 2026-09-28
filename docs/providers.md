@@ -1,6 +1,6 @@
 # Provider 配置（模型供应商）
 
-ZCode 不绑定任何特定厂商：任何 OpenAI / Anthropic 兼容的 API Key 供应商、以及本地模型（Ollama / vLLM）都可以作为 Provider 使用。
+Zodex 不绑定任何特定厂商：任何 OpenAI / Anthropic 兼容的 API Key 供应商、以及本地模型（Ollama / vLLM）都可以作为 Provider 使用。
 
 ## 快速开始
 

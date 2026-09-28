@@ -1,17 +1,25 @@
-# ZCode
+# Zodex
 
 <div align="center">
-  <img src="public/logo/icons/1024x1024.png" alt="ZCode" width="128" height="128" />
+  <img src="public/logo/icons/1024x1024.png" alt="Zodex" width="128" height="128" />
 </div>
 <p align="center">
   <a href="README.md">简体中文</a> | English
 </p>
 
-ZCode is an AI coding workspace with desktop, browser, and terminal interfaces. It works with any API-key provider or local models (Ollama / vLLM) — no cloud account required.
+Zodex is a community fork of ZCode ([github.com/zai-org/ZCode](https://github.com/zai-org/ZCode), upstream v3.14.3, Apache-2.0) — **tracking-free** (no vendor telemetry, only optional standard OTLP export; updates and plugin assets come solely from this repo's GitHub Releases) and **vendor-free** (no Z.ai accounts/login/billing/gateway; any API-key provider or local models work, with an automated CI gate blocking vendor code).
+
+Zodex is an AI coding workspace with desktop, browser, and terminal interfaces; local models work via Ollama / vLLM and other OpenAI-compatible endpoints.
 
 ## Quick Start
 
-**Install**: grab the latest installer from [GitHub Releases](https://github.com/yeyuan98/ZCode/releases), or build from source (see [docs/packaging.md](docs/packaging.md)).
+**Install**: download from [GitHub Releases](https://github.com/yeyuan98/zodex/releases), or build from source (see [docs/packaging.md](docs/packaging.md)):
+
+- Windows: `Zodex-<version>-win-x64.exe`
+- macOS: `Zodex-<version>-mac-<arch>.dmg` / `.zip` (unsigned — on first run right-click → Open, or run `sudo xattr -rd com.apple.quarantine /Applications/Zodex.app`)
+- Linux: `Zodex-<version>-linux-x86_64.AppImage` and `Zodex-<version>-linux-amd64.deb`
+
+In-app auto-update is available on all three platforms; update metadata comes from the same Releases.
 
 **First run**:
 
@@ -26,7 +34,7 @@ ZCode is an AI coding workspace with desktop, browser, and terminal interfaces. 
 | Doc                                        | Contents                                                                  |
 | ------------------------------------------ | ------------------------------------------------------------------------- |
 | [docs/providers.md](docs/providers.md)     | Providers & models: API keys, Ollama, vLLM, configuration reference       |
-| [docs/updates.md](docs/updates.md)         | App updates, prerelease channel, mirror overrides for restricted networks |
+| [docs/updates.md](docs/updates.md)         | App updates, per-OS update channels, mirror overrides for restricted nets |
 | [docs/plugins.md](docs/plugins.md)         | Plugins, bundled & libre marketplaces, personal sources                   |
 | [docs/development.md](docs/development.md) | Dev environment, per-target workflows, tests & gates, repo layout         |
 | [docs/packaging.md](docs/packaging.md)     | Desktop/CLI packaging, Windows bundle smoke test, release process         |

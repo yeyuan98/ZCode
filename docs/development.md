@@ -62,7 +62,7 @@ ZCODE_SERVER_WORKSPACE=/path/to/project pnpm dev:web
 
 Agent 源码修改后，执行 `pnpm --filter @zcode/cli... build` 并重启服务。需要验证完整发行包时，按 [packaging.md](packaging.md) 的命令行版章节解压运行。
 
-### ZCode 命令行版
+### Zodex 命令行版
 
 命令行发行包包含 TUI、Web 和 Agent，统一使用 `zcode` 启动：无参数进入 TUI；第一个参数为 `--web` 时启动 Web；其他参数交给现有 Agent CLI 处理。两种模式都在本机运行，无需 Electron。
 

@@ -1,4 +1,4 @@
-# ZCode 插件商店（Plugin Store）
+# Zodex 插件商店（Plugin Store）
 
 插件设置页及其市场浏览/安装体验的领域词汇表。本文件统一定义商店相关术语，供页面、服务和文档使用。
 
@@ -11,7 +11,7 @@
 _Avoid_: "官方"泛指一切受信市场；把它当作需要联网刷新的市场
 
 **Libre Marketplace（自由市场）**:
-本项目自有的第一方网络市场，市场 id 为 `zcode-plugins-libre`，目录 `marketplace.json` 与插件 zip 包托管在 `github.com/yeyuan98/zcode-plugins` 的 Releases。默认预注册（不可从来源管理中移除），但**不默认启用任何插件**——安装永远是用户显式操作。
+本项目自有的第一方网络市场，市场 id 为 `zcode-plugins-libre`，目录 `marketplace.json` 与插件 zip 包托管在 `github.com/yeyuan98/zodex-plugins` 的 Releases。默认预注册（不可从来源管理中移除），但**不默认启用任何插件**——安装永远是用户显式操作。
 _Avoid_: 与 Official Marketplace 混称"官方"；称作第三方/社区市场
 
 **Builtin Plugin（内置插件）**:
