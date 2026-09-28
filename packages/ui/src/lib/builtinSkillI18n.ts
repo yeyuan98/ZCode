@@ -8,45 +8,23 @@ interface SkillDisplayCandidate {
   pluginName?: string;
 }
 
-const OFFICIAL_BUILTIN_PLUGIN_NAMES = new Set([
-  "android-emulator",
-  "browser",
-  "browser-use",
-  "document-skills",
-  "documents",
-  "pdf",
-  "presentations",
-  "spreadsheets",
-  "ios-simulator",
-  "skill-creator",
-  "plugin-creator",
-  "superpowers",
-  "zcode-guide",
-]);
+// P6 修订（specs/distribution-and-updates.md）：仅为已删除插件保留的标记随“遗留结构
+// 一律删除”裁决整体移除（documents quartet、plugin-creator、skill-creator、
+// zcode-guide、emulators 等，以 official-plugin-definitions.ts 的 P5 删除清单为准，
+// 含无在产插件的旧别名 "browser"）。保留：
+//   - browser-use —— 随包内置插件（control-browser / web-gui-tester 技能文案）；
+//   - superpowers —— 在用内置技能文案的 MIT 归属记录（superpowers-plugin 包保留）。
+// 记录的破坏：早期 alpha 缓存了已删插件技能的安装，其描述回退插件自带英文文案。
+const OFFICIAL_BUILTIN_PLUGIN_NAMES = new Set(["browser-use", "superpowers"]);
 
 const OFFICIAL_PLUGIN_PATH_MARKERS = [
   "/zcode-plugins-official/",
   "\\zcode-plugins-official\\",
-  "/android-emulator-plugin/",
   "/browser-use-plugin/",
-  "/document-skills-plugin/",
-  "/documents-plugin/",
-  "/pdf-plugin/",
-  "/presentations-plugin/",
-  "/spreadsheets-plugin/",
-  "/ios-simulator-plugin/",
-  "/skill-creator-plugin/",
-  "/plugin-creator-plugin/",
   "/superpowers-plugin/",
-  "/zcode-guide-plugin/",
 ];
 
 const BUILTIN_SKILL_DESCRIPTIONS: Record<string, Record<Locale, string>> = {
-  "android-dev": {
-    "zh-CN": "通过 android-emulator MCP 工具构建、运行、检查并轻量自动化 Android 应用。",
-    "en-US":
-      "Build, run, inspect, and lightly automate Android apps through the android-emulator MCP tools.",
-  },
   brainstorming: {
     "zh-CN":
       "在任何创造性工作前使用：创建功能、构建组件、增加能力或修改行为；先探索用户意图、需求和设计。",
@@ -63,12 +41,6 @@ const BUILTIN_SKILL_DESCRIPTIONS: Record<string, Record<Locale, string>> = {
     "en-US":
       "Use when facing 2+ independent tasks that can be worked on without shared state or sequential dependencies.",
   },
-  docx: {
-    "zh-CN":
-      "完整的 DOCX 文档创建、编辑与分析能力，支持修订、批注、格式保持和文本提取。适用于创建新文档、修改内容、处理修订、添加批注或其它专业 Word 文档任务。",
-    "en-US":
-      "Create, edit, and analyze DOCX documents with revisions, comments, formatting preservation, and text extraction. Use for new documents, edits, revision handling, comments, and professional Word document work.",
-  },
   "executing-plans": {
     "zh-CN": "已有书面实现计划，并要在带评审检查点的独立会话中执行时使用。",
     "en-US":
@@ -78,23 +50,6 @@ const BUILTIN_SKILL_DESCRIPTIONS: Record<string, Record<Locale, string>> = {
     "zh-CN": "实现已完成、测试通过、需要决定如何合并、发 PR 或清理分支时使用。",
     "en-US":
       "Use when implementation is complete, tests pass, and you need to decide how to integrate the work through merge, PR, or cleanup.",
-  },
-  "ios-dev": {
-    "zh-CN": "通过 ios-simulator MCP 工具构建、运行、检查并轻量自动化 iOS 模拟器应用。",
-    "en-US":
-      "Build, run, inspect, and lightly automate iOS Simulator apps through the ios-simulator MCP tools.",
-  },
-  pdf: {
-    "zh-CN":
-      "专业 PDF 工具集，覆盖报告、创意视觉、学术 LaTeX 和现有 PDF 处理四条生产线。可按文档类型自动路由，支持报告、海报、论文、简历、提取、合并、拆分、表单填写和格式转换等任务。",
-    "en-US":
-      "Professional PDF toolkit for reports, creative visuals, academic LaTeX, and existing-PDF workflows. Supports reports, posters, papers, resumes, extraction, merge, split, forms, and conversion.",
-  },
-  pptx: {
-    "zh-CN":
-      "检查并窄范围更新从 PPTX 预览区选择的元素。通过完整文件指纹和 OOXML 定位校验 shape 文本或表格单元格，冲突时停止而不猜测。",
-    "en-US":
-      "Inspect and narrowly update elements selected in PPTX Preview Pane. Verifies the whole-file fingerprint and OOXML locator for shape or table-cell text, and stops on conflicts instead of guessing.",
   },
   "receiving-code-review": {
     "zh-CN":
@@ -106,16 +61,6 @@ const BUILTIN_SKILL_DESCRIPTIONS: Record<string, Record<Locale, string>> = {
     "zh-CN": "完成任务、实现重大功能或合并前，用于请求代码评审以确认满足需求。",
     "en-US":
       "Use when completing tasks, implementing major features, or before merging to verify work meets requirements.",
-  },
-  "plugin-creator": {
-    "zh-CN": "创建、校验 ZCode 插件，并指导本地安装与更新。",
-    "en-US": "Create and validate ZCode plugins, and guide local installation and updates.",
-  },
-  "skill-creator": {
-    "zh-CN":
-      "创建新技能、编辑现有技能并迭代措辞。适用于从零编写 SKILL.md、改进已有技能、把重复工作流沉淀为可复用技能，或优化技能描述以提升触发可靠性。",
-    "en-US":
-      "Create new skills, edit existing skills, and iterate wording. Use for writing SKILL.md from scratch, improving skills, capturing repeated workflows, or tuning descriptions for reliable triggering.",
   },
   "subagent-driven-development": {
     "zh-CN": "在当前会话中执行包含独立任务的实现计划时使用。",
