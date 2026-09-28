@@ -2465,7 +2465,6 @@ const enUS: Record<string, string> = {
   "settings.modelProvider.modelSaveFailure": "Failed to save {provider} / {model}: {error}",
   "settings.modelProvider.cancel": "Cancel",
   "settings.modelProvider.name": "Name",
-  "settings.modelProvider.namePlaceholder": "e.g. DeepSeek",
   "settings.modelProvider.addProviderTitle": "Add model provider",
   "settings.modelProvider.addProviderDescription":
     "Configure a custom API endpoint and initial model.",
