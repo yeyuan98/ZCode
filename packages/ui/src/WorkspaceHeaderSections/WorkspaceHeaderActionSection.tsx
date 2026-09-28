@@ -1,6 +1,7 @@
 import { WorkspaceEditorButtonGroup } from "@/WorkspaceEditorButtonGroup.js";
 import { WorkspaceSidePaneToggleButton } from "@/WorkspaceSidePaneToggleButton.js";
 import { WorkspaceTerminalToggleButton } from "@/WorkspaceTerminalToggleButton.js";
+import { WorkspaceExportConversationButton } from "@/WorkspaceHeaderSections/WorkspaceExportConversationButton.js";
 import { cn } from "@/components/lib/utils.js";
 import type { WorkspaceHeaderActionSectionProps } from "@/WorkspaceHeaderSections/shared.js";
 import { WorkspaceHelpMenuButton } from "@/WorkspaceHelpMenuButton.js";
@@ -10,11 +11,13 @@ export type { WorkspaceHeaderActionSectionProps } from "@/WorkspaceHeaderSection
 
 export function WorkspaceHeaderActionSection({
   variant = "task",
-  // P5 W4：activeTaskId / user 原仅供 ConversationShareMenu 使用；W4b 的导出入口
-  // 会重新消费，先保留在 props 契约里、不再解构。
+  // P5 W4b：导出入口使用 activeSessionId（本地导出无登录门槛）；原 share 的
+  // activeTaskId/user props 契约随 W4a 删除的菜单一起移除。
+  activeSessionId,
   readOnlyReason,
   workspaceAbsPath,
   workspaceIdentity,
+  remoteSessionId,
   remoteTarget,
   isDesktop,
   isTerminalOpen,
@@ -46,7 +49,18 @@ export function WorkspaceHeaderActionSection({
           onSelectedEditorChange={onSelectedEditorChange}
         />
       ) : null}
-      {/* P5 W4：会话分享菜单（ConversationShareMenu）已删除；本地导出入口由 W4b 接入。 */}
+      {/* P5 W4：会话分享菜单（ConversationShareMenu）已删除；W4b 起此槽位为本地导出入口。
+          导出无登录门槛（本地 Markdown），只要存在活跃会话即显示，桌面与 Web 均可用。 */}
+      {variant === "task" && activeSessionId ? (
+        <WorkspaceExportConversationButton
+          sessionId={activeSessionId}
+          workspacePath={workspaceAbsPath}
+          workspaceIdentity={workspaceIdentity}
+          remoteSessionId={remoteSessionId}
+          remoteTarget={remoteTarget}
+          useWindowsCaptionSpacing={useWindowsCaptionSpacing}
+        />
+      ) : null}
       {!simplifyForNarrowRemote ? (
         <>
           {!hideHelpMenu ? <WorkspaceHelpMenuButton isDesktop={Boolean(isDesktop)} /> : null}

@@ -89,6 +89,8 @@ export const ServiceChannels = {
   ZCodeAgent: "zcode-agent",
   /** ZCode session 应用服务 */
   ZCodeSession: "zcode-session",
+  /** 本地会话 Markdown 导出服务（P5 W4：替代已删除的 conversation-share） */
+  ConversationExport: "conversation-export",
   /** 文件系统监视服务 */
   FileWatcher: "file-watcher",
   /** 新 Provider Config 的设置读写 Facade */

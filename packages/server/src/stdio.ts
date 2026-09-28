@@ -2,7 +2,9 @@ import { randomUUID } from "node:crypto";
 import { Emitter, VSBuffer, SocketProtocol, ChannelServer, type ISocket } from "@zcode/rpc";
 import {
   IZCodeAgentService,
+  IConversationExportService,
   createZCodeAgentConnectionScope,
+  scopeConversationExportServiceForConnection,
   type ServiceCollection,
 } from "@zcode/services";
 
@@ -67,9 +69,24 @@ export function createStdioServer(services: ServiceCollection) {
     : undefined;
   services.exposeOnChannelServer(
     channelServer,
-    connectionScope
-      ? new Map([[IZCodeAgentService.channelName, connectionScope.service]])
-      : new Map(),
+    // P5 W4b：导出服务绑定同一 stdio attachment 的 scoped Agent（rowsRange 需要
+    // trusted-carrier；本地导出无网络）。
+    (() => {
+      const overrides = new Map<string, unknown>(
+        connectionScope ? [[IZCodeAgentService.channelName, connectionScope.service]] : [],
+      );
+      const conversationExportService = services.getOptional(IConversationExportService);
+      if (conversationExportService) {
+        overrides.set(
+          IConversationExportService.channelName,
+          scopeConversationExportServiceForConnection(
+            conversationExportService,
+            connectionScope?.service,
+          ),
+        );
+      }
+      return overrides;
+    })(),
   );
   let stopPromise: Promise<void> | undefined;
   const stop = (): Promise<void> => {

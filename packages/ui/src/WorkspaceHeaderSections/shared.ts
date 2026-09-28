@@ -5,7 +5,6 @@ import type {
   EditorInfo,
   GitRepositorySummary,
   RemoteTarget,
-  UserInfo,
 } from "@zcode/shared";
 
 export interface WorkspaceHeaderState {
@@ -57,8 +56,8 @@ export interface WorkspaceHeaderTitleSectionProps {
 
 export interface WorkspaceHeaderActionSectionProps {
   variant?: WorkspaceHeaderVariant;
-  activeTaskId?: string | null;
-  user?: UserInfo | null;
+  /** P5 W4b：导出目标会话；无活跃会话时导出入口隐藏。（原 share 用的 activeTaskId/user 已删除。） */
+  activeSessionId?: string | null;
   readOnlyReason?: string;
   workspaceAbsPath: string;
   workspaceIdentity?: string;

@@ -1,31 +1,24 @@
 /**
- * P5 导出种子（W4a 暂存，W4b 在其上构建 conversation-export 服务）。
+ * P5 W4b：本地会话 Markdown 导出格式化器。
  *
- * 从原 conversation-share/sharedContextFormatter.ts 原样迁移。W4b 的导出格式化器
- * 将在 formatSharedContextV1 之上扩展：subagent/hookInvocation 行改为渲染（或带
- * notice 跳过）而不是抛错；`zcode-artifact://share/` 本地/相对路径段落替换为
- * 导出目录引用；「未知 row kind 不得静默消失」的 unsupportedKinds 纪律与
- * markdownSha256 摘要保持不变。
+ * 从原 conversation-share/sharedContextFormatter.ts（formatSharedContextV1）扩展：
+ * - subagent/hookInvocation 行改为渲染（summary + 子会话 notice / fenced JSON），
+ *   不再抛错（W4a 种子里这两类直接 throw，导出必须能整会话落盘）；
+ * - artifact 引用只保留 display name + MIME + 本地/相对路径（或文件名）行，
+ *   已删除的 `zcode-artifact://share/` 装配语义（installedArtifacts 查表 + 前缀剥离）
+ *   不再进入导出；artifact bundling 按 D-P5.7 推迟到 v2；
+ * - 「未知 row kind 不得静默消失」的 unsupportedKinds 纪律与 markdownSha256 摘要保持不变。
  */
 import { createHash } from "node:crypto";
 
 import type { ConversationRow } from "@zcode/shared/zcode-protocol-v4";
 
-import { throwConversationExportError } from "./conversationExportError.js";
-
-interface SharedContextFormatterInputV1 {
-  share: { shareId: string; title: string };
+interface ConversationExportFormatterInput {
+  title: string;
   rows: ConversationRow[];
-  installedArtifacts: Array<{
-    artifactId: string;
-    workspaceRelativePath: string;
-    displayName: string;
-    mimeType: string;
-    sha256: string;
-  }>;
 }
 
-interface SharedContextDocumentV1 {
+interface ConversationExportDocument {
   formatterVersion: 1;
   markdown: string;
   markdownSha256: string;
@@ -38,42 +31,66 @@ function fenced(value: string): string {
   return `${fence}\n${value}\n${fence}`;
 }
 
-export function formatSharedContextV1(
-  input: SharedContextFormatterInputV1,
-): SharedContextDocumentV1 {
-  const paths = new Map(
-    input.installedArtifacts.map((artifact) => [artifact.artifactId, artifact]),
+/** 历史行可能仍携带已删除的分享 artifact scheme；只保留尾部 id/文件名用于展示。 */
+function displayArtifactRef(ref: string): string {
+  const shareSchemePrefix = "zcode-artifact://share/";
+  return ref.startsWith(shareSchemePrefix) ? ref.slice(shareSchemePrefix.length) : ref;
+}
+
+function renderUserInputRow(row: Extract<ConversationRow, { kind: "userInput" }>): string {
+  const attachmentLines = (row.attachments ?? []).map((attachment) =>
+    [
+      `- ${attachment.fileName}`,
+      `  - Path: ${displayArtifactRef(attachment.ref)}`,
+      `  - MIME: ${attachment.mime}`,
+    ].join("\n"),
   );
-  const sections = [`# Shared conversation: ${input.share.title}`];
+  return `## User\n\n${row.text}${
+    attachmentLines.length > 0 ? `\n\n### Attachments\n\n${attachmentLines.join("\n")}` : ""
+  }`;
+}
+
+function renderSubagentRow(row: Extract<ConversationRow, { kind: "subagent" }>): string {
+  const lines = [`## Subagent: ${row.subagentType}`];
+  if (row.summaryText.trim()) {
+    lines.push("", row.summaryText.trim());
+  }
+  lines.push("", `- Status: ${row.status}`);
+  if (row.childSessionId) {
+    // row 形状不内嵌 child rows（childSessionId 仅指向可下钻订阅的子会话）；
+    // 必须留 notice，避免读者以为子代理完整过程已在导出内。
+    lines.push(`- Child session: ${row.childSessionId}`);
+    lines.push("- The child conversation is not embedded in this export.");
+  }
+  return lines.join("\n");
+}
+
+function renderHookInvocationRow(
+  row: Extract<ConversationRow, { kind: "hookInvocation" }>,
+): string {
+  // hookExecutionProjection 已是 client-safe 摘要（无命令/绝对路径/stdio），整段 fenced 落盘。
+  const payload = {
+    hookEventName: row.hookEventName,
+    state: row.state,
+    lane: row.lane,
+    ...(row.durationMs !== undefined ? { durationMs: row.durationMs } : {}),
+    executions: row.executions,
+  };
+  return `## Hook Invocation: ${row.hookEventName}\n\n${fenced(JSON.stringify(payload, null, 2))}`;
+}
+
+export function formatConversationExportV1(
+  input: ConversationExportFormatterInput,
+): ConversationExportDocument {
+  const title = input.title.trim();
+  const sections = [`# ZCode session${title ? `: ${title}` : ""}`];
   const unsupportedKinds = new Set<string>();
   for (const row of input.rows) {
     switch (row.kind) {
       case "turnHeader":
         break;
       case "userInput":
-        {
-          const attachmentLines = (row.attachments ?? []).flatMap((attachment) => {
-            const artifactId = attachment.ref.startsWith("zcode-artifact://share/")
-              ? attachment.ref.slice("zcode-artifact://share/".length)
-              : "";
-            const installed = paths.get(artifactId);
-            return installed
-              ? [
-                  `- ${installed.displayName}`,
-                  `  - Path: ${installed.workspaceRelativePath}`,
-                  `  - MIME: ${installed.mimeType}`,
-                  `  - SHA-256: ${installed.sha256}`,
-                ]
-              : [];
-          });
-          sections.push(
-            `## User\n\n${row.text}${
-              attachmentLines.length > 0
-                ? `\n\n### Attachments\n\n${attachmentLines.join("\n")}`
-                : ""
-            }`,
-          );
-        }
+        sections.push(renderUserInputRow(row));
         break;
       case "assistantText":
         sections.push(`## Assistant\n\n${row.text}`);
@@ -92,29 +109,21 @@ export function formatSharedContextV1(
         sections.push(`## Timeline\n\n${fenced(JSON.stringify(row.marker))}`);
         break;
       case "artifact": {
-        const artifact = paths.get(row.artifactVersionId);
-        if (!artifact) {
-          throwConversationExportError(
-            "invalid_contract",
-            "Shared context artifact was not installed",
-          );
-        }
         sections.push(
           [
-            `## Artifact: ${artifact.displayName}`,
-            `- Path: ${artifact.workspaceRelativePath}`,
-            `- MIME: ${artifact.mimeType}`,
-            `- SHA-256: ${artifact.sha256}`,
+            `## Artifact: ${row.displayName}`,
+            `- Path: ${displayArtifactRef(row.ref)}`,
+            `- MIME: ${row.mimeType}`,
           ].join("\n"),
         );
         break;
       }
       case "subagent":
+        sections.push(renderSubagentRow(row));
+        break;
       case "hookInvocation":
-        throwConversationExportError(
-          "invalid_contract",
-          `Unsupported shared context row: ${row.kind}`,
-        );
+        sections.push(renderHookInvocationRow(row));
+        break;
       default:
         // 未来新增的 row kind：不抛（一行认不出不该让整次导出失败），但也不能静默——
         // 模型侧少内容必须留痕，否则只能靠用户发现回答漏了东西。

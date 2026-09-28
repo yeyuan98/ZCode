@@ -21,6 +21,9 @@ export function buildRemoteWorkspaceSessionServices(
     zcodeAgentService: remoteServices.zcodeAgentService,
     zcodeTaskService: remoteServices.zcodeTaskService,
     zcodeSessionService: remoteServices.zcodeSessionService,
+    // P5 W4b：导出必须读远端 workspace 的 rows/session 标题；沿用 baseServices 会把
+    // 远端 sessionId 打到本机 host 上，得到「session 不存在」或本机会话的错误内容。
+    conversationExportService: remoteServices.conversationExportService,
     fileWatcherService: remoteServices.fileWatcherService,
     // Provider/Model 事实属于目标 Environment；不能因 merge 先展开 baseServices 而回落到本地。
     modelSelectionService: remoteServices.modelSelectionService,

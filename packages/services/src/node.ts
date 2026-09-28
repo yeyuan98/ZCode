@@ -152,6 +152,8 @@ export {
   IProviderSettingsService,
 } from "./model-provider/providerFacadeServices.js";
 export { createUsageStatsService } from "./usage-stats/usageStatsService.js";
+// P5 W4b：本地会话 Markdown 导出服务（实现携带 node:crypto 的 formatter，仅经 node 入口暴露）。
+export { createConversationExportService } from "./conversation-export/conversationExportService.js";
 // Storage：service 与 adapters 工厂；desktop host 负责组装（Worker runner 在 desktop 包内）
 export { createStorageService } from "./storage/app/storageService.js";
 export type {
@@ -306,6 +308,8 @@ import {
 import { createProviderProvisioningTarget } from "./model-provider/providerProvisioningTarget.js";
 import { IProviderProvisioningTargetService } from "./model-provider/providerProvisioning.js";
 import { createUsageStatsService } from "./usage-stats/usageStatsService.js";
+import { createConversationExportService } from "./conversation-export/conversationExportService.js";
+import { IConversationExportService } from "./conversation-export/conversationExport.js";
 // P3 C5 供应商 client/configs 拉取删除：IClientConfigService 注册随配置面移除。
 import { createClientScenesService } from "./client-scenes/clientScenesService.js";
 import { createSkillsService } from "./skills/skillsService.js";
@@ -2017,6 +2021,10 @@ export function createLocalServices(options: {
   });
   // P5 W4：会话分享（发布/导入/能力面）已删除，zcodejwttoken 的最后读取链路
   // （oauth:* 回退 + 分享 HTTP client）随之移除；本地 Markdown 导出见 conversation-export。
+  const conversationExportService = createConversationExportService({
+    zcodeAgentService,
+    zcodeSessionService,
+  });
   // 注册链上的懒工厂（如 OffPeak）会各自创建 tasks-index sqlite repo；先收集到本数组，
   // services 集合建好后在 return 前统一登记进 sharedSqliteRepos 侧表
   const sqliteReposToClose: Array<{ close(): void }> = [];
@@ -2036,6 +2044,7 @@ export function createLocalServices(options: {
     .register(IZCodeSessionService, zcodeSessionService)
     .register(ICuaPermissionService, cuaPermissionService)
     .register(ICuaPipSessionService, cuaPipSessionService)
+    .register(IConversationExportService, conversationExportService)
     .register(
       IBotsService,
       createBotsService({
