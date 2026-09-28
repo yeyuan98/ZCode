@@ -9,6 +9,7 @@
         "scripts/check-workspace-freshness.mjs",
         "scripts/mise-run.mjs",
         "scripts/flat-asset-names.test.mjs",
+        "scripts/merge-mac-update-info.test.mjs",
         "e2e/serverBootstrap.ts"
       ]
     },
