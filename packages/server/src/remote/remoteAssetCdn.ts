@@ -15,6 +15,12 @@ export function resolveRemoteCdnBaseUrls(options: RemoteCdnBaseOptions): string[
 export function buildReleaseBaseCandidates(remoteCdnBaseUrls: string[], version: string): string[] {
   const candidates = remoteCdnBaseUrls.flatMap((remoteCdnBaseUrl) => {
     const normalizedBase = remoteCdnBaseUrl.replace(/\/+$/, "");
+    // P5 W2（specs/distribution-and-updates.md §B）：默认源是 GitHub Releases tag 目录
+    // （…/releases/download/v<version>，扁平布局）。基址末段恰好是 `v<当前版本>` 时按 tag 目录
+    // 识别：manifest 与组件都直接位于该目录下，不追加版本子目录，也不产生跨版本探测候选。
+    if (isFlatGithubTagReleaseBase(normalizedBase, version)) {
+      return [normalizedBase];
+    }
     // 当调用方已经传入带版本的 CDN 基址时，继续盲目拼 `${base}/${version}`
     // 会先走一次必然失败的双版本路径（例如 .../0.2.10/0.2.10），产生无意义 404 噪音。
     // 这里识别“已固定到当前版本”的场景，直接使用原基址即可。
@@ -59,10 +65,24 @@ export function buildComponentArtifactUrlCandidates(
   artifactPath: string,
   version: string,
 ): string[] {
-  return buildArtifactUrlCandidates(
-    buildComponentReleaseBaseCandidates(releaseBaseCandidates, version),
-    artifactPath,
+  const normalizedArtifactPath = normalizeRemoteAssetRelativePath(artifactPath, "artifactPath");
+  // P5 W2：扁平布局（GitHub Releases tag 目录）下组件 artifactPath 本身就是扁平文件名，
+  // 恰好一个 URL —— 不做 components 根目录跨版本探测，也不产生第二个候选。
+  const urls = releaseBaseCandidates.flatMap((releaseBaseCandidate) =>
+    isFlatGithubTagReleaseBase(releaseBaseCandidate, version)
+      ? buildFlatArtifactUrlCandidates(releaseBaseCandidate, normalizedArtifactPath)
+      : buildArtifactUrlCandidates(
+          buildComponentReleaseBaseCandidates([releaseBaseCandidate], version),
+          normalizedArtifactPath,
+        ),
   );
+  return Array.from(new Set(urls));
+}
+
+// P5 W2 新增：扁平布局的单候选构造器。基址必须是 GitHub Releases tag 目录（v<当前版本> 末段），
+// artifactPath 为 manifest 里的扁平文件名（manifest-<platformArch>.json 同样适用）。
+export function buildFlatArtifactUrlCandidates(baseUrl: string, artifactPath: string): string[] {
+  return [joinCdnUrl(baseUrl, normalizeRemoteAssetRelativePath(artifactPath, "artifactPath"))];
 }
 
 export function buildComponentReleaseBaseCandidates(
@@ -71,6 +91,11 @@ export function buildComponentReleaseBaseCandidates(
 ): string[] {
   const candidates = releaseBaseCandidates.flatMap((releaseBaseCandidate) => {
     const normalizedBase = releaseBaseCandidate.replace(/\/+$/, "");
+    // P5 W2：GitHub Releases tag 目录（扁平布局）没有跨版本 components 根目录，
+    // 组件只从 tag 目录本身取 —— 不探测父级 release root。
+    if (isFlatGithubTagReleaseBase(normalizedBase, version)) {
+      return [normalizedBase];
+    }
     if (normalizedBase.endsWith(`/${version}`)) {
       // 当前 CI 只把 component artifact 上传到跨版本 components 根目录。
       // 因此运行时应先探测父级 release root，避免每个组件都先命中一次已停止发布的版本化路径。
@@ -140,7 +165,7 @@ export function assertRemoteCdnBaseVersionMatches(
   throw new Error(
     `[remote-assets] remoteCdnBaseUrl 版本不匹配：当前应用版本是 ${expectedVersion}，但以下基址固定在其他版本：` +
       `${mismatchedBases.map(({ remoteCdnBaseUrl, pinnedVersion }) => `${pinnedVersion} (${remoteCdnBaseUrl})`).join(", ")}。` +
-      `请将 ZCODE_REMOTE_ASSET_CDN_BASE_URL 改为不带版本的发布根目录，或改为 ${expectedVersion} 对应目录。`,
+      `请将 ZCODE_REMOTE_ASSET_CDN_BASE_URL 改为不带版本的发布根目录，或改为 ${expectedVersion}（或 v${expectedVersion}）对应目录。`,
   );
 }
 
@@ -179,7 +204,24 @@ function extractPinnedReleaseVersionFromCdnBaseUrl(remoteCdnBaseUrl: string): st
     return null;
   }
 
-  return isSemverLike(lastSegment) ? lastSegment : null;
+  // P5 W2：GitHub tag 目录以 `v` 前缀固定版本（…/releases/download/v3.14.3-alpha.9）。
+  // 版本锁校验必须同时识别裸 semver 与 `v` 前缀两种末段，比较时统一去掉 `v`。
+  const versionCandidate = lastSegment.startsWith("v") ? lastSegment.slice(1) : lastSegment;
+  return isSemverLike(versionCandidate) ? versionCandidate : null;
+}
+
+// P5 W2：识别 GitHub Releases tag 目录（…/releases/download/v<version>）。
+// 判定规则保持确定性：基址（URL pathname）末段恰好等于 `v<当前版本>` 才视为扁平布局；
+// 裸 semver 末段仍是旧式 CDN 版本目录（嵌套布局），未固定末段保持嵌套多候选探测。
+function isFlatGithubTagReleaseBase(baseUrl: string, version: string): boolean {
+  const normalizedBase = baseUrl.replace(/\/+$/, "");
+  const parsedPathname = tryParseUrlPathname(normalizedBase);
+  const pathname = parsedPathname ?? normalizedBase;
+  const lastSegment = pathname
+    .split("/")
+    .filter((segment) => segment.length > 0)
+    .at(-1);
+  return lastSegment === `v${version}`;
 }
 
 function tryParseUrlPathname(urlOrPath: string): string | null {

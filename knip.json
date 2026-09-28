@@ -8,6 +8,7 @@
         ".vscode/*.mjs",
         "scripts/check-workspace-freshness.mjs",
         "scripts/mise-run.mjs",
+        "scripts/flat-asset-names.test.mjs",
         "e2e/serverBootstrap.ts"
       ]
     },
