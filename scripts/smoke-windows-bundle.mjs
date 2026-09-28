@@ -311,7 +311,7 @@ function createContainerScript(options) {
     // 与 release-desktop.yml 的 Build 步骤保持同一组环境变量；改动需同步两侧。
     "pnpm bundle:desktop -- --os win --arch x64 --skip-prepare",
     "ls -la packages/desktop/dist/*.exe",
-    "cp packages/desktop/dist/ZCode-*-win-x64.exe /out/",
+    "cp packages/desktop/dist/Zodex-*-win-x64.exe /out/",
   ]
     .filter(Boolean)
     .join("\n");
@@ -375,7 +375,7 @@ function runContainerBuild({ imageTag, runDir, archivePath, options, commitId })
 
   const installerPath = findInstallerInDir(outDir);
   if (!installerPath) {
-    throw new Error("容器构建成功但 /out 未带回 ZCode-*-win-x64.exe 产物");
+    throw new Error("容器构建成功但 /out 未带回 Zodex-*-win-x64.exe 产物");
   }
   reportArtifact(installerPath, options);
 }
@@ -384,7 +384,7 @@ function findInstallerInDir(directory) {
   if (!existsSync(directory)) {
     return null;
   }
-  const candidates = readdirSync(directory).filter((name) => /^ZCode-.*-win-x64\.exe$/.test(name));
+  const candidates = readdirSync(directory).filter((name) => /^Zodex-.*-win-x64\.exe$/.test(name));
   return candidates.length > 0 ? join(directory, candidates[0]) : null;
 }
 

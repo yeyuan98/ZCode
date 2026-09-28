@@ -1,5 +1,13 @@
 /* eslint-disable max-lines -- Electron Builder config keeps related packaging hooks together so build order stays explicit. */
-import { cpSync, existsSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import {
+  cpSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { readdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -20,6 +28,7 @@ import {
   resolveDesktopArtifactSuffix,
   resolveDesktopProductIdentity,
 } from "./scripts/desktop-product-identity.mjs";
+import { applyUpdaterCacheIsolation } from "./scripts/updaterCacheIsolation.mjs";
 const ELECTRON_BUILDER_ARCH = {
   1: "x64",
   3: "arm64",
@@ -203,6 +212,19 @@ function resolveElectronDownloadMirror(env = process.env) {
   return DEFAULT_ELECTRON_MIRROR;
 }
 
+// D8：Linux CI 通过 ZCODE_LINUX_CI_TARGETS（逗号分隔，如 "AppImage,deb"）只打发布所需目标；
+// 未设置时保持完整目标列表，rpm/pacman 仍是本地构建可选项。
+function resolveLinuxBuildTargets(env = process.env) {
+  const ciTargets = env.ZCODE_LINUX_CI_TARGETS?.trim();
+  if (ciTargets) {
+    return ciTargets
+      .split(",")
+      .map((target) => target.trim())
+      .filter(Boolean);
+  }
+  return ["AppImage", "deb", "rpm", "pacman"];
+}
+
 const commandStdoutMaxBuffer = 64 * 1024 * 1024;
 // 产物后缀只标记后端环境（_TEST）；身份靠 productName 区分，生产后端的 Preview 包没有后缀。
 const desktopArtifactEnvSuffix = resolveDesktopArtifactSuffix(process.env);
@@ -215,7 +237,7 @@ if (
   !macSigningIdentity
 ) {
   throw new Error(
-    "ZCode Preview macOS packaging requires APPLE_SIGNING_IDENTITY or CSC_NAME when ZCODE_ENABLE_MAC_SIGN=1",
+    "Zodex Preview macOS packaging requires APPLE_SIGNING_IDENTITY or CSC_NAME when ZCODE_ENABLE_MAC_SIGN=1",
   );
 }
 
@@ -279,7 +301,7 @@ async function runTimedAsync(label, fn) {
 
 function resolveAppAsarPath(context) {
   if (context.electronPlatformName === "darwin") {
-    const appName = `${context.packager?.appInfo?.productFilename ?? "ZCode"}.app`;
+    const appName = `${context.packager?.appInfo?.productFilename ?? "Zodex"}.app`;
     return resolve(context.appOutDir, appName, "Contents", "Resources", "app.asar");
   }
 
@@ -288,11 +310,38 @@ function resolveAppAsarPath(context) {
 
 function resolvePackagedResourcesDir(context) {
   if (context.electronPlatformName === "darwin") {
-    const appName = `${context.packager?.appInfo?.productFilename ?? "ZCode"}.app`;
+    const appName = `${context.packager?.appInfo?.productFilename ?? "Zodex"}.app`;
     return resolve(context.appOutDir, appName, "Contents", "Resources");
   }
 
   return resolve(context.appOutDir, "resources");
+}
+
+function resolvePackagedAppUpdateYamlPath(context) {
+  if (context.electronPlatformName === "darwin") {
+    const appName = `${context.packager?.appInfo?.productFilename ?? "Zodex"}.app`;
+    return resolve(context.appOutDir, appName, "Contents", "Resources", "app-update.yml");
+  }
+
+  return resolve(context.appOutDir, "resources", "app-update.yml");
+}
+
+function applyUpdaterCacheIsolationToPackagedApp(context) {
+  // PublishManager 在用户 afterPack 之前写出 app-update.yml，这里作为 afterPack 的最后一步
+  // 改写它，保证 electron-updater 使用 Zodex 专属的 updaterCacheDirName（D7）。
+  const appUpdateYamlPath = resolvePackagedAppUpdateYamlPath(context);
+  if (!existsSync(appUpdateYamlPath)) {
+    console.warn(`[afterPack] app-update.yml 不存在，跳过 updater 缓存隔离: ${appUpdateYamlPath}`);
+    return;
+  }
+  const originalContent = readFileSync(appUpdateYamlPath, "utf8");
+  const updatedContent = applyUpdaterCacheIsolation(originalContent);
+  if (updatedContent !== originalContent) {
+    writeFileSync(appUpdateYamlPath, updatedContent, "utf8");
+    console.log(
+      `[afterPack] updaterCacheDirName 已隔离为 dev.zodex.app-updater: ${appUpdateYamlPath}`,
+    );
+  }
 }
 
 function normalizeAsarEntry(entry) {
@@ -458,9 +507,9 @@ export default {
     version: buildMetadata.appVersion,
     zcodeProductFlavor: desktopProductIdentity.flavor,
     // P5：homepage/author 统一指向本仓库（GitHub），邮箱使用 noreply 地址（D-P5.6）。
-    homepage: "https://github.com/yeyuan98/ZCode",
+    homepage: "https://github.com/yeyuan98/zodex",
     author: {
-      name: "ZCode",
+      name: "Zodex",
       email: "yeyuan98@users.noreply.github.com",
     },
   },
@@ -566,6 +615,9 @@ export default {
         writeWindowsInstallManifest(context),
       );
     }
+    runTimedSync("afterPack:applyUpdaterCacheIsolation", () =>
+      applyUpdaterCacheIsolationToPackagedApp(context),
+    );
   },
   extraResources: [
     { from: resolve(workspaceRoot, noticesFileName), to: noticesFileName },
@@ -694,16 +746,16 @@ export default {
     artifactName: buildDesktopArtifactName("win"),
   },
   linux: {
-    target: ["AppImage", "deb", "rpm", "pacman"],
+    target: resolveLinuxBuildTargets(),
     artifactName: buildDesktopArtifactName("linux"),
     // desktop 包名是 scoped package（@zcode/desktop），electron-builder 默认会把
     // Linux executable/Icon 推成 @zcodedesktop。部分桌面环境无法按这个 icon name 命中
-    // hicolor 图标，最终回退成系统齿轮。这里固定成稳定的小写名称，让 Icon=zcode
-    // 与 /usr/share/icons/hicolor/*/apps/zcode.png 保持一致。
+    // hicolor 图标，最终回退成系统齿轮。这里固定成稳定的小写名称，让 Icon=zodex
+    // 与 /usr/share/icons/hicolor/*/apps/zodex.png 保持一致。
     executableName: desktopProductIdentity.linuxExecutableName,
     category: "Development",
     // P5：maintainer 同步改为仓库 noreply 身份（deb/fpm 元数据仍需该字段，仅换值）。
-    maintainer: "ZCode <yeyuan98@users.noreply.github.com>",
+    maintainer: "Zodex <yeyuan98@users.noreply.github.com>",
   },
   deb: {
     // 生产版与 Preview 必须是两个 dpkg package；只改可执行名仍会让安装器把另一版本当成升级替换。
@@ -763,6 +815,6 @@ export default {
   publish: {
     provider: "github",
     owner: "yeyuan98",
-    repo: "ZCode",
+    repo: "zodex",
   },
 };

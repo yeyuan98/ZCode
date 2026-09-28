@@ -4,12 +4,14 @@ import { join } from "node:path";
 import { spawn } from "node:child_process";
 import type { Locale } from "@zcode/shared";
 
-const WORKFLOW_NAME = "Open in ZCode.workflow";
-const WORKFLOW_BUNDLE_ID = "dev.zcode.app.finder-open-workflow";
+// 品牌重命名后 workflow 文件名同步改为 Zodex；旧名安装的服务会被孤立残留，
+// 但本服务只做幂等写入且 bundle id 不变，Finder 会以新文件名重新注册，无功能影响。
+const WORKFLOW_NAME = "Open in Zodex.workflow";
+const WORKFLOW_BUNDLE_ID = "dev.zodex.app.finder-open-workflow";
 const WORKFLOW_VERSION = "5";
 const SERVICES_MENU_LABELS: Record<Locale, string> = {
-  "zh-CN": "在ZCode中打开",
-  "en-US": "Open in ZCode",
+  "zh-CN": "在Zodex中打开",
+  "en-US": "Open in Zodex",
 };
 
 const workflowScript = `first=""

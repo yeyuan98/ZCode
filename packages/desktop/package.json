@@ -1,8 +1,8 @@
 {
   "name": "@zcode/desktop",
   "private": true,
-  "description": "ZCode Desktop App",
-  "author": "ZCode",
+  "description": "Zodex Desktop App",
+  "author": "Zodex",
   "type": "module",
   "main": "out/main/index.js",
   "scripts": {
@@ -25,7 +25,7 @@
     "postinstall": "node scripts/node-pty-rebuild.mjs",
     "lint": "oxlint",
     "lint:fix": "oxlint --fix",
-    "test": "node --test --experimental-transform-types --import ./test/registerTsLoader.mjs \"test/*.test.ts\""
+    "test": "node --test --experimental-transform-types --import ./test/registerTsLoader.mjs \"test/*.test.ts\" \"test/*.test.mjs\""
   },
   "dependencies": {
     "@babel/runtime": "^7.24.5",
@@ -83,5 +83,5 @@
     "typescript": "^6.0.2",
     "vite": "^8.0.2"
   },
-  "productName": "ZCode"
+  "productName": "Zodex"
 }

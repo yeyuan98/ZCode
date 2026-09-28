@@ -122,11 +122,11 @@ test("resolveUpdateFeedProviderConfig：覆盖 → generic（关闭多 Range）�
   assert.deepEqual(resolveUpdateFeedProviderConfig(undefined), {
     provider: "github",
     owner: "yeyuan98",
-    repo: "ZCode",
+    repo: "zodex",
   });
   assert.deepEqual(resolveUpdateFeedProviderConfig("   "), {
     provider: "github",
     owner: "yeyuan98",
-    repo: "ZCode",
+    repo: "zodex",
   });
 });
