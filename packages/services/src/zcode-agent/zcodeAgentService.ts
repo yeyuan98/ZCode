@@ -571,7 +571,7 @@ function isProtocolRequestTimeout(error: unknown, method: string): boolean {
   if (error instanceof ZCodeProtocolRequestTimeoutError) {
     return error.method === method;
   }
-  return error instanceof Error && error.message === `ZCode Protocol request timed out: ${method}`;
+  return error instanceof Error && error.message === `Zodex Protocol request timed out: ${method}`;
 }
 
 function assertV4AttachmentNdjsonEnvelope(method: string, params: unknown): void {
@@ -818,7 +818,7 @@ function createRuntimeUnavailableError(params: ZCodeAgentWorkspaceTarget): Error
   code: typeof ZCODE_AGENT_RUNTIME_UNAVAILABLE_CODE;
   workspaceKey: string;
 } {
-  const error = new Error("ZCode Agent runtime is not running.") as Error & {
+  const error = new Error("Zodex Agent runtime is not running.") as Error & {
     code: typeof ZCODE_AGENT_RUNTIME_UNAVAILABLE_CODE;
     workspaceKey: string;
   };

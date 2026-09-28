@@ -331,14 +331,14 @@ function WebBootstrapErrorScreen({ message }: { message: string }) {
 }
 
 function renderWebBootstrapError(error: unknown): void {
-  document.title = "ZCode - Web";
+  document.title = "Zodex - Web";
   root.render(
     <WebBootstrapErrorScreen message={error instanceof Error ? error.message : String(error)} />,
   );
 }
 
 function renderServerTokenLoginPage(): void {
-  document.title = "ZCode - Sign In";
+  document.title = "Zodex - Sign In";
   root.render(
     <ServerTokenLoginPage
       onAuthenticated={() => {
@@ -389,7 +389,7 @@ async function bootstrapWebApp() {
       onClose: () => {},
     });
     const platform = createWebPlatform();
-    document.title = "ZCode - Web + Server";
+    document.title = "Zodex - Web + Server";
 
     root.render(
       <AppErrorBoundary>

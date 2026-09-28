@@ -15,7 +15,7 @@ export const zhCN: ZCodeCopy = {
 不传 command 时，zcode 会打开全屏 TUI。
 
 命令:
-  app-server 运行 ZCode Protocol stdio app server
+  app-server 运行 Zodex Protocol stdio app server
   commands   列出自定义 slash commands（\`commands list\`）
   doctor     检查运行时和打包假设
   plugins    管理插件与市场（\`plugins list|install|uninstall|enable|disable|update|validate|marketplace ...\`；别名 plugin）
@@ -231,7 +231,7 @@ Slash Commands:
       turnFailed: "本轮失败。",
     },
     terminal: {
-      starting: "正在启动 ZCode… Ctrl+C 退出",
+      starting: "正在启动 Zodex… Ctrl+C 退出",
       requiresInteractive: "TUI 需要交互式终端。",
     },
     transcript: {
