@@ -22,8 +22,8 @@
     "@modelcontextprotocol/server": "2.0.0",
     "@zcode/contracts": "workspace:*",
     "@zcode/core": "workspace:*",
-    "@zcode/shared": "workspace:*",
-    "@zcode/zcode-cua": "workspace:*",
+    "@zcode/shared": "link:../../../packages/shared",
+    "@zcode/zcode-cua": "link:../../../packages/zcode-cua",
     "zod": "^4.4.3"
   },
   "devDependencies": {

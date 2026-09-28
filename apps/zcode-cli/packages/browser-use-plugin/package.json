@@ -18,7 +18,7 @@
     "@zcode/contracts": "workspace:*",
     "@zcode/core": "workspace:*",
     "@zcode/node-repl-host": "workspace:*",
-    "@zcode/shared": "workspace:*",
+    "@zcode/shared": "link:../../../packages/shared",
     "zod": "4.6.5"
   },
   "devDependencies": {

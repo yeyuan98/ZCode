@@ -91,7 +91,7 @@
     "lint:fix": "oxlint --write src"
   },
   "dependencies": {
-    "@zcode/shared": "workspace:*",
+    "@zcode/shared": "link:../../../packages/shared",
     "zod": "^3.24.0",
     "zod-to-json-schema": "3.25.2"
   },
