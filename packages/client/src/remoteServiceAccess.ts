@@ -22,7 +22,7 @@ import {
   IProviderProvisioningTargetService,
   IUsageStatsService,
   // P3 C5 供应商 client/configs 拉取删除：IClientConfigService 代理已随服务移除。
-  IClientScenesService,
+  // P5 D-P5.4：IClientScenesService 代理已随 endpoint web / clientScenes 链删除。
   IOffPeakTaskService,
   ISkillsService,
   ISkillSyncService,
@@ -73,7 +73,7 @@ export class RemoteServiceAccess implements IServiceAccessor {
   readonly providerProvisioningTargetService!: IProviderProvisioningTargetService;
   readonly usageStatsService: IUsageStatsService;
   // P3 C5：clientConfigService（供应商 client/configs 快照代理）已删除。
-  readonly clientScenesService: IClientScenesService;
+  // P5 D-P5.4：clientScenesService 代理已随 endpoint web / clientScenes 链删除。
   readonly offPeakTaskService: IOffPeakTaskService;
   readonly skillsService: ISkillsService;
   readonly skillSyncService: ISkillSyncService;
@@ -161,9 +161,7 @@ export class RemoteServiceAccess implements IServiceAccessor {
       channelClient.getChannel(IUsageStatsService.channelName),
     );
     // P3 C5：clientConfigService 代理创建已随供应商 client/configs 配置面删除。
-    this.clientScenesService = ProxyChannel.toService<IClientScenesService>(
-      channelClient.getChannel(IClientScenesService.channelName),
-    );
+    // P5 D-P5.4：clientScenesService 代理创建已随 endpoint web 删除。
     this.offPeakTaskService = ProxyChannel.toService<IOffPeakTaskService>(
       channelClient.getChannel(IOffPeakTaskService.channelName),
     );

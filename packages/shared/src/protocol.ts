@@ -366,6 +366,6 @@ export interface AppSettings {
   skippedElectronUpdateVersions?: string[];
   /** 首次启动设置同步提示是否已消费；只表示弹窗不再出现，不代表导入成功。 */
   settingsSyncFirstRunPromptHandled?: boolean;
-  /** 设置页里的临时 endpoint override；正式/测试默认 base url 由 ZCODE_BASE_URL env 管理。 */
-  zcodeEndpointOrigin?: string;
+  // P5 D-P5.4：设置页临时 endpoint override 字段已随 endpoint web 整体删除。zod object
+  // 默认 strip 未知键，旧 setting.json 的残留值会被静默丢弃，无需迁移。
 }

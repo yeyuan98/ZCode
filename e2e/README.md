@@ -42,8 +42,8 @@ pnpm test:e2e                   # 等价于 playwright test
     → `createLocalServices` → `createHttpServer`，静态根指向 `packages/web/dist`）。
 - 数据隔离：每个服务器实例拥有独立临时目录，同时作为 `HOME` 与
   `ZCODE_DATA_BASE_DIR`（setting.json 在 `$HOME/.zcode`，其余数据在 dataBaseDir/.zcode），
-  测试之间 provider / settings 状态互不泄漏；`ZCODE_ENDPOINT_ORIGIN` 指向 mock 服务，
-  阻断内置 provider 配置的远端 CDN 刷新。
+  测试之间 provider / settings 状态互不泄漏；builtin provider 配置由 server-config.json
+  显式指向 mock 文件（P3 C5 起远端刷新已删除）。
 - mock 模板：夹具克隆仓库 `config/provider/zcode-builtin.json` 中的 api-key + openai
   兼容模板，注入 `mock-e2e` 模板（baseUrl 指向 mock provider），保证探测/保存流程
   全程不访问真实厂商端点。

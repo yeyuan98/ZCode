@@ -68,15 +68,7 @@ export function normalizeSettingsPatch(patch: Partial<AppSettings>): Partial<App
       trimmedHttpProxyCaCertPath.length > 0 ? trimmedHttpProxyCaCertPath : undefined;
   }
 
-  if (
-    "zcodeEndpointOrigin" in normalizedPatch &&
-    typeof normalizedPatch.zcodeEndpointOrigin === "string"
-  ) {
-    // 非生产 endpoint override 需要支持 Reset 清空；RPC/JSON 对 undefined 不稳定时，用空串也能回到默认生产域。
-    const trimmedZCodeEndpointOrigin = normalizedPatch.zcodeEndpointOrigin.trim();
-    normalizedPatch.zcodeEndpointOrigin =
-      trimmedZCodeEndpointOrigin.length > 0 ? trimmedZCodeEndpointOrigin : undefined;
-  }
+  // P5 D-P5.4：endpoint origin override 设置项的空串归一块已随字段删除。
 
   if (
     "providerOnboardingDismissedAt" in normalizedPatch &&

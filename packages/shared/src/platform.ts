@@ -488,10 +488,7 @@ export const DesktopCommandIds = {
   ToggleDevTools: "toggleDevTools",
   OpenResourceManager: "openResourceManager",
   ToggleZCodeStdioTapDevProxy: "toggleZCodeStdioTapDevProxy",
-  SetZCodeEndpointProduction: "setZCodeEndpointProduction",
-  SetZCodeEndpointTest: "setZCodeEndpointTest",
-  SetZCodeEndpointCustom: "setZCodeEndpointCustom",
-  ResetZCodeEndpoint: "resetZCodeEndpoint",
+  // P5 D-P5.4：SetZCodeEndpoint* / ResetZCodeEndpoint 命令已随帮助菜单 Endpoint 选择器删除。
   ClearAllData: "clearAllData",
   GetCuaOsSupport: "getCuaOsSupport",
 } as const;

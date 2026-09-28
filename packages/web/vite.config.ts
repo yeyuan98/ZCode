@@ -6,7 +6,6 @@ import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 import { pdfJsCMapsPlugin } from "../ui/vite/pdfJsCMapsPlugin.js";
 import { thirdPartyNoticesVitePlugin } from "../../scripts/third-party-notices.mjs";
-import { pickProductEndpointEnv } from "@zcode/shared/zcodeEndpoint";
 
 const HERE = fileURLToPath(new URL(".", import.meta.url));
 const REPO_ROOT = resolve(HERE, "../..");
@@ -60,7 +59,8 @@ export default defineConfig(({ mode }) => {
       },
     },
     define: {
-      __ZCODE_ENDPOINT_ENV__: JSON.stringify(pickProductEndpointEnv(env)),
+      // P5 D-P5.4：__ZCODE_ENDPOINT_ENV__（endpoint origin env 的 define）已删除（此前
+      // W4 已移除 VITE_ZCODE_BASE_URL / VITE_ZCODE_ENDPOINT_ORIGIN 的 share 消费）。
       __ZCODE_VERSION__: JSON.stringify(version),
       __ZCODE_COMMIT__: JSON.stringify(env.ZCODE_COMMIT || "unknown"),
       __ZCODE_ENV__: JSON.stringify(zcodeEnv),

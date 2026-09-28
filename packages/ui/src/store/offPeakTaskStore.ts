@@ -44,8 +44,7 @@ interface OffPeakTaskState {
   loading: boolean;
   error: string | null;
   operationId: string | null;
-  /** 模板卡→创建表单的预填草稿（跨视图导航一次性携带）。 */
-  pendingCreateDraft: OffPeakCreateDraft | null;
+  // P5 D-P5.4：pendingCreateDraft（模板卡→创建表单预填）已随模板链路删除（生产者已不存在）。
   initialize(deps: { offPeakTaskService: IOffPeakTaskService }): Promise<void>;
   refresh(service: IOffPeakTaskService): Promise<void>;
   createTask(
@@ -63,9 +62,6 @@ interface OffPeakTaskState {
   cancelTask(offPeakTaskId: string, service: IOffPeakTaskService): Promise<void>;
   deleteTask(offPeakTaskId: string, service: IOffPeakTaskService): Promise<void>;
   deleteHistory(offPeakTaskId: string, service: IOffPeakTaskService): Promise<void>;
-  /** 模板卡点击：暂存预填草稿供 Automations 创建表单消费（consume 后清空）。 */
-  setPendingCreateDraft(draft: OffPeakCreateDraft): void;
-  consumePendingCreateDraft(): OffPeakCreateDraft | null;
 }
 
 function toErrorMessage(error: unknown): string {
@@ -94,7 +90,6 @@ export const useOffPeakTaskStore = create<OffPeakTaskState>((set, get) => ({
   loading: false,
   error: null,
   operationId: null,
-  pendingCreateDraft: null,
 
   async initialize({ offPeakTaskService }) {
     // 页面切换时 New Task 与 Automations 可能短暂重叠挂载；store 级 single-flight
@@ -255,15 +250,5 @@ export const useOffPeakTaskStore = create<OffPeakTaskState>((set, get) => ({
     } finally {
       set({ operationId: null });
     }
-  },
-
-  setPendingCreateDraft(draft) {
-    set({ pendingCreateDraft: draft });
-  },
-
-  consumePendingCreateDraft() {
-    const draft = get().pendingCreateDraft;
-    if (draft) set({ pendingCreateDraft: null });
-    return draft;
   },
 }));

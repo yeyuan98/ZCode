@@ -69,6 +69,8 @@ export {
   RUNTIME_ZCODE_DEBUG,
   normalizeZCodeEnv,
   normalizeZCodeProductFlavor,
+  // P5 D-P5.4：自 zcodeEndpoint.ts 迁入（endpoint 解析链删除；CLI 请求头仍在消费）。
+  resolveRuntimeZCodeEnv,
 } from "./env.js";
 export * from "./errors.js";
 export type { SessionCreateSource } from "./sessionCreateSource.js";
@@ -93,8 +95,8 @@ export * from "./conversation-preview-artifacts.js";
 export * from "./zcode-session-task-status.js";
 export * from "./zcode-tool-projection-memory.js";
 export * from "./zcode-slash-command-help.js";
-export * from "./zcodeEndpoint.js";
-export * from "./zcode-source-headers.js";
+// P5 D-P5.4：zcodeEndpoint.js（endpoint origin 解析）与 zcode-source-headers.js
+// （平台来源信任头）已随 endpoint web / clientScenes 链整体删除；resolveRuntimeZCodeEnv 迁至 env.js。
 export * from "./zcode-agent-policy.js";
 export * from "./zcode-media-policy.js";
 export * from "./media-preview.js";

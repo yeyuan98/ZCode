@@ -30,7 +30,9 @@ export function createDaemonServiceDescriptor(options: {
       options.platform === "win32" ? "zcode.cmd" : "zcode",
     ),
     args: ["serve", "--supervisor", "--service-entry", "--server-root", options.layout.serverRoot],
-    name: `com.zhipu.zcode.server.${stablePathId(options.layout.serverRoot)}`,
+    // P5 D7：服务名去厂商化。不做迁移——unregisterService 对“服务不存在”已有容忍，
+    // 旧厂商前缀命名的残留服务留给用户手动清理（specs/distribution-and-updates.md 迁移边界）。
+    name: `app.zcode.server.${stablePathId(options.layout.serverRoot)}`,
   });
 }
 
@@ -46,7 +48,8 @@ export function createServiceDescriptor(options: {
   args?: string[];
   name?: string;
 }): ServiceDescriptor {
-  const name = options.name ?? "com.zhipu.zcode.server";
+  // P5 D7：默认服务名去厂商化（无迁移；见 createDaemonServiceDescriptor 注释）。
+  const name = options.name ?? "app.zcode.server";
   const args = options.args ?? ["serve", "--daemon"];
   if (options.platform === "darwin") {
     return {

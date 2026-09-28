@@ -4836,7 +4836,6 @@ const zhCN: Record<string, string> = {
   "offPeak.window.end": "时间窗结束",
   // P3 复核：sectionTitle/keepAwakeHint 消费方已随 S1 重写移除，键删除；thought.*/tabs.* 为动态键仍有消费方，保留。
   "offPeak.createButton": "创建闲时任务",
-  "offPeak.templates.sectionTitle": "闲时任务模板",
   "offPeak.list.empty": "还没有闲时任务。创建一个，让它在闲时时间窗内自动执行。",
   "offPeak.action.pauseHint": "暂停后任务不会被派发；继续后回到队列等待时间窗。",
   "offPeak.action.continueHint": "「继续」恢复派发资格，任务在下一个时间窗自动运行。",
@@ -4898,8 +4897,6 @@ const zhCN: Record<string, string> = {
   "offPeak.discard.confirm": "丢弃",
   "offPeak.create.noModel": "请先在设置中配置至少一个模型 Provider，再创建闲时任务。",
   "offPeak.create.remoteUnavailable": "远程工作区暂不支持闲时任务。",
-  "automations.moreIdeas": "定时任务模板",
-  "automations.templates.unavailable": "无可用模板",
   "automations.runNow": "立即运行",
   "automations.runNowQueued": "已触发，即将运行",
   "automations.runNowAlreadyRunning": "上一条正在运行中，请稍后再试",

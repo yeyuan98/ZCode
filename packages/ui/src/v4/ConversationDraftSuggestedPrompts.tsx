@@ -10,7 +10,8 @@ import {
   AlertDialogAction,
 } from "@/components/ui/alert-dialog.js";
 /* New task 草稿页推荐提示词入口。
-   推荐配置来自 Client Scenes 的 draft-suggestion scene。 */
+   P5 D-P5.4：推荐配置的 Client Scenes（draft-suggestion scene）来源已删除；
+   打包内置推荐（featureSuggestedPrompts）经容器下发，chips 布局自然空置。 */
 import type { CSSProperties } from "react";
 import { X, Check, Info, LoaderCircle, SquareCode, TriangleAlert } from "lucide-react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";

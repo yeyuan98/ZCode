@@ -172,7 +172,7 @@ export { createFsVolumeProbe } from "./storage/adapters/volumeProbe.js";
 export { runStorageScan } from "./storage/adapters/inProcessScanRunner.js";
 // P3 C5 供应商 client/configs 拉取删除：createClientConfigService 已随
 // /api/v1/client/configs 配置面整体移除（插件商店排序回退打包默认顺序）。
-export { createClientScenesService } from "./client-scenes/clientScenesService.js";
+// P5 D-P5.4：createClientScenesService（/api/v1/client/scenes 场景配置）已随 endpoint web 删除。
 export { createSkillsService } from "./skills/skillsService.js";
 export { createSkillSyncService } from "./skill-sync/skillSyncService.js";
 export { createMcpSyncService } from "./mcp-sync/mcpSyncService.js";
@@ -187,7 +187,8 @@ export { createSettingsSyncService } from "./settings-sync/settingsSyncService.j
 // P2：feedback 工单服务与诊断归档（createFeedbackService / createFeedbackDiagnosticArchive）
 // 随内置反馈中心一起删除；反馈入口改为外部 GitHub Issues，桌面“导出日志”保留独立链路。
 export { createLocalPromptAttachmentTransferService } from "./prompt-attachment-transfer/promptAttachmentTransferService.js";
-export { createNodeApiClient, NodeApiClient } from "./providers/api/nodeApiClient.js";
+// P5 D-P5.4：createNodeApiClient / NodeApiClient（endpoint web HTTP 出口）已随
+// clientScenes 链删除；Host 网络 transport（nodeApiNetwork）保留供 provider 发现使用。
 export {
   createHostApiNetworkTransport,
   type HostApiNetworkTransport,
@@ -227,7 +228,8 @@ export {
   computeNextRunAt,
   computeScheduleRuleNextRunAt,
   isOneShotAutomation,
-  isValidCronExpr,
+  // P5 D-P5.4：isValidCronExpr 导出已删除（外部消费方 useAutomationTemplates 随
+  // clientScenes 模板链路移除；automationService 内部仍经模块路径使用）。
 } from "./session/automationCron.js";
 
 import { ServiceCollection } from "./collection.js";
@@ -248,7 +250,7 @@ import { IZCodeSessionService } from "./zcode-session/zcodeSession.js";
 import { IBotsService } from "./bots/bots.js";
 import { IFileWatcherService } from "./fileWatcher/fileWatcher.js";
 import { IUsageStatsService } from "./usage-stats/usageStats.js";
-import { IClientScenesService } from "./client-scenes/clientScenes.js";
+// P5 D-P5.4：IClientScenesService 已随 endpoint web / clientScenes 链删除。
 import { ISkillsService } from "./skills/skills.js";
 import { ISkillSyncService } from "./skill-sync/skillSync.js";
 import { IMcpSyncService } from "./mcp-sync/mcpSync.js";
@@ -311,7 +313,7 @@ import { createUsageStatsService } from "./usage-stats/usageStatsService.js";
 import { createConversationExportService } from "./conversation-export/conversationExportService.js";
 import { IConversationExportService } from "./conversation-export/conversationExport.js";
 // P3 C5 供应商 client/configs 拉取删除：IClientConfigService 注册随配置面移除。
-import { createClientScenesService } from "./client-scenes/clientScenesService.js";
+// P5 D-P5.4：createClientScenesService 注册随 endpoint web 删除。
 import { createSkillsService } from "./skills/skillsService.js";
 import { createSkillSyncService } from "./skill-sync/skillSyncService.js";
 import { createMcpSyncService } from "./mcp-sync/mcpSyncService.js";
@@ -324,7 +326,7 @@ import { createHooksService } from "./hooks/hooksService.js";
 import { createMemoryService } from "./memory/memoryService.js";
 import { createSettingsSyncService } from "./settings-sync/settingsSyncService.js";
 import { createLocalPromptAttachmentTransferService } from "./prompt-attachment-transfer/promptAttachmentTransferService.js";
-import { createNodeApiClient } from "./providers/api/nodeApiClient.js";
+// P5 D-P5.4：createNodeApiClient 导入已随 endpoint web HTTP 出口删除。
 import {
   createHostApiNetworkTransport,
   type HostApiNetworkTransport,
@@ -334,10 +336,7 @@ import type {
   RuntimeTaskReporter,
 } from "#src/process/runtimeProcessLifecycle.js";
 import { initializeRuntimeProcessEnv } from "./runtime-tools/runtimeCommandEnv.js";
-import {
-  buildAgentEndpointOriginEnv,
-  buildAgentRuntimeEnv,
-} from "./runtime-tools/agentProxyEnv.js";
+import { buildAgentRuntimeEnv } from "./runtime-tools/agentProxyEnv.js";
 import { ensureAppCaCert } from "./runtime-tools/appCaCert.js";
 import { buildHelperOpenArgs, isCuaLocalDevelopmentRuntime } from "@zcode/zcode-cua/broker/server";
 import { createServiceLogger, type ServiceLogger } from "#src/logger/serviceLogger.js";
@@ -396,7 +395,6 @@ import {
   DEFAULT_ZCODE_MODEL_CONTEXT_BUDGET_STRATEGY,
   formatLogPrefix,
   type ServiceAuthorityMode,
-  resolveRuntimeZCodeEndpointOrigin,
   resolveDynamicWorkflowClientConfig,
   type BrowserBackendDescriptor,
   type BrowserClientMode,
@@ -409,8 +407,8 @@ import {
   type ZCodeAutomationRun,
   getCapturedZCodeAgentTelemetryEnv,
   ZCODE_DESKTOP_CONTEXT_PROMPT_ENABLED_ENV,
-  // P5 W4：buildRuntimeZCodeApiUrl 的分享 client 用途已删除；clientScenes 走 apiEndpoints
-  // 自己的导入。P3 C5：ZCODE_VERSION 仅剩的 client/configs 请求上下文用途已随配置拉取删除。
+  // P5 D-P5.4：buildRuntimeZCodeApiUrl 已删除——分享 client（W4）与 clientScenes
+  // （本切片）两个用途均已移除。P3 C5：ZCODE_VERSION 仅剩的 client/configs 请求上下文用途已随配置拉取删除。
 } from "@zcode/shared";
 
 interface ServiceWithDisposeAll {
@@ -1253,10 +1251,6 @@ export function createLocalServices(options: {
 
   const localSettings = options?.settingService ? null : createSettingService();
   const settingService = createObservableSettingService(options?.settingService ?? localSettings!);
-  const resolveCurrentZCodeEndpointOrigin = async () =>
-    resolveRuntimeZCodeEndpointOrigin(process.env, {
-      overrideOrigin: (await settingService.get()).zcodeEndpointOrigin,
-    });
   const credentialService = createCredentialService(
     // P3 C1 供应商 OAuth 删除：OAuth 会话凭据键（oauth:* / zcodejwttoken）不再进入
     // Provisioning 同步信封，credential 变更不再触发 onProviderProvisioningSourceChanged；
@@ -1276,10 +1270,7 @@ export function createLocalServices(options: {
     });
   // P3 C1 供应商 OAuth 删除：apiClient 的 401 分类钩子（onZcodeJwtInvalid /
   // isZcodeJwtRequest）与 corrupt-session 登出广播链路已随 OAuth 仓储一并移除。
-  const apiClient = createNodeApiClient({
-    fetchImpl: hostApiNetworkTransport.fetch,
-    resolveZCodeEndpointOrigin: resolveCurrentZCodeEndpointOrigin,
-  });
+  // P5 D-P5.4：apiClient（endpoint web 出口）已随 clientScenes 链删除。
   const systemService = createSystemService();
   // onboarding 资格与任务列表共用同一份全局 tasks-index；repo 懒加载数据库，提前构造不会
   // 增加启动 I/O，后续 session syncer 也继续复用这一实例。
@@ -1894,9 +1885,10 @@ export function createLocalServices(options: {
           noProxy: agentNetwork.noProxy,
           caCertPath: settings.httpProxyCaCertPath,
         }),
-        // 把 host 解析出的权威 origin（含 settings 覆盖）下发给 agent，否则 agent 侧只按
-        // env 推导，test env + 自定义端点时两侧信任判定的输入分叉、官方 MCP 整体 fail closed。
-        ...buildAgentEndpointOriginEnv(await resolveCurrentZCodeEndpointOrigin()),
+        // P5 D-P5.4：buildAgentEndpointOriginEnv（向 agent 下发权威 ZCODE_BASE_URL）已删除。
+        // P3/P4 后 agent 运行时已无任何 ZCODE_BASE_URL 读取方（官方 MCP 信任判定、
+        // provider 路由来源头、model-config、auth-login 四处均已在彼时移除），
+        // 注入只会制造无人消费的环境变量，因此整个下发链路随 endpoint web 一并硬切。
         // broker 凭据（socket/token）注入 agent spawn env，让内置 zcode-cua plugin 的
         // computer-use MCP server 经 __zcode-plugin-host 恢复 token 后连上 broker。
         // 上面 cuaProductHelperEnv 已完成代际校验与 unavailable 兜底，取代 staging 侧
@@ -2070,7 +2062,7 @@ export function createLocalServices(options: {
     )
     // P3 C5 供应商 client/configs 拉取删除：IClientConfigService（窗口级公开配置快照，
     // 最后一个消费方是插件商店排序）不再注册；排序回退打包默认顺序。
-    .register(IClientScenesService, createClientScenesService({ apiClient }))
+    // P5 D-P5.4：IClientScenesService（/api/v1/client/scenes）已随 endpoint web 删除。
     .register(
       IOffPeakTaskService,
       (() => {

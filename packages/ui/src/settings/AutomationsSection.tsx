@@ -28,7 +28,6 @@ import { Spinner } from "@/components/ui/spinner.js";
 import { toast as showToast, type ToastOptions } from "@/components/ui/toast.js";
 import { cn } from "@/components/lib/utils.js";
 import { ControlHintTooltip } from "@/ControlHintTooltip.js";
-import { AutomationScheduledTemplateIcon } from "@/settings/AutomationScheduledTemplateIcon.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import { useServices } from "@/hooks/useServices.js";
 import { useConfirmDialog } from "@/hooks/useConfirmDialog.js";
@@ -48,7 +47,6 @@ import {
   type OffPeakCreateDraft,
 } from "@/store/offPeakTaskStore.js";
 import { OffPeakTaskList } from "@/settings/OffPeakTaskList.js";
-import { OffPeakTemplateIcon } from "@/settings/OffPeakTemplateIcon.js";
 import { OffPeakEditView, type OffPeakEditSubmit } from "@/settings/OffPeakEditView.js";
 import {
   formatAutomationCardNextRun,
@@ -86,14 +84,9 @@ import {
   type AutomationTabState,
 } from "@/settings/automationStatusFilter.js";
 import { isRemoteAutomationWorkspace } from "@/hooks/useAutomationProjectOptions.js";
-import {
-  materializeOffPeakTemplateDraft,
-  materializeScheduledTemplateDraft,
-  resolveOffPeakTemplateText,
-  resolveAutomationTemplateText,
-  type ScheduledAutomationTemplate,
-} from "@/settings/automationTemplateCatalog.js";
-import { useAutomationTemplates } from "@/settings/useAutomationTemplates.js";
+// P5 D-P5.4：模板卡链路（useAutomationTemplates / automationTemplateCatalog /
+// AutomationTemplateSkeletonGrid / *TemplateIcon）已随 Client Scenes 删除；
+// 空首页不再展示「More ideas」与闲时模板区（自然降级，D8）。
 import type { AutomationsNavigationTab } from "@/lib/taskNavigationHistory.js";
 import {
   AutomationsPageTitle,
@@ -112,7 +105,6 @@ import {
   type SavedWorkflowsOpenRunParams,
   type SavedWorkflowsOpenTarget,
 } from "@/settings/saved-workflows/SavedWorkflowsSection.js";
-import { AutomationTemplateSkeletonGrid } from "@/settings/AutomationTemplateSkeletonGrid.js";
 
 interface AutomationsSectionProps {
   workspacePath?: string | null;
@@ -248,26 +240,8 @@ function resolveAutomationTabNavigation({
   };
 }
 
-function resolveAutomationTemplateVisibility({
-  hasAnyTasks,
-  offPeakCreationEnabled,
-  tab,
-}: {
-  hasAnyTasks: boolean;
-  offPeakCreationEnabled: boolean;
-  tab: AutomationsTab;
-}): {
-  showOffPeakTemplates: boolean;
-  showScheduledTemplates: boolean;
-} {
-  // 移除 All tab 后空首页仍默认落在 Scheduled，导致闲时模板被 tab 条件误隐藏。
-  // 无任务时恢复两类模板并列展示；有任务后继续由 Scheduled / Idle tab 分流。
-  const showAllTemplates = !hasAnyTasks;
-  return {
-    showOffPeakTemplates: offPeakCreationEnabled && (showAllTemplates || tab === "idle"),
-    showScheduledTemplates: showAllTemplates || tab === "scheduled",
-  };
-}
+// P5 D-P5.4：resolveAutomationTemplateVisibility（模板区可见性）已随 Client Scenes
+// 模板卡删除；定时/闲时模板区不再渲染。
 
 const STATUS_META: Record<
   AutomationStatusKind,
@@ -499,9 +473,9 @@ export function AutomationsSection({
   onOpenWorkflowConsumed,
   onOpenSession,
 }: AutomationsSectionProps) {
-  const { intl, locale } = useZCodeIntl();
+  const { intl } = useZCodeIntl();
   const platform = usePlatform();
-  const { clientScenesService, offPeakTaskService, zcodeAgentService } = useServices();
+  const { offPeakTaskService, zcodeAgentService } = useServices();
   const confirmDialog = useConfirmDialog();
   const providerSettingsRead = useProviderSettingsView();
   const providerSettingsView =
@@ -525,7 +499,7 @@ export function AutomationsSection({
   const deleteRun = useAutomationManagementStore((state) => state.deleteRun);
   const refresh = useAutomationManagementStore((state) => state.refresh);
 
-  const automationTemplates = useAutomationTemplates(clientScenesService);
+  // P5 D-P5.4：automationTemplates（Client Scenes 映射）已删除。
   const offPeakTasks = useOffPeakTaskStore((state) => state.tasks);
   const offPeakStoreLoading = useOffPeakTaskStore((state) => state.loading);
   const offPeakOperationId = useOffPeakTaskStore((state) => state.operationId);
@@ -538,7 +512,7 @@ export function AutomationsSection({
   const offPeakCancel = useOffPeakTaskStore((state) => state.cancelTask);
   const offPeakDelete = useOffPeakTaskStore((state) => state.deleteTask);
   const offPeakDeleteHistory = useOffPeakTaskStore((state) => state.deleteHistory);
-  const consumePendingCreateDraft = useOffPeakTaskStore((state) => state.consumePendingCreateDraft);
+  // P5 D-P5.4：consumePendingCreateDraft（模板卡预填草稿的消费者）已随模板链路删除。
 
   const [refreshing, setRefreshing] = useState(false);
   const [view, setView] = useState<AutomationsView>({ mode: "list" });
@@ -607,13 +581,6 @@ export function AutomationsSection({
     tab === "scheduled" ? automations.length > 0 : offPeakTasks.length > 0;
   const visibleAutomations = filterAutomationsByStatus(automations, statusFilter);
   const visibleOffPeakTasks = filterOffPeakTasksByStatus(offPeakTasks, statusFilter);
-  const { showOffPeakTemplates, showScheduledTemplates } = resolveAutomationTemplateVisibility({
-    hasAnyTasks,
-    offPeakCreationEnabled,
-    tab,
-  });
-  const hasVisibleTemplates = showOffPeakTemplates || showScheduledTemplates;
-  const showTaskTemplateSeparator = hasVisibleTaskCards && hasVisibleTemplates;
   const [loadedWorkspaceKey, setLoadedWorkspaceKey] = useState<string | null>(null);
   // 相对时间基准;刷新列表时更新,避免频繁 setInterval。
   const [now, setNow] = useState(() => Date.now());
@@ -721,14 +688,7 @@ export function AutomationsSection({
     }
   }, [offPeakRefresh, offPeakTaskService, refresh, zcodeAgentService]);
 
-  // New task 页模板卡跳转过来：消费预填草稿 → 切 idle tab + 打开创建表单预填。
-  useEffect(() => {
-    const draft = consumePendingCreateDraft();
-    if (!draft) return;
-    if (currentWorkspaceIsRemote) return;
-    setTab("idle");
-    setView({ mode: "offpeak-create", draft });
-  }, [consumePendingCreateDraft, currentWorkspaceIsRemote]);
+  // P5 D-P5.4：模板卡预填草稿消费 effect 已随模板链路删除（生产者已不存在）。
 
   useEffect(() => {
     if (!currentWorkspaceIsRemote) return;
@@ -855,20 +815,7 @@ export function AutomationsSection({
     showAutomationCreateLimitToast,
   ]);
 
-  const handleUseTemplate = useCallback(
-    (template: ScheduledAutomationTemplate) => {
-      if (automationCreateLimitReached) {
-        showAutomationCreateLimitToast();
-        return;
-      }
-      const draft = materializeScheduledTemplateDraft(template, locale);
-      setView({
-        mode: "create",
-        draft,
-      });
-    },
-    [automationCreateLimitReached, locale, showAutomationCreateLimitToast],
-  );
+  // P5 D-P5.4：handleUseTemplate（模板卡 → 新建预填）已随模板链路删除。
 
   // 创建/编辑整页提交:创建可指定目标项目;编辑锁定原项目。
   const handleEditSubmit = useCallback(
@@ -1350,7 +1297,9 @@ export function AutomationsSection({
                 onManually={handleCreateManually}
               />
             ) : null}
-            {showOffPeakTemplates ? (
+            {/* P5 D-P5.4：创建按钮原与模板可见性共用条件；模板删除后按原语义展示
+                （创建资格 × idle tab 或无任务的空首页），创建能力不受影响。 */}
+            {offPeakCreationEnabled && (tab === "idle" || !hasAnyTasks) ? (
               <OffPeakCreateButton
                 disabled={offPeakCreateBlocked}
                 tooltip={offPeakCreateBlockedTooltip}
@@ -1690,178 +1639,8 @@ export function AutomationsSection({
             ) : null}
           </div>
 
-          {/* 真实任务卡与模板不能只靠空白分区：需要分割线；
-             分割线使用 surface 在 Light 下过淡，因此与 Card 统一使用 card-border。
-             外层 gap-8 加本容器 py-2，使卡片到线、线到模板标题均保持 40px。 */}
-          {showTaskTemplateSeparator ? (
-            <div
-              data-automations-task-template-separator
-              className="flex w-full flex-col py-2"
-              aria-hidden="true"
-            >
-              <div className="h-px w-full bg-card-border" />
-            </div>
-          ) : null}
-
-          {/* Idle-time task template（灰度命中；与 New task 页同源文案）。 */}
-          {showOffPeakTemplates ? (
-            <section
-              data-automations-idle-templates
-              aria-busy={automationTemplates.loading}
-              className="flex w-full flex-col gap-4"
-            >
-              <h2 className="text-ui-base font-medium leading-5 text-foreground-subtle">
-                {intl.formatMessage({ id: "offPeak.templates.sectionTitle" })}
-              </h2>
-              {automationTemplates.loading ? (
-                <AutomationTemplateSkeletonGrid
-                  label={intl.formatMessage({ id: "common.loading" })}
-                />
-              ) : automationTemplates.offPeak.length === 0 ? (
-                <div
-                  data-automation-template-empty-state
-                  className="flex min-h-[114px] w-full items-center justify-center rounded-xl border border-card-border bg-background p-3 text-center text-ui-base font-normal text-foreground-subtlest"
-                >
-                  {intl.formatMessage({ id: "automations.templates.unavailable" })}
-                </div>
-              ) : (
-                <div className="grid grid-cols-1 gap-x-4 gap-y-4 sm:grid-cols-2">
-                  {automationTemplates.offPeak.map((template) => {
-                    const createBlocked = offPeakCreateBlocked;
-                    const card = (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          if (createBlocked) {
-                            toast(
-                              offPeakCreateBlockedTooltip ??
-                                intl.formatMessage({ id: "offPeak.error.generic" }),
-                            );
-                            return;
-                          }
-                          const materializedDraft = materializeOffPeakTemplateDraft(
-                            template,
-                            locale,
-                          );
-                          setView({
-                            mode: "offpeak-create",
-                            draft: template.customize
-                              ? {
-                                  telemetrySource: {
-                                    eventRegion: "app.automations",
-                                    templateId: template.id,
-                                  },
-                                }
-                              : {
-                                  title: materializedDraft.title,
-                                  prompt: materializedDraft.prompt,
-                                  telemetrySource: {
-                                    eventRegion: "app.automations",
-                                    templateId: template.id,
-                                  },
-                                },
-                          });
-                        }}
-                        // Grid wrapper 虽已拉伸到行高，卡片本体仍需 h-full 才能继承同一行的最大高度；只设 min-height 时短文案卡会矮一截。
-                        className="flex h-full min-h-[114px] w-full flex-col gap-2 overflow-hidden rounded-xl border border-card-border bg-background p-3 text-left transition-colors hover:bg-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-input-border-focused"
-                      >
-                        <div className="flex items-center gap-0.5 text-foreground">
-                          <OffPeakTemplateIcon
-                            className="size-4 shrink-0"
-                            iconName={template.iconName}
-                            name={template.icon}
-                          />
-                          <span className="truncate px-1 text-ui-base font-medium leading-5 text-foreground">
-                            {resolveOffPeakTemplateText(
-                              template,
-                              "title",
-                              locale,
-                              intl.formatMessage,
-                            )}
-                          </span>
-                        </div>
-                        <p className="text-wrap-phrase line-clamp-2 flex-1 text-ui-base font-normal leading-5 text-foreground-subtle">
-                          {resolveOffPeakTemplateText(
-                            template,
-                            "description",
-                            locale,
-                            intl.formatMessage,
-                          )}
-                        </p>
-                        <div className="text-ui-base font-normal leading-5 text-foreground-subtle">
-                          {intl.formatMessage({
-                            id: "offPeak.form.soonestAvailable",
-                          })}
-                        </div>
-                      </button>
-                    );
-                    return (
-                      <div key={template.id} className="h-full">
-                        {card}
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </section>
-          ) : null}
-
-          {/* Scheduled task template：Client Scenes 候选目录；点击只预填新建整页。闲时任务 tab 不显示。 */}
-          {showScheduledTemplates ? (
-            <section
-              data-automations-scheduled-templates
-              aria-busy={automationTemplates.loading}
-              className="flex w-full flex-col gap-4"
-            >
-              <h2 className="text-ui-base font-medium leading-5 text-foreground-subtle">
-                {intl.formatMessage({ id: "automations.moreIdeas" })}
-              </h2>
-              {automationTemplates.loading ? (
-                <AutomationTemplateSkeletonGrid
-                  label={intl.formatMessage({ id: "common.loading" })}
-                />
-              ) : automationTemplates.scheduled.length === 0 ? (
-                <div
-                  data-automation-template-empty-state
-                  className="flex min-h-[114px] w-full items-center justify-center rounded-xl border border-card-border bg-background p-3 text-center text-ui-base font-normal text-foreground-subtlest"
-                >
-                  {intl.formatMessage({ id: "automations.templates.unavailable" })}
-                </div>
-              ) : (
-                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                  {automationTemplates.scheduled.map((template) => {
-                    return (
-                      <button
-                        key={template.id}
-                        type="button"
-                        onClick={() => handleUseTemplate(template)}
-                        className="group flex min-h-[114px] flex-col gap-2 overflow-hidden rounded-xl border border-card-border bg-background p-3 text-left transition-colors hover:bg-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-input-border-focused"
-                      >
-                        <div className="flex min-w-0 items-center gap-1 text-foreground">
-                          <span className="flex size-5 shrink-0 items-center justify-center">
-                            <AutomationScheduledTemplateIcon
-                              iconName={template.iconName}
-                              name={template.icon}
-                            />
-                          </span>
-                          <span className="truncate text-ui-base font-medium leading-5 text-foreground">
-                            {resolveAutomationTemplateText(template.title, locale)}
-                          </span>
-                        </div>
-                        {/* 定时模板首次实现时把周期时间拼进标题行，和闲时模板的底部时间层级不一致。 */}
-                        <p className="line-clamp-2 flex-1 text-ui-base font-normal leading-5 text-foreground-subtle">
-                          {resolveAutomationTemplateText(template.description, locale)}
-                        </p>
-                        <div className="text-ui-base font-normal leading-5 text-foreground-subtle">
-                          {describeAutomationCardSchedule({ cronExpr: template.cronExpr }, intl)}
-                        </div>
-                      </button>
-                    );
-                  })}
-                </div>
-              )}
-            </section>
-          ) : null}
+          {/* P5 D-P5.4：任务/模板分割线与两类模板区（闲时模板、Scheduled "More ideas"）
+             已随 Client Scenes 模板链路删除；空首页保留创建入口大空卡。 */}
         </div>
       )}
     </div>
