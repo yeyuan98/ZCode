@@ -58,7 +58,7 @@ export function createDesktopPlatform(options: {
     // P3 C1 供应商 OAuth 删除：registerOAuthState / onOAuthCallback 已随登录 deep link 链路移除。
     // P3 C2 供应商套餐/计费面删除：onPaymentCallback（zcode://payment 购买回调）
     // 已随官网购买 webview 链路移除。
-    onShareImport: (callback) => window.zcode.onShareImport?.(callback) ?? (() => {}),
+    // P5 W4：onShareImport（zcode://share/import 导入意图）已随会话分享删除。
     notifyRendererReady: () => window.zcode.notifyRendererReady(),
     getRendererActionTraceConfig: window.zcode.getRendererActionTraceConfig
       ? () => window.zcode.getRendererActionTraceConfig!()

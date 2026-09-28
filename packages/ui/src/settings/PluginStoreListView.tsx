@@ -18,7 +18,6 @@ import {
   groupItemsByCategory,
   isPublicStoreMarketplaceId,
   resolveItemDisplayName,
-  selectFeaturedItems,
   sortInstalledStripItems,
   sortPersonalMarketplaceGroups,
   storeItemMatches,
@@ -92,10 +91,6 @@ export function PluginStoreListView({
     };
   }, [intl]);
 
-  const featuredItems = useMemo(
-    () => selectFeaturedItems(publicItems, marketplaces),
-    [marketplaces, publicItems],
-  );
   const categoryGroups = useMemo(
     () => groupItemsByCategory(publicItems, locale, modeOrder),
     [locale, publicItems, modeOrder],
@@ -270,7 +265,6 @@ export function PluginStoreListView({
           actions={actions}
           categoryGroups={categoryGroups}
           expandedGroups={expandedGroups}
-          featuredItems={featuredItems}
           loading={loading}
           locale={locale}
           resolveCategoryLabel={resolveCategoryLabel}
@@ -433,7 +427,6 @@ function PublicSegment({
   actions,
   categoryGroups,
   expandedGroups,
-  featuredItems,
   loading,
   locale,
   resolveCategoryLabel,
@@ -442,14 +435,13 @@ function PublicSegment({
   actions: PluginStoreActions;
   categoryGroups: ReturnType<typeof groupItemsByCategory>;
   expandedGroups: Record<string, boolean>;
-  featuredItems: StorePluginItem[];
   loading: boolean;
   locale: string;
   resolveCategoryLabel: (category: string) => string;
   onToggleGroup: (key: string) => void;
 }) {
   const { intl } = useZCodeIntl();
-  const isEmpty = featuredItems.length === 0 && categoryGroups.length === 0;
+  const isEmpty = categoryGroups.length === 0;
   if (isEmpty) {
     return (
       <p className="rounded-xl border border-dashed border-border px-4 py-3 text-ui-base text-foreground-subtle">
@@ -465,14 +457,8 @@ function PublicSegment({
   }
   return (
     <div>
-      {featuredItems.length > 0 ? (
-        <StoreSection
-          title={intl.formatMessage({ id: "settings.plugins.store.featured" })}
-          className="py-4 first:pt-0 last:pb-0"
-        >
-          <CardGrid items={featuredItems} actions={actions} locale={locale} />
-        </StoreSection>
-      ) : null}
+      {/* P5：远程策展 Featured 区删除（无任何 writer，vendor CDN 也从未设置过该字段），
+          公开分段只保留分类聚合。 */}
       {categoryGroups.map((group) => (
         <StoreSection
           key={group.category}

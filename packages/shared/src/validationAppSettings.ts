@@ -3,7 +3,6 @@ import { z } from "zod";
 import { REMOTE_ASSET_INSTALL_MODES } from "./remoteAssetInstallMode.js";
 import { isKnownRemoteResourcePackageId } from "./remoteResourcePackages.js";
 import { wslUserSchema } from "./wslUserValidation.js";
-import { normalizeZCodeEndpointOrigin } from "./zcodeEndpoint.js";
 import {
   DEFAULT_EMBEDDED_BROWSER_VIEWPORT_PREFERENCE,
   embeddedBrowserViewportPreferenceSchema,
@@ -34,7 +33,6 @@ const nonEmptyStringSchema = z.string().trim().min(1);
 export const localeSchema = z.enum(["zh-CN", "en-US"]);
 const localePreferenceSchema = z.enum(["system", "zh-CN", "en-US"]);
 const zcodeInteractionBehaviorSchema = z.enum(["queue", "guide"]);
-const electronReleaseChannelSchema = z.enum(["stable", "preview"]);
 const desktopZoomLevelSchema = z.number().int().min(-3).max(5);
 const desktopWindowSizeSchema = z.object({
   width: z.number().int().min(480),
@@ -67,9 +65,13 @@ export const postUpdateReleaseNotesPayloadSchema = z.object({
     .optional(),
 });
 
-const skippedElectronUpdateVersionsSchema = z
-  .partialRecord(electronReleaseChannelSchema, nonEmptyStringSchema)
-  .default({});
+// P5 硬切：skippedElectronUpdateVersions 由按通道嵌套扁平化为版本列表（单 channel 文件）。
+// 旧持久化形状（{stable:"x.y.z"}）直接丢弃；不能因该字段形状变化让整份 settings 解析失败
+// 回退默认值，所以非数组输入一律归一为空列表。
+const skippedElectronUpdateVersionsSchema = z.preprocess(
+  (value) => (Array.isArray(value) ? value : []),
+  z.array(nonEmptyStringSchema).default([]),
+);
 
 const remoteWorkspaceTargetSchema = z.discriminatedUnion("kind", [
   z.object({
@@ -117,38 +119,6 @@ const appWorkspaceSessionEntrySchema = z.discriminatedUnion("kind", [
     lastConnectionError: z.string().optional(),
   }),
 ]);
-
-const zcodeEndpointOriginSchema = z.preprocess((value) => {
-  if (typeof value !== "string") {
-    return undefined;
-  }
-  const trimmed = value.trim();
-  if (!trimmed) {
-    return undefined;
-  }
-  try {
-    return normalizeZCodeEndpointOrigin(trimmed);
-  } catch {
-    return undefined;
-  }
-}, z.string().optional());
-
-function sanitizeZCodeEndpointOrigin(value: unknown): unknown {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    return value;
-  }
-  const raw = value as Record<string, unknown>;
-  if (!("zcodeEndpointOrigin" in raw)) {
-    return value;
-  }
-  const parsed = zcodeEndpointOriginSchema.safeParse(raw.zcodeEndpointOrigin);
-  if (parsed.success && typeof parsed.data === "string") {
-    return { ...raw, zcodeEndpointOrigin: parsed.data };
-  }
-  const { zcodeEndpointOrigin: _zcodeEndpointOrigin, ...next } = raw;
-  // 非生产 endpoint override 是开发辅助字段，坏值只丢弃该字段，不能拖垮整个 settings 读取。
-  return next;
-}
 
 function sanitizeDesktopWindowSize(value: unknown): unknown {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
@@ -472,7 +442,7 @@ const appSettingsObjectSchema = z.object({
   autoDownloadAndInstallUpdates: z.boolean().default(false),
   skippedElectronUpdateVersions: skippedElectronUpdateVersionsSchema,
   settingsSyncFirstRunPromptHandled: z.boolean().optional(),
-  zcodeEndpointOrigin: zcodeEndpointOriginSchema.optional(),
+  // P5 D-P5.4：endpoint origin override 字段已删除；旧键由 zod strip 静默丢弃。
 });
 
 export const appSettingsSchema = z.preprocess(
@@ -481,9 +451,7 @@ export const appSettingsSchema = z.preprocess(
       sanitizeDesktopWindowSize(
         migrateMessageStreamShowReasoningDefault(
           migrateCloseToTrayOnWindowsDefault(
-            migrateLegacyLocalePreference(
-              sanitizeZCodeEndpointOrigin(migrateLegacyWorkspaceSession(value)),
-            ),
+            migrateLegacyLocalePreference(migrateLegacyWorkspaceSession(value)),
           ),
         ),
       ),
@@ -553,9 +521,7 @@ export const appSettingsPatchSchema = z.object({
   pendingPostUpdateReleaseNotes: postUpdateReleaseNotesPayloadSchema.optional(),
   receivePreviewUpdates: z.boolean().optional(),
   autoDownloadAndInstallUpdates: z.boolean().optional(),
-  skippedElectronUpdateVersions: z
-    .partialRecord(electronReleaseChannelSchema, nonEmptyStringSchema)
-    .optional(),
+  skippedElectronUpdateVersions: z.array(nonEmptyStringSchema).optional(),
   settingsSyncFirstRunPromptHandled: z.boolean().optional(),
-  zcodeEndpointOrigin: zcodeEndpointOriginSchema.optional(),
+  // P5 D-P5.4：endpoint origin override 已随 endpoint web 删除（见 appSettingsObjectSchema 注释）。
 });

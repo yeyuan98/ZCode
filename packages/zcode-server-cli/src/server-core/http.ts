@@ -16,6 +16,8 @@ import {
 import {
   createZCodeAgentConnectionScope,
   IZCodeAgentService,
+  IConversationExportService,
+  scopeConversationExportServiceForConnection,
   ServiceCollection,
 } from "@zcode/services";
 import { createServiceLogger } from "@zcode/services/node";
@@ -104,7 +106,21 @@ function exposeWebSocket(
     : undefined;
   services.exposeOnChannelServer(
     server,
-    scope ? new Map([[IZCodeAgentService.channelName, scope.service]]) : new Map(),
+    // P5 W4b：导出服务绑定同一 WebSocket 的 scoped Agent（rowsRange 需要
+    // trusted-carrier；本地导出无网络，web/mobile 均可用）。
+    (() => {
+      const overrides = new Map<string, unknown>(
+        scope ? [[IZCodeAgentService.channelName, scope.service]] : [],
+      );
+      const conversationExportService = services.getOptional(IConversationExportService);
+      if (conversationExportService) {
+        overrides.set(
+          IConversationExportService.channelName,
+          scopeConversationExportServiceForConnection(conversationExportService, scope?.service),
+        );
+      }
+      return overrides;
+    })(),
   );
   socket.onClose(() => {
     void scope?.dispose();

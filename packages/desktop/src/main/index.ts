@@ -56,13 +56,10 @@ import {
   PlatformChannels,
   ZCODE_ENV,
   ZCODE_PRODUCT_FLAVOR,
-  DEFAULT_ZCODE_ENDPOINT_ORIGIN,
   DEFAULT_LOCALE,
   ZCODE_VERSION,
-  resolveZCodeEndpointOrigin,
   type UpdateStatePayload,
   HostMessageTypes,
-  isVendorManifestUpdateFeedWired,
   DEFAULT_OFF_PEAK_WINDOW,
   msUntilWindowOpen,
   normalizeOffPeakWindow,
@@ -117,7 +114,6 @@ import { applyAppIcon } from "./desktopWindowChrome.js";
 import { resolveWindowsAppUserModelIdForFlavor } from "../../scripts/desktop-product-identity.mjs";
 import type { DesktopWindowSize } from "./desktopWindowSize.js";
 import { maybeWarnArchitectureMismatch } from "./desktopArchitectureGuard.js";
-import { maybeBlockStartupForForceUpdate } from "./forceUpdateGuard.js";
 import { createWindowsDesktopTray, updateWindowsDesktopTrayMenu } from "./desktopTray.js";
 import { createWindowsCuaOperationIndicator } from "./windowsCuaOperationIndicator.js";
 import {
@@ -138,7 +134,6 @@ import {
   loadHostProcessEnvFromLocalFiles,
   resolveBundledAgentBinaryPath,
   resolveRemoteAssetDirs,
-  resolveZCodeEndpointEnvBaseOrigin,
   runtimeApplicationName,
   runtimeHomePath,
   runtimeSessionDataPath,
@@ -650,13 +645,8 @@ const UPDATE_STATUS_WINDOW_TRAFFIC_LIGHT_POSITION = { x: 10, y: 10 } as const;
 const mainSettingService = createSettingService();
 const appLaunchGate = createAppLaunchGate();
 const appLaunchCoordinator = createAppLaunchCoordinator(appLaunchGate);
-async function resolveCurrentZCodeEndpointOrigin() {
-  return resolveZCodeEndpointOrigin({
-    env: ZCODE_ENV,
-    envBaseOrigin: resolveZCodeEndpointEnvBaseOrigin(hostProcessLocalEnv),
-    overrideOrigin: (await mainSettingService.get()).zcodeEndpointOrigin,
-  });
-}
+// P5 D-P5.4：resolveCurrentZCodeEndpointOrigin（settings + env 合成 endpoint origin）
+// 已随 endpoint web 删除。
 // P3 C5 供应商 client/configs 灰度拉取删除：desktopContextPrompt 不再有服务端 rollout，
 // 固定本地默认 OFF（与被删 rollout 的 defaultValue {enabled:false} 一致，A9 裁决
 // "context-prompt rollout → local default"）。仍经 spawnHostProcess 注入
@@ -755,29 +745,12 @@ let startupOpenWorkspaceRequest: ExplicitStartupWorkspaceRequest | null =
       ? { path: startupDeepLinkWorkspacePath, source: "deep-link" }
       : null;
 
-let forceUpdateMainWindowCreationBlocked = false;
-
 function resolveExternalWorkspaceConfirmationCopy() {
   const effectiveLocale =
     currentApplicationLocale === DEFAULT_LOCALE && app.isReady()
       ? resolveSystemApplicationLocale()
       : currentApplicationLocale;
   return resolveExternalWorkspaceOpenDialogCopy(effectiveLocale);
-}
-
-function focusForceUpdateGateWindow() {
-  const gateWindow = getApplicationWindowsExcludingCuaIndicator()[0];
-  if (!gateWindow) {
-    return;
-  }
-
-  if (gateWindow.isMinimized()) {
-    gateWindow.restore();
-  }
-  if (!gateWindow.isVisible()) {
-    gateWindow.show();
-  }
-  gateWindow.focus();
 }
 
 const primaryWindowCoordinator = createPrimaryWindowCoordinator({
@@ -805,16 +778,6 @@ const primaryWindowCoordinator = createPrimaryWindowCoordinator({
   },
   createWindow: (startupBootstrap) => {
     createWindowInstance(startupBootstrap);
-  },
-  canCreateWindow: (reason) => {
-    if (!forceUpdateMainWindowCreationBlocked) {
-      return true;
-    }
-
-    // 强制升级命中后，Dock/托盘/activate/deep link 不能绕过 app-ready gate 创建旧版主界面。
-    logger.warn(`[force-update] 已阻止主窗口创建入口：${reason}`);
-    focusForceUpdateGateWindow();
-    return false;
   },
   logger,
 });
@@ -1250,8 +1213,6 @@ async function executeDesktopCommandForApp(
       rebuildMenu();
     },
     settingService: mainSettingService,
-    onZCodeEndpointChanged: handleZCodeEndpointChanged,
-    zcodeEndpointEnvBaseOrigin: resolveZCodeEndpointEnvBaseOrigin(hostProcessLocalEnv),
     onRelaunchApp: async () => {
       await prepareAppQuit("desktop-command-relaunch");
       app.relaunch();
@@ -1262,20 +1223,8 @@ async function executeDesktopCommandForApp(
   });
 }
 
-async function resolveZCodeEndpointSelection(): Promise<"production" | "test" | "custom"> {
-  if (ZCODE_ENV === "production") {
-    return "production";
-  }
-  const origin = await resolveCurrentZCodeEndpointOrigin();
-  if (origin === DEFAULT_ZCODE_ENDPOINT_ORIGIN) {
-    return "production";
-  }
-  return "custom";
-}
-
-async function handleZCodeEndpointChanged() {
-  rebuildMenu();
-}
+// P5 D-P5.4：resolveZCodeEndpointSelection / handleZCodeEndpointChanged（菜单 Endpoint
+// 单选态与变更回调）已随帮助菜单 Endpoint 选择器删除。
 
 /** 快捷键设置页录制态（renderer 经 SetShortcutRecordingActive 同步）；true 时菜单摘除可配置 accelerator。 */
 let shortcutRecordingActive = false;
@@ -1312,21 +1261,19 @@ function resetShortcutRecordingForWebContents(webContentsId: number) {
 }
 
 function rebuildMenu() {
-  void Promise.all([resolveZCodeEndpointSelection(), mainSettingService.get()]).then(
-    ([zcodeEndpointSelection, settings]) => {
-      rebuildApplicationMenu({
-        currentApplicationLocale,
-        zcodeEndpointSelection,
-        executeDesktopCommand: executeDesktopCommandForApp,
-        currentZoomLevel: resolveFocusedDesktopZoomLevel(),
-        // 菜单 accelerator 跟随用户快捷键设置（shortcutBindings 用户覆盖）
-        shortcutBindings: settings.shortcutBindings,
-        // 快捷键录制态：摘掉可配置 accelerator，防止录制 menu 通道命令时按键直接触发原命令
-        // （macOS 系统菜单先于 renderer 吃掉按键，renderer 侧 preventDefault 拦不住）。
-        disableShortcutAccelerators: shortcutRecordingActive,
-      });
-    },
-  );
+  // P5 D-P5.4：菜单重建不再等待 endpoint 选择态（选择器已删除），只读快捷键设置。
+  void mainSettingService.get().then((settings) => {
+    rebuildApplicationMenu({
+      currentApplicationLocale,
+      executeDesktopCommand: executeDesktopCommandForApp,
+      currentZoomLevel: resolveFocusedDesktopZoomLevel(),
+      // 菜单 accelerator 跟随用户快捷键设置（shortcutBindings 用户覆盖）
+      shortcutBindings: settings.shortcutBindings,
+      // 快捷键录制态：摘掉可配置 accelerator，防止录制 menu 通道命令时按键直接触发原命令
+      // （macOS 系统菜单先于 renderer 吃掉按键，renderer 侧 preventDefault 拦不住）。
+      disableShortcutAccelerators: shortcutRecordingActive,
+    });
+  });
   updateWindowsDesktopTrayMenu();
 }
 
@@ -1743,11 +1690,6 @@ registerDeepLinkProtocol(logger, { iconPath: linuxDesktopIntegrationIconPath });
 app.on("open-url", (event, url) => {
   event.preventDefault();
   const workspacePath = extractOpenWorkspacePathFromDeepLinkUrl(url);
-  if (workspacePath && forceUpdateMainWindowCreationBlocked) {
-    logger.warn("[force-update] 已忽略强制升级期间的 open-url workspace 请求");
-    focusForceUpdateGateWindow();
-    return;
-  }
   if (workspacePath && getApplicationWindowsExcludingCuaIndicator().length === 0) {
     // macOS 冷启动 Finder Service 会先触发 open-url，再创建首窗。
     // 把目标目录按 deep link 来源记录，首窗 bootstrap 前仍要走确认 gate。
@@ -1771,8 +1713,6 @@ app.on("second-instance", (_event, argv, _workingDirectory, additionalData) => {
     handleSecondInstanceWorkspaceRequest({
       additionalData,
       argv,
-      focusForceUpdateGateWindow,
-      forceUpdateBlocked: forceUpdateMainWindowCreationBlocked,
       handleDeepLink: (url, options) => handleDeepLink(url, logger, options),
       handleOpenWorkspacePath: (path, options) =>
         handleOpenWorkspacePath(path, logger, {
@@ -1894,13 +1834,11 @@ app.whenReady().then(async () => {
   logWindowsBundledRuntimeIntegrityDiagnostic();
 
   // 启动自动更新检查（后台执行，不阻塞主界面）
-  // Preview 身份无论连接哪个后端都不自动更新：stable feed 上只分发正式 ZCode 安装包，
-  // 不向 Preview 渠道提供更新。
-  // 更新源策略：厂商 manifest feed（zcode.z.ai）仍接线期间禁用全部自动更新——
-  // semver 3.14.3 > 3.14.3-alpha.N，厂商源会把 alpha"升级"回厂商构建。
-  // 见 packages/shared/src/updateFeedPolicy.ts；P5 换 GitHub provider 后恢复。
+  // Preview 身份不自动更新：stable feed 上只分发正式 ZCode 安装包，不向 Preview 渠道提供更新。
+  // P5：更新源已切换为本仓库 GitHub Releases（electron-updater github provider），
+  // 厂商 manifest feed 策略开关随 provider 一并删除，更新路径恢复。
   void initAutoUpdater({
-    enabled: ZCODE_PRODUCT_FLAVOR === "production" && !isVendorManifestUpdateFeedWired(),
+    enabled: ZCODE_PRODUCT_FLAVOR === "production",
     onBeforeQuitAndInstall: async () => {
       await prepareAppQuit("auto-update quitAndInstall", "update-install");
       if (process.platform === "win32") {
@@ -1909,7 +1847,6 @@ app.whenReady().then(async () => {
     },
     settingService: mainSettingService,
     locale: currentApplicationLocale,
-    resolveEndpointOrigin: resolveCurrentZCodeEndpointOrigin,
     updateFeedSource: resolveUpdateFeedSourceFromStartupConfig({
       argv: process.argv,
       env: process.env,
@@ -2068,40 +2005,8 @@ app.whenReady().then(async () => {
   // 遥测采集器。本地 crash 事件监听与归档保留（仅本地日志与 ~/.zcode/v2/crash/archive）。
   registerCrashEventMonitor(logger, crashCapturePaths);
 
-  // 本地未打包 dev 构建（app.isPackaged === false）必须跳过远端强制升级 gate。
-  // 原因：force-update gate 只看 ZCODE_ENV === "production"，但 dev 构建（如 dev:desktop:cua
-  // 连真实后端测 computer use）虽指向 production 后端，版本号却滞后于线上 release（feature
-  // 分支不 bump 版本），会被 release minimalVersion 误判为"需强制升级"而启动秒退。force-update
-  // 是面向打包发布客户端的安全门，对未打包 dev 运行时无意义。打包版 app.isPackaged === true，
-  // gate 照常生效，对真实用户零影响。
-  const skipForceUpdateForLocalDevRuntime = !app.isPackaged;
-  // 更新源策略：厂商 manifest feed 仍接线期间跳过强更 gate，避免请求厂商
-  // /api/v1/client/configs 后被 semver 判定（3.14.3 > 3.14.3-alpha.N）强制升级回厂商构建。
-  // 见 packages/shared/src/updateFeedPolicy.ts；P5 换 GitHub provider 后恢复。
-  const skipForceUpdateForVendorManifestFeed = isVendorManifestUpdateFeedWired();
-  const forceUpdateGuardResult =
-    ZCODE_PRODUCT_FLAVOR === "production" &&
-    !skipForceUpdateForLocalDevRuntime &&
-    !skipForceUpdateForVendorManifestFeed
-      ? await maybeBlockStartupForForceUpdate({
-          locale: currentApplicationLocale,
-          logger,
-          endpointOrigin: await resolveCurrentZCodeEndpointOrigin(),
-          onBlocked: () => {
-            forceUpdateMainWindowCreationBlocked = true;
-          },
-        })
-      : { blocked: false };
-  if (ZCODE_PRODUCT_FLAVOR !== "production") {
-    logger.info("[force-update] Preview 跳过远端强制升级检查");
-  } else if (skipForceUpdateForLocalDevRuntime) {
-    logger.info("[force-update] 本地 dev 构建（未打包）跳过远端强制升级检查");
-  } else if (skipForceUpdateForVendorManifestFeed) {
-    logger.info("[force-update] 厂商 manifest 更新源接线期间跳过远端强制升级检查");
-  }
-  if (forceUpdateGuardResult.blocked) {
-    return;
-  }
+  // P5 硬切：厂商远端强制升级 gate（/api/v1/client/configs kill-switch）随更新源
+  // 切换 GitHub Releases 一并删除，启动不再发起该请求，也不再阻止主窗口创建。
 
   logger.info("[startup] 创建主窗口");
   await primaryWindowCoordinator.ensurePrimaryWindow("app-ready");

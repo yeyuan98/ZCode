@@ -1,10 +1,11 @@
-import { ZCODE_VERSION, type ZCodeEnv } from "@zcode/shared";
+import { ZCODE_VERSION } from "@zcode/shared";
 
-declare const __ZCODE_CDN_BASE_URL__: string | undefined;
-const DEFAULT_CDN_BASE_URL = "https://cdn-zcode.z.ai";
+// P5 W2（specs/distribution-and-updates.md §B.1，D-P5.5）：remote 资产默认源从供应商 CDN
+// （https://cdn-zcode.z.ai + /zcode/electron/releases/<v> 嵌套布局）切换为本仓库 GitHub Releases
+// 的扁平布局；__ZCODE_CDN_BASE_URL__ 构建期 define 已删除，仅保留运行时 ZCODE_CDN_BASE_URL 覆盖。
+const GITHUB_RELEASES_DOWNLOAD_BASE = "https://github.com/yeyuan98/ZCode/releases/download";
 
 export interface ResolveRemoteCdnOptions {
-  env?: ZCodeEnv;
   locale?: string;
   timeZone?: string;
   overrideBaseUrl?: string;
@@ -22,11 +23,8 @@ function normalizeBaseUrl(value: string): string {
 export function resolveRemoteCdnBaseUrls(options: ResolveRemoteCdnOptions = {}): string[] {
   const override = options.overrideBaseUrl?.trim();
   if (override) return [normalizeBaseUrl(override)];
-  const baseUrl =
-    process.env.ZCODE_CDN_BASE_URL?.trim() ||
-    (typeof __ZCODE_CDN_BASE_URL__ === "undefined" ? "" : __ZCODE_CDN_BASE_URL__) ||
-    DEFAULT_CDN_BASE_URL;
-  return [
-    `${normalizeBaseUrl(baseUrl)}/zcode/electron/releases/${options.version ?? ZCODE_VERSION}`,
-  ];
+  const baseUrl = process.env.ZCODE_CDN_BASE_URL?.trim() || GITHUB_RELEASES_DOWNLOAD_BASE;
+  // 默认源是 GitHub Releases tag 目录（…/releases/download/v<version>）：manifest 与组件 tarball
+  // 都直接位于 tag 目录下（扁平布局），基址本身就固定了版本，不再追加任何版本子目录。
+  return [`${normalizeBaseUrl(baseUrl)}/v${options.version ?? ZCODE_VERSION}`];
 }

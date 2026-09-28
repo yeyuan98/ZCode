@@ -8,9 +8,9 @@ const ZCODE_DATA_BASE_DIR_ENV_KEY = "ZCODE_DATA_BASE_DIR";
 const credentialChangeListeners = new Map<string, Set<() => void | Promise<void>>>();
 
 // P4：zai/bigmodel 登录凭据专用 key 表（SHARED_ZCODE_CREDENTIAL_KEYS）、ZaiLoginCredential*
-// 类型与 save/clear/loadSync 便捷方法已随 /login 命令链删除；本文件只保留通用
-// key-value 凭据存取（MCP OAuth 等仍在使用），packages/services 与 desktop 的
-// 原始 "zcodejwttoken" 字符串读取按 spec 保留至 P5 share 删除。
+// 类型与 save/clear/loadSync 便捷方法已随 /login 命令链删除；P5 起 share 链路的
+// zcodejwttoken 读取方也已全部移除。本文件保留的是通用 key-value 凭据存取，
+// MCP OAuth 等非厂商用途仍在使用，与任何厂商端点无关。
 
 export interface SharedZCodeCredentialStoreOptions {
   baseDir?: string;

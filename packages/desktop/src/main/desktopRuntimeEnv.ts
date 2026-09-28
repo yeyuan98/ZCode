@@ -14,9 +14,6 @@ import {
   ZCODE_RUNTIME_ENV_KEY,
   ZCODE_VERSION,
   buildZCodeToolEnvPassthroughEnv,
-  resolveRuntimeZCodeEndpointOrigin,
-  readProductEndpointEnv,
-  pickProductEndpointEnv,
   normalizeDynamicWorkflowMode,
   readZCodeAgentTelemetryEnv,
   sanitizeZCodeRuntimeEnv,
@@ -194,7 +191,9 @@ export function loadHostProcessEnvFromLocalFiles(): Record<string, string> {
     Object.assign(merged, parsed);
   }
 
-  return applySelectedZCodeEnvLinks(merged);
+  // P5 D-P5.4：本函数返回值原先经 applySelectedZCodeEnvLinks 挑选/补齐 endpoint 键；
+  // 该处理已删除，merged 原样返回（.env 中的其余通用变量语义不变）。
+  return merged;
 }
 
 function resolveDevelopmentMockCdnDir(): string {
@@ -227,9 +226,9 @@ function resolveRemoteCdnBaseUrls(
   localEnv: LocalRuntimeEnv = {},
 ): string[] {
   const raw = resolveEnvValue("ZCODE_REMOTE_ASSET_CDN_BASE_URL", localEnv);
+  // P5 W2：remoteCdn 默认源已是 GitHub Releases tag 目录；镜像覆盖语义不变（完整基址透传）。
   return resolveOrderedRemoteCdnBaseUrls({
     ...options,
-    env: ZCODE_ENV,
     overrideBaseUrl: raw,
     version: ZCODE_VERSION,
   });
@@ -239,21 +238,10 @@ function resolveEnvValue(envName: string, localEnv: LocalRuntimeEnv = {}): strin
   return process.env[envName]?.trim() || localEnv[envName]?.trim() || undefined;
 }
 
-export function resolveZCodeEndpointEnvBaseOrigin(
-  localEnv: LocalRuntimeEnv = {},
-): string | undefined {
-  const buildEnv = readProductEndpointEnv();
-  // main 进程临时验证更新服务时不会重新写 .env，命令行传入的 endpoint 必须优先于本地文件。
-  return (
-    process.env["ZCODE_BASE_URL"]?.trim() ||
-    process.env["ZCODE_ENDPOINT_ORIGIN"]?.trim() ||
-    localEnv.ZCODE_BASE_URL?.trim() ||
-    localEnv.ZCODE_ENDPOINT_ORIGIN?.trim() ||
-    buildEnv.ZCODE_BASE_URL?.trim() ||
-    buildEnv.ZCODE_ENDPOINT_ORIGIN?.trim() ||
-    undefined
-  );
-}
+// P5 D-P5.4：resolveZCodeEndpointEnvBaseOrigin（ZCODE_BASE_URL / ZCODE_ENDPOINT_ORIGIN
+// 合成 endpoint base origin）与 applySelectedZCodeEnvLinks（host env 的 endpoint 键挑选 +
+// ZCODE_BASE_URL 注入）已随 endpoint web 删除。post-P3/P4 agent 运行时已无任何
+// ZCODE_BASE_URL 读取方，.env / build env 中的 endpoint 透传链路整体移除。
 
 function readDefinedProcessEnv(): Record<string, string> {
   const values: Record<string, string> = {};
@@ -263,23 +251,6 @@ function readDefinedProcessEnv(): Record<string, string> {
     }
   }
   return values;
-}
-
-function applySelectedZCodeEnvLinks(env: Record<string, string>): Record<string, string> {
-  const endpointEnv = {
-    ...readProductEndpointEnv(),
-    ...env,
-    ZCODE_ENV,
-  };
-
-  return {
-    ...pickProductEndpointEnv(endpointEnv),
-    ...env,
-    ZCODE_BASE_URL: env.ZCODE_BASE_URL ?? resolveRuntimeZCodeEndpointOrigin(endpointEnv),
-    // P3 C1 供应商 OAuth 删除：ZAI_OAUTH_ORIGIN / ZAI_OAUTH_CLIENT_ID 注入已移除。
-    // P3 C2 供应商套餐/计费面删除：ZAI_BUSINESS_BASE_URL 注入（官网购买 webview
-    // 允许列表/业务端点）已随购买链路一并移除。
-  };
 }
 
 function resolveHostProcessNodeEnv(): ZCodeRuntimeEnv {
@@ -512,10 +483,12 @@ export function buildHostProcessEnv(hostProcessLocalEnv: Record<string, string>)
   ]) {
     delete agentTelemetryEnv[key];
   }
-  const inheritedEnv = applySelectedZCodeEnvLinks({
+  // P5 D-P5.4：inheritedEnv 原先经 applySelectedZCodeEnvLinks 注入 ZCODE_BASE_URL 等
+  // endpoint 键；该处理已删除，清理后的运行时 env 原样进入 host。
+  const inheritedEnv = {
     ...sanitizeZCodeRuntimeEnv(rawInheritedEnv),
     ...buildZCodeToolEnvPassthroughEnv(rawInheritedEnv),
-  });
+  };
   // A release app must never inherit the local unsigned-Helper escape hatch.
   // Otherwise a developer shell/launchctl variable can make the signed app
   // reject its verified bundled Helper and route onboarding to a stale dev app.
@@ -539,8 +512,7 @@ export function buildHostProcessEnv(hostProcessLocalEnv: Record<string, string>)
     // ZCode 运行时不再使用 NODE_ENV；它会被用户 shell、包管理器和测试框架复用。
     // 这里显式下发 ZCODE_RUNTIME_ENV，并在继承环境里清掉 NODE_ENV，避免 host/agent/Bash 被污染。
     [ZCODE_RUNTIME_ENV_KEY]: resolveHostProcessNodeEnv(),
-    // 显式注入编译期产品身份，保证主进程与 host 的身份语义一致；地址独立解析。
-    // inheritedEnv 从 .env 通用变量补齐 ZCode/ZAI 链接，未覆盖时统一使用线上默认值。
+    // 显式注入编译期产品身份，保证主进程与 host 的身份语义一致。
     ZCODE_ENV,
     // Preview 与生产版共享任务、配置和凭据，但不同版本的 Helper 不能互相覆盖或触发降级保护。
     // 只隔离 computer-use 下的运行组件，不改写 ZCODE_HOME / ZCODE_DATA_BASE_DIR 业务数据根。

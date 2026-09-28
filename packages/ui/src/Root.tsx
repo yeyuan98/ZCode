@@ -155,9 +155,9 @@ function RootInner({
 
   const { intl, locale } = useZCodeIntl();
   const theme = useZCodeStore((state) => state.theme);
-  const user = useZCodeStore((state) => state.user);
   // P3 ruling 6 休眠用户框架：user 由 StoreProvider 的启动 initializer 注册内置本地用户；
-  // OAuth 会话恢复/轮询/错误字段簇已随 P3 C1 删除。
+  // OAuth 会话恢复/轮询/错误字段簇已随 P3 C1 删除。P5 W4：最后一个 UI 消费面
+  // （分享菜单的登录门槛）删除后，Root 不再把 user 下发到 App。
   const {
     settings: appSettings,
     loading: appSettingsLoading,
@@ -539,12 +539,9 @@ function RootInner({
     isDesktop,
     locale,
     tabs,
-    activeWorkspacePath,
-    activeWorkspaceIdentity,
     totalUnreadTaskCount,
     hasCompletedFullTabRestore: hasCompletedFullRestore,
     intl,
-    startupStatePending: providerStartupSyncPending,
   });
 
   useEffect(() => {
@@ -901,7 +898,6 @@ function RootInner({
             remoteWorkspaceSessions={remoteWorkspaceSessions}
             allowRemoteWorkspace={allowRemoteWorkspace}
             handleBackFromSettings={handleBackFromSettings}
-            user={user}
             reconnectingRemoteWorkspaceKeys={reconnectingRemoteWorkspaceKeys}
             remoteWorkspaceErrorByWorkspaceKey={remoteWorkspaceErrorByWorkspaceKey}
             reconnectingRemoteWorkspaceLogsByWorkspaceKey={

@@ -1,6 +1,10 @@
 export interface DefaultPluginMarketplace {
   id: string;
-  source: string;
+  /**
+   * 网络源字符串；官方市场 bundled-only（P5 D-P5.3a：随应用内置分发，无网络 manifest），
+   * 因此该字段可缺省。缺省时 adapter 侧落盘为 `{ source: "bundled" }` 且永不网络刷新。
+   */
+  source?: string;
   name: string;
   description: string;
   pluginCount: number;
@@ -9,42 +13,52 @@ export interface DefaultPluginMarketplace {
 
 export const ZCODE_OFFICIAL_PLUGIN_MARKETPLACE_ID = "zcode-plugins-official";
 
-/** Settings 三类资源发现共用；Bootstrap 单测与官方 definition 的 defaultEnabled 机械对照。 */
+/** 自由市场（D-P5.3a）：first-party 网络目录，预注册为第二个默认市场，不可经 UI 移除。 */
+const ZCODE_LIBRE_PLUGIN_MARKETPLACE_ID = "zcode-plugins-libre";
+
+/**
+ * Settings 三类资源发现共用；Bootstrap 单测与官方 definition 的 defaultEnabled 机械对照。
+ * P5 收敛：幻影官方插件定义（documents/pdf/presentations/spreadsheets、plugin-creator、
+ * skill-creator、zcode-guide、image-search 等）随市场去供应商化删除后，默认启用名单
+ * 只剩 in-tree 的 browser-use 与 node-repl-host（宿主），与 bootstrap 侧
+ * official-plugin-definitions.ts 的 defaultEnabled 派生集合逐一对应（见
+ * packages/shared/test/pluginMarketplacesP5.test.ts 的 parity 校验）。
+ */
 export const DEFAULT_ENABLED_OFFICIAL_PLUGIN_IDS: ReadonlySet<string> = new Set([
   "browser-use@zcode-plugins-official",
-  // P3 C3（ruling 5）：image-search 的 MCP 后端是官方 Server MCP，随官方 MCP 服务删除后
-  // 已不可用，故从默认启用名单摘除（插件 definition 与市场条目保留，P5 统一清理市场时删除，
-  // 届时 bootstrap 侧 defaultEnabled 同步收口）。
-  "documents@zcode-plugins-official",
-  "pdf@zcode-plugins-official",
-  "presentations@zcode-plugins-official",
-  "spreadsheets@zcode-plugins-official",
   // node_repl 宿主：不进市场、不对用户露出，也不贡献任何 skill/command/subagent，但必须
   // 始终可用 —— node_repl 的注册门禁是「Browser Use 或 Computer Use 任一启用」，宿主自己
   // 不参与那个判断。Browser Use 默认开着，宿主若默认关就等于它上来就没有宿主。
   "node-repl-host@zcode-plugins-official",
-  "skill-creator@zcode-plugins-official",
-  "plugin-creator@zcode-plugins-official",
-  "zcode-guide@zcode-plugins-official",
-  // 电脑控制回退为默认关闭，故 computer-use 不在此名单内。
-  // 该集合必须与 official-plugin-definitions.ts 里标了 defaultEnabled 的插件逐一对应，
-  // bootstrap 的「Settings 默认启用集合与 CLI 的官方插件声明一致」单测机械对照两者。
 ]);
 
 export const DEFAULT_PLUGIN_MARKETPLACES: DefaultPluginMarketplace[] = [
   {
-    // ZCode 官方唯一市场：本地 seed 分片与 CDN 分片在 Agent storage 内合并。
-    // CDN manifest 的 name 必须与该 canonical id 一致。
+    // ZCode 官方市场（P5 起 bundled-only）：目录完全由应用内置 seed 分片构成，无网络 source，
+    // 不做网络刷新；旧安装 known_marketplaces.json 里遗留的 vendor CDN source 由 adapter 侧
+    // 守卫拒绝刷新（官方 id 一律不网络刷新）。
     id: ZCODE_OFFICIAL_PLUGIN_MARKETPLACE_ID,
-    source: "https://cdn-zcode.z.ai/zcode/official-plugin/marketplace.json",
     name: ZCODE_OFFICIAL_PLUGIN_MARKETPLACE_ID,
-    description: "Official ZCode plugins marketplace: built-in and community plugins for ZCode.",
+    description: "Official ZCode plugins marketplace: built-in plugins bundled with the app.",
+    pluginCount: 0,
+  },
+  {
+    // 自由市场：github.com/yeyuan98/zcode-plugins 的 marketplace.json（raw.githubusercontent），
+    // 插件 zip 为带 sha256 的 GitHub Release 资产。预注册为默认市场但零默认启用插件，
+    // 安装永远是用户显式动作；首次打开商店时由 10 分钟节流的自动刷新物化目录。
+    id: ZCODE_LIBRE_PLUGIN_MARKETPLACE_ID,
+    source: "https://raw.githubusercontent.com/yeyuan98/zcode-plugins/main/marketplace.json",
+    name: ZCODE_LIBRE_PLUGIN_MARKETPLACE_ID,
+    description: "Libre plugin marketplace hosted in the yeyuan98/zcode-plugins repository.",
     pluginCount: 0,
   },
 ];
 
-// 商店「公开」分段只有一个 ZCode 官方市场 id，内置与 CDN 不再拆分身份。
-export const PUBLIC_STORE_MARKETPLACE_IDS = [ZCODE_OFFICIAL_PLUGIN_MARKETPLACE_ID] as const;
+// 商店「公开」分段 = 官方 + 自由两个预注册市场；其余市场一律归入「个人」分段。
+export const PUBLIC_STORE_MARKETPLACE_IDS = [
+  ZCODE_OFFICIAL_PLUGIN_MARKETPLACE_ID,
+  ZCODE_LIBRE_PLUGIN_MARKETPLACE_ID,
+] as const;
 
 export function isPublicStoreMarketplaceId(id: string): boolean {
   return (PUBLIC_STORE_MARKETPLACE_IDS as readonly string[]).includes(id);

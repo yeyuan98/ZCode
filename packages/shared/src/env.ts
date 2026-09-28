@@ -10,6 +10,14 @@ export function normalizeZCodeEnv(value: string | undefined): ZCodeEnv {
   return value?.trim().toLowerCase() === "production" ? "production" : "test";
 }
 
+// P5 D-P5.4：本函数原位于 zcodeEndpoint.ts；endpoint 解析链删除后迁至 env.ts。
+// 它只读 ZCODE_ENV（产品身份轴），与已删除的 endpoint origin web 无关（CLI 请求头仍在消费）。
+export function resolveRuntimeZCodeEnv(
+  env: Record<string, string | undefined> = process.env,
+): ZCodeEnv {
+  return env.ZCODE_ENV?.trim().toLowerCase() === "test" ? "test" : "production";
+}
+
 export const ZCODE_ENV = normalizeZCodeEnv(
   typeof __ZCODE_ENV__ !== "undefined" ? __ZCODE_ENV__ : undefined,
 );

@@ -10,7 +10,6 @@ import type {
   RemoteTarget,
   RemoteWorkspaceSessionEntry,
   UpdateStatePayload,
-  UserInfo,
 } from "@zcode/shared";
 import type { IServiceAccessor } from "@zcode/services";
 import type { BrowserNavigationRequest, RecentClosedSidePaneTab } from "@/hooks/useAppPanels.js";
@@ -81,7 +80,7 @@ export interface AppProps {
   ) => Promise<void>;
   onCancelRemoteProject: (sessionId: string) => Promise<void>;
   onReconnectRemoteWorkspace: (workspaceKey: string) => Promise<void>;
-  user?: UserInfo | null;
+  // P5 W4b：user 原仅供已删除的分享菜单做登录门槛；导出无登录门槛，prop 链一并移除。
   reconnectingRemoteWorkspaceKeys: string[];
   remoteWorkspaceErrorByWorkspaceKey: Record<string, string>;
   reconnectingRemoteWorkspaceLogsByWorkspaceKey?: Record<string, RemoteConnectionLogEntry[]>;

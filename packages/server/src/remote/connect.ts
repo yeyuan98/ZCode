@@ -55,8 +55,8 @@ export interface RemoteConnection {
 
 const REMOTE_RUNTIME_ENV_KEYS = [
   "ZCODE_ENV",
-  "ZCODE_BASE_URL",
-  "ZCODE_ENDPOINT_ORIGIN",
+  // P5 D-P5.4：ZCODE_BASE_URL / ZCODE_ENDPOINT_ORIGIN（endpoint web 透传，Desktop Main
+  // 计算后下发）已删除——远端已无任何读取方，透传只会携带死变量。
   // P3 C2 供应商套餐/计费面删除：ZAI_BUSINESS_BASE_URL（官网购买 webview / 业务端点）
   // 不再向远端 Host 透传。
   // 由 Desktop Main 计算并下发；远端 server 只消费，不重新计算。

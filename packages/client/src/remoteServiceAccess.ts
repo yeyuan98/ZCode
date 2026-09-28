@@ -14,7 +14,7 @@ import {
   IZCodeAgentService,
   IZCodeSessionService,
   ICuaPermissionService,
-  IConversationShareService,
+  IConversationExportService,
   IBotsService,
   IFileWatcherService,
   IModelSelectionService,
@@ -22,7 +22,7 @@ import {
   IProviderProvisioningTargetService,
   IUsageStatsService,
   // P3 C5 供应商 client/configs 拉取删除：IClientConfigService 代理已随服务移除。
-  IClientScenesService,
+  // P5 D-P5.4：IClientScenesService 代理已随 endpoint web / clientScenes 链删除。
   IOffPeakTaskService,
   ISkillsService,
   ISkillSyncService,
@@ -63,7 +63,8 @@ export class RemoteServiceAccess implements IServiceAccessor {
   // cuaPermissionService 在 IServiceAccessor 上是可选（远端/bots host 不提供），但桌面 renderer
   // 经 RPC 一定能拿到（main host 始终注册此 descriptor；非 macOS / 未启用时方法返回 available:false）。
   readonly cuaPermissionService: ICuaPermissionService;
-  readonly conversationShareService: IConversationShareService;
+  // P5 W4b：本地会话 Markdown 导出（替代已删除的 conversationShareService 代理）。
+  readonly conversationExportService: IConversationExportService;
   readonly botsService: IBotsService;
   readonly fileWatcherService: IFileWatcherService;
   readonly providerSettingsService: IProviderSettingsService;
@@ -72,7 +73,7 @@ export class RemoteServiceAccess implements IServiceAccessor {
   readonly providerProvisioningTargetService!: IProviderProvisioningTargetService;
   readonly usageStatsService: IUsageStatsService;
   // P3 C5：clientConfigService（供应商 client/configs 快照代理）已删除。
-  readonly clientScenesService: IClientScenesService;
+  // P5 D-P5.4：clientScenesService 代理已随 endpoint web / clientScenes 链删除。
   readonly offPeakTaskService: IOffPeakTaskService;
   readonly skillsService: ISkillsService;
   readonly skillSyncService: ISkillSyncService;
@@ -135,8 +136,8 @@ export class RemoteServiceAccess implements IServiceAccessor {
     this.cuaPermissionService = ProxyChannel.toService<ICuaPermissionService>(
       channelClient.getChannel(ICuaPermissionService.channelName),
     );
-    this.conversationShareService = ProxyChannel.toService<IConversationShareService>(
-      channelClient.getChannel(IConversationShareService.channelName),
+    this.conversationExportService = ProxyChannel.toService<IConversationExportService>(
+      channelClient.getChannel(IConversationExportService.channelName),
     );
     this.botsService = ProxyChannel.toService<IBotsService>(
       channelClient.getChannel(IBotsService.channelName),
@@ -160,9 +161,7 @@ export class RemoteServiceAccess implements IServiceAccessor {
       channelClient.getChannel(IUsageStatsService.channelName),
     );
     // P3 C5：clientConfigService 代理创建已随供应商 client/configs 配置面删除。
-    this.clientScenesService = ProxyChannel.toService<IClientScenesService>(
-      channelClient.getChannel(IClientScenesService.channelName),
-    );
+    // P5 D-P5.4：clientScenesService 代理创建已随 endpoint web 删除。
     this.offPeakTaskService = ProxyChannel.toService<IOffPeakTaskService>(
       channelClient.getChannel(IOffPeakTaskService.channelName),
     );
