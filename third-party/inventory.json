@@ -244,9 +244,9 @@
     "apps/zcode-cli/packages/tui/package.json": "097d5896b0b37a455eafaf015f21113dfbea7b05bb3f92666f423f7753720eb1",
     "apps/zcode-cli/tools/prompt-trajectory/package.json": "7f161fc87f36691f01eb8c2034bd89cf28107da36db02bc20e76f059edd36af6",
     "apps/zcode-cli/tools/typescript/package.json": "23d7e50d2089d205ce3022c5bafbb6b3e31d000e41ac678a5934e0b72627cf3a",
-    "package.json": "d9abcb2400e4c5df1e7731964acec2dea43187387dd409276d3bb4f592778d86",
+    "package.json": "3778aaef8496b52c57c11d2d63ee144372d7c9468bd2916f3e3497f5422cf77c",
     "packages/client/package.json": "e76f441549130dc3e5e68072a36b6cb9044e19a6625f1e813f19a4def2b1b689",
-    "packages/desktop/package.json": "c9f5eff35160306891515fb4b4f3fe4bf9a8949747533863164c60a6bcd246da",
+    "packages/desktop/package.json": "125f0926066165ea3132f4eda451be17b584d3f5353f302a87414773e7494c74",
     "packages/desktop/src/renderer/public/material-icons/3d.svg": "9527b849f0fba57ca7640e2717b3a19cb5f5e046712cbbd8b75d73af338c68fb",
     "packages/desktop/src/renderer/public/material-icons/abap.svg": "1335bd7eb9a0ed49deb622330d680c2e97731726a7a5eee8e4f46dc1e5db4de4",
     "packages/desktop/src/renderer/public/material-icons/abc.svg": "d1a68020e8f020ef29dca5f94dc8613b7ae8fb5b212d8b1cc23b0f975ac7acda",
@@ -1512,9 +1512,9 @@
     "packages/ui/src/components/ui/toast.tsx": "0f8894c6fc30e4cec44caa4cffe70e111f9c41ff9bf3699ec8e91696ea631671",
     "packages/ui/src/components/ui/tooltip.tsx": "301dbf3a6f8b1bc496f9bdc6fbc5fe6202ed373182897f39cd1ecd19b00fdfbe",
     "packages/ui/src/components/ui/usePdfZoomOverlay.ts": "c8c91b003ce2fded32c7a2369dc6eac43aa4b9dc9c830a0f5ceccb21d366b610",
-    "packages/ui/src/components/ui/ZCodeAboutLogo.tsx": "1e5b7c2e8a9dc98a3c597cbe34122521319eaeb89825e4c41641e77715d1407a",
+    "packages/ui/src/components/ui/ZCodeAboutLogo.tsx": "2385a0ffa939452431079566149ef75da31fbd9fb8df5ff611db4b5a602c4ce2",
     "packages/ui/src/components/ui/ZcodeMonochromeIcon.tsx": "c0da6214be3eee7a9eb625d4baff7b6f90e78b37b78ff97bba43dbc25085523d",
-    "packages/ui/src/lib/builtinSkillI18n.ts": "cb3d5fd1408040c8249895981f1a42bcc4c443c020127abb1a521882cb17cce2",
+    "packages/ui/src/lib/builtinSkillI18n.ts": "91841f4099c3a45358157ad6837e5679c209c741d0383a62434e3ed6fb3032de",
     "packages/ui/src/styles.css": "0d32e5caa7585bf951c0019ff1d75b702b3097ca17f61de3e181498613145e45",
     "packages/web/package.json": "0810e762bf1d6641d5f73ab642b81953e183e53fd963a1d405ffc65b206e5ce6",
     "packages/web/public/material-icons/3d.svg": "9527b849f0fba57ca7640e2717b3a19cb5f5e046712cbbd8b75d73af338c68fb",
@@ -18418,7 +18418,7 @@
         },
         {
           "file": "packages/ui/src/components/ui/ZCodeAboutLogo.tsx",
-          "sha256": "1e5b7c2e8a9dc98a3c597cbe34122521319eaeb89825e4c41641e77715d1407a"
+          "sha256": "2385a0ffa939452431079566149ef75da31fbd9fb8df5ff611db4b5a602c4ce2"
         },
         {
           "file": "packages/ui/src/components/ui/ZcodeMonochromeIcon.tsx",
@@ -28865,7 +28865,7 @@
       "files": [
         {
           "file": "packages/ui/src/lib/builtinSkillI18n.ts",
-          "sha256": "cb3d5fd1408040c8249895981f1a42bcc4c443c020127abb1a521882cb17cce2"
+          "sha256": "91841f4099c3a45358157ad6837e5679c209c741d0383a62434e3ed6fb3032de"
         },
         {
           "file": "apps/zcode-cli/packages/superpowers-plugin/LICENSE",
