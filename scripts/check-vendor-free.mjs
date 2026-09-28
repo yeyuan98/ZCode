@@ -129,11 +129,21 @@ function listTrackedFiles() {
 function main() {
   const listMode = process.argv.includes("--list");
   const fileMap = new Map();
+  let excluded = 0;
+  let binary = 0;
   for (const path of listTrackedFiles()) {
-    if (classifyPath(path) !== "scanned" && classifyPath(path) !== "allowlisted") continue;
+    const status = classifyPath(path);
+    if (status === "excluded") {
+      excluded += 1;
+      continue;
+    }
+    if (status === "binary") {
+      binary += 1;
+      continue;
+    }
     fileMap.set(path, readFileSync(path, "utf8"));
   }
-  const { violations, allowlistedHits, excluded, binary } = runScan(fileMap);
+  const { violations, allowlistedHits } = runScan(fileMap);
 
   for (const { path, hits } of violations) {
     for (const hit of hits) {

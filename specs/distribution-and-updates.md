@@ -202,9 +202,11 @@ icons).
 - **已知市场记录严格化**：撤销 §7 "legacy known_marketplaces guard" 的 inert 语义
   （ensure-skip / update-skip 两层随之下线）。`apps/zcode-cli/packages/adapters/
 src/plugins/marketplace.ts` 的 `isKnownMarketplaceRecord` 收紧为当前记录形状（含
-  `source` 的具体形状校验），`loadKnownMarketplacesSync` 不再接受 array 容器格式；
-  不匹配的旧格式记录（含 pre-P5 vendor CDN source 形状）**加载即丢弃**。保留
+  `source` 的具体形状校验），`loadKnownMarketplacesSync` 不再接受 map 容器格式（仅保留
+  array）；不匹配的旧格式记录（含 pre-P5 vendor CDN source 形状）**加载即丢弃**。保留
   reserved-id 守卫（`RESERVED_PLUGIN_MARKETPLACE_IDS`）。默认市场经
   `ensureDefaultPluginMarketplaces` 自动重播种。记录的破坏：pre-P5 格式的个人市场
   记录从列表消失、需重新添加。shared schema（`zcodePluginMarketplaceSummarySchema`）
-  已是 strict，不动；CLI adapter 新增严格行为单测（此前零测试覆盖）。
+  已是 strict，不动；严格形状/保留 id 契约单测落位 shared
+  （packages/shared/test/pluginMarketplacesP6.test.ts；A-P4.1 口径下 CLI 无 runner，
+  adapter loader 为薄委托，契约逻辑全部在 shared）。

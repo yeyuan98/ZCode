@@ -2332,7 +2332,6 @@ const zhCN: Record<string, string> = {
   "settings.modelProvider.modelSaveFailure": "{provider} / {model} 保存失败：{error}",
   "settings.modelProvider.cancel": "取消",
   "settings.modelProvider.name": "名称",
-  "settings.modelProvider.namePlaceholder": "如：DeepSeek",
   "settings.modelProvider.addProviderTitle": "添加模型供应商",
   "settings.modelProvider.addProviderDescription": "配置一个完全自定义的 API 端点和初始模型。",
   "settings.modelProvider.addFromCatalog": "供应商目录",
