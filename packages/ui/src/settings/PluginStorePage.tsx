@@ -453,7 +453,6 @@ export function PluginStorePage({
             </ControlHintTooltip>
             <PluginAddMenu
               testId="plugin-store-create"
-              onCreateTask={onCreateTask}
               onAddMarketplace={() => {
                 setAddMarketplaceError(null);
                 setAddSourceOpen(true);

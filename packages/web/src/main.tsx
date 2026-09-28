@@ -103,7 +103,8 @@ function createWebPlatform(): IPlatformService {
       document.body.appendChild(link);
       link.click();
       link.remove();
-      URL.revokeObjectURL(objectUrl);
+      // [ulw] RA：WebKit/iOS Safari 在同步 revoke 时可能中断 blob 抓取，延迟释放。
+      setTimeout(() => URL.revokeObjectURL(objectUrl), 10_000);
       return { success: true };
     },
     createTempTextAttachment: () =>
