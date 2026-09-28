@@ -160,4 +160,26 @@ icons).
 
 ## Amendments (in-phase)
 
-(none yet)
+- **W5 落地补充（identity + endpoint web cut）**：
+  - Builder identity per D-P5.6：homepage `https://github.com/yeyuan98/ZCode`；author
+    `{name:"ZCode", email:"yeyuan98@users.noreply.github.com"}`；linux maintainer 同值（deb/fpm
+    元数据仍需这些字段，仅换值）。
+  - 服务名 D7：`app.zcode.server[.<stablePathId>]`；无迁移（`unregisterService` 对“服务不存在”
+    已容忍，旧厂商前缀服务留给用户手动清理；`packages/shared/test/endpointWebPurge.test.ts`
+    源码扫描守卫禁止 `com.zhipu` 回流）。
+  - 帮助菜单「What's new」（OpenChangelog）：changelog 外链由 `{ZCODE}/cn|/en/changelog`
+    改为 `https://github.com/yeyuan98/ZCode/releases`（语言分流随 endpoint web 删除）。
+  - 架构不匹配弹窗（desktopArchitectureGuard）：下载按钮由厂商 `/cn|/en` 官网页改为同一
+    GitHub Releases 页（保留按钮—— Releases 页即安装包分发处，非死链）。
+  - clientScenes 内容缺口：automation 模板（「More ideas」+ 闲时模板卡）与新任务页 coding
+    chips 推荐按 D8 自然降级移除，**未做打包内置替代**（office 主动推荐仍用
+    featureSuggestedPrompts 内置池）。发布说明需记录该缺口。
+  - `resolveRuntimeZCodeEnv`（X-Release-Channel，CLI 请求头）自 zcodeEndpoint.ts 迁至
+    env.ts 保留；`__ZCODE_ENDPOINT_ENV__` tsup/vite define、`ZCODE_BASE_URL` /
+    `ZCODE_ENDPOINT_ORIGIN` 透传（server REMOTE_RUNTIME_ENV_KEYS、desktopRuntimeEnv 注入、
+    .env.example 行、e2e fixtures 注入）随 endpoint web 删除。
+  - `zcodeEndpoint.ts` / `zcode-source-headers.ts` / services `sourceHeaders.ts` /
+    `nodeApiClient`+`apiEndpoints`+`apiJson`+`requestIdHeaders`(+零引用的
+    `networkErrorClassifier`) / client-scenes 目录整体删除；`api.ts` 仅保留 `ApiError`
+    （claude-native 解析仍用）。`nodeApiNetwork`（undici transport）保留——provider 发现
+    仍消费。`stdioDeviceMid` 保留（通用设备身份，P0 裁决非厂商遥测）。

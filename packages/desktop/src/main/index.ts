@@ -58,7 +58,6 @@ import {
   ZCODE_PRODUCT_FLAVOR,
   DEFAULT_LOCALE,
   ZCODE_VERSION,
-  resolveZCodeEndpointOrigin,
   type UpdateStatePayload,
   HostMessageTypes,
   DEFAULT_OFF_PEAK_WINDOW,
@@ -135,7 +134,6 @@ import {
   loadHostProcessEnvFromLocalFiles,
   resolveBundledAgentBinaryPath,
   resolveRemoteAssetDirs,
-  resolveZCodeEndpointEnvBaseOrigin,
   runtimeApplicationName,
   runtimeHomePath,
   runtimeSessionDataPath,
@@ -647,13 +645,8 @@ const UPDATE_STATUS_WINDOW_TRAFFIC_LIGHT_POSITION = { x: 10, y: 10 } as const;
 const mainSettingService = createSettingService();
 const appLaunchGate = createAppLaunchGate();
 const appLaunchCoordinator = createAppLaunchCoordinator(appLaunchGate);
-async function resolveCurrentZCodeEndpointOrigin() {
-  return resolveZCodeEndpointOrigin({
-    env: ZCODE_ENV,
-    envBaseOrigin: resolveZCodeEndpointEnvBaseOrigin(hostProcessLocalEnv),
-    overrideOrigin: (await mainSettingService.get()).zcodeEndpointOrigin,
-  });
-}
+// P5 D-P5.4：resolveCurrentZCodeEndpointOrigin（settings + env 合成 endpoint origin）
+// 已随 endpoint web 删除。
 // P3 C5 供应商 client/configs 灰度拉取删除：desktopContextPrompt 不再有服务端 rollout，
 // 固定本地默认 OFF（与被删 rollout 的 defaultValue {enabled:false} 一致，A9 裁决
 // "context-prompt rollout → local default"）。仍经 spawnHostProcess 注入
@@ -1220,8 +1213,6 @@ async function executeDesktopCommandForApp(
       rebuildMenu();
     },
     settingService: mainSettingService,
-    onZCodeEndpointChanged: handleZCodeEndpointChanged,
-    zcodeEndpointEnvBaseOrigin: resolveZCodeEndpointEnvBaseOrigin(hostProcessLocalEnv),
     onRelaunchApp: async () => {
       await prepareAppQuit("desktop-command-relaunch");
       app.relaunch();
@@ -1232,20 +1223,8 @@ async function executeDesktopCommandForApp(
   });
 }
 
-async function resolveZCodeEndpointSelection(): Promise<"production" | "test" | "custom"> {
-  if (ZCODE_ENV === "production") {
-    return "production";
-  }
-  const origin = await resolveCurrentZCodeEndpointOrigin();
-  if (origin === DEFAULT_ZCODE_ENDPOINT_ORIGIN) {
-    return "production";
-  }
-  return "custom";
-}
-
-async function handleZCodeEndpointChanged() {
-  rebuildMenu();
-}
+// P5 D-P5.4：resolveZCodeEndpointSelection / handleZCodeEndpointChanged（菜单 Endpoint
+// 单选态与变更回调）已随帮助菜单 Endpoint 选择器删除。
 
 /** 快捷键设置页录制态（renderer 经 SetShortcutRecordingActive 同步）；true 时菜单摘除可配置 accelerator。 */
 let shortcutRecordingActive = false;
@@ -1282,21 +1261,19 @@ function resetShortcutRecordingForWebContents(webContentsId: number) {
 }
 
 function rebuildMenu() {
-  void Promise.all([resolveZCodeEndpointSelection(), mainSettingService.get()]).then(
-    ([zcodeEndpointSelection, settings]) => {
-      rebuildApplicationMenu({
-        currentApplicationLocale,
-        zcodeEndpointSelection,
-        executeDesktopCommand: executeDesktopCommandForApp,
-        currentZoomLevel: resolveFocusedDesktopZoomLevel(),
-        // 菜单 accelerator 跟随用户快捷键设置（shortcutBindings 用户覆盖）
-        shortcutBindings: settings.shortcutBindings,
-        // 快捷键录制态：摘掉可配置 accelerator，防止录制 menu 通道命令时按键直接触发原命令
-        // （macOS 系统菜单先于 renderer 吃掉按键，renderer 侧 preventDefault 拦不住）。
-        disableShortcutAccelerators: shortcutRecordingActive,
-      });
-    },
-  );
+  // P5 D-P5.4：菜单重建不再等待 endpoint 选择态（选择器已删除），只读快捷键设置。
+  void mainSettingService.get().then((settings) => {
+    rebuildApplicationMenu({
+      currentApplicationLocale,
+      executeDesktopCommand: executeDesktopCommandForApp,
+      currentZoomLevel: resolveFocusedDesktopZoomLevel(),
+      // 菜单 accelerator 跟随用户快捷键设置（shortcutBindings 用户覆盖）
+      shortcutBindings: settings.shortcutBindings,
+      // 快捷键录制态：摘掉可配置 accelerator，防止录制 menu 通道命令时按键直接触发原命令
+      // （macOS 系统菜单先于 renderer 吃掉按键，renderer 侧 preventDefault 拦不住）。
+      disableShortcutAccelerators: shortcutRecordingActive,
+    });
+  });
   updateWindowsDesktopTrayMenu();
 }
 

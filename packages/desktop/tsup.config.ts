@@ -1,5 +1,3 @@
-import { pickProductEndpointEnv } from "@zcode/shared/zcodeEndpoint";
-import { readFileSync, existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { defineConfig } from "tsup";
@@ -12,41 +10,10 @@ const { loadBuiltinProviderConfig } = await import(
 
 const buildMetadata = getBuildMetadata();
 
-// 手动加载 .env 文件，tsup 不像 Vite 会自动读取 .env.*；这些文件只提供链接常量。
-function loadEnvFiles(): Record<string, string> {
-  const vars: Record<string, string> = {};
-  const files = ["../../.env", "../../.env.local"];
-  if (process.env.NODE_ENV === "production") {
-    files.push("../../.env.production");
-  } else {
-    files.push("../../.env.development", "../../.env.development.local");
-  }
-  for (const file of files) {
-    if (existsSync(file)) {
-      for (const line of readFileSync(file, "utf-8").split("\n")) {
-        const match = line.match(/^(\w+)=(.*)$/);
-        if (match) vars[match[1]] = match[2];
-      }
-    }
-  }
-  // 真实环境变量优先级最高
-  if (process.env.ZCODE_ENV) vars.ZCODE_ENV = process.env.ZCODE_ENV;
-  if (process.env.ZCODE_BASE_URL) vars.ZCODE_BASE_URL = process.env.ZCODE_BASE_URL;
-  // P3 C1 供应商 OAuth 删除：ZAI_OAUTH_* / VITE_ZAI_OAUTH_* 覆盖入口已移除。
-  // P3 C2 供应商套餐/计费面删除：ZAI_BUSINESS_BASE_URL / ZAI_BUSINESS_LOGIN_URL
-  // （官网购买 webview 链路）与 VITE_ZCODE_BASE_URL（rendererZCodeEndpoint，仅购买
-  // webview 弹窗消费）的覆盖入口一并移除。
-  return {
-    ...vars,
-    ...Object.fromEntries(
-      Object.entries(process.env).filter(
-        (entry): entry is [string, string] => entry[1] !== undefined,
-      ),
-    ),
-  };
-}
+// P5 D-P5.4：loadEnvFiles（手动加载 .env 合成链接常量，唯一消费者是已删除的
+// __ZCODE_ENDPOINT_ENV__ define）已随 endpoint web 移除；ZCODE_ENV 身份来自
+// loadBuiltinProviderConfig，其余构建期 define 均为构建元数据。
 
-const env = loadEnvFiles();
 const { environment: zcodeEnv } = await loadBuiltinProviderConfig();
 // 安装包身份与后端环境分轴：ZCODE_PREVIEW_IDENTITY=1 让生产后端的构建仍以 ZCode Preview 身份打包运行。
 const zcodeProductFlavor = resolveDesktopProductFlavor({ ...process.env, ZCODE_ENV: zcodeEnv });
@@ -88,7 +55,7 @@ function createSharedDefines() {
     __ZCODE_COMMIT__: JSON.stringify(buildMetadata.buildCommitId),
     __ZCODE_BUILD_TIME__: JSON.stringify(buildMetadata.buildTime),
     __ZCODE_ENV__: JSON.stringify(zcodeEnv),
-    __ZCODE_ENDPOINT_ENV__: JSON.stringify(pickProductEndpointEnv(env)),
+    // P5 D-P5.4：__ZCODE_ENDPOINT_ENV__（endpoint origin env 注入运行时 define）已删除。
     __ZCODE_PRODUCT_FLAVOR__: JSON.stringify(zcodeProductFlavor),
     // Computer Use Helper build identity — helperInstaller 读它决定下载哪个 Helper bundle。
     // 缺失时 installer 抛 "Packaged ZCode is missing its embedded Computer Use Helper build identity"。

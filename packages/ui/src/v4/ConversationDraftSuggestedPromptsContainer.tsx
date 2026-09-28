@@ -25,7 +25,6 @@ import { toast } from "@/components/ui/toast.js";
 import { useWorkspaceServicesResolution } from "@/hooks/useWorkspaceServices.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import { logger } from "@/logger.js";
-import type { AutomationsNavigationTab } from "@/lib/taskNavigationHistory.js";
 import { invalidateDeferredDraftSessionForSkillChange } from "@/lib/zcodeDraftSkillInvalidation.js";
 import { useZCodeSessionStore } from "@/store/zcodeSessionStore.js";
 import {
@@ -35,20 +34,19 @@ import {
 import { buildDraftSuggestedPluginMention } from "@/v4/draftSuggestedPromptPrefill.js";
 import { resolveDraftSuggestedPromptText } from "@/v4/draftSuggestedPromptItems.js";
 import {
-  DRAFT_SUGGESTED_PROMPT_NAVIGATE_AUTOMATIONS,
-  DRAFT_SUGGESTED_PROMPT_NAVIGATE_AUTOMATIONS_OFFPEAK,
-} from "@/v4/draftSuggestedPromptItems.js";
-import {
   resolveDraftSuggestedPluginFlowStage,
   type ConversationDraftSuggestedPromptsContainerProps,
   type DraftSuggestedPluginFlow,
   type DraftSuggestedPluginOperation,
   trackDraftSuggestedPluginOperation,
 } from "@/v4/ConversationDraftSuggestedPluginFlow.js";
-import { useDraftSuggestedPromptItems } from "@/v4/useDraftSuggestedPromptItems.js";
 import { useDraftSuggestedPluginActionPopover } from "@/v4/useDraftSuggestedPluginActionPopover.js";
 import { getComposerDraftRevision } from "@/v4/composer/composerDraftRevision.js";
 import { useComposerTextInsertApplied } from "@/v4/useComposerTextInsertApplied.js";
+
+// P5 D-P5.4：useDraftSuggestedPromptItems（Client Scenes draft-suggestion 映射）已随
+// endpoint web 删除；非主动（coding chips）模式的推荐项来源消失，列表自然为空，
+// 芯片行不再渲染（主动 office 模式仍使用打包内置的 featureSuggestedPrompts 轮换）。
 
 type PluginMutationKind = "install" | "enable";
 
@@ -56,7 +54,6 @@ const INSTALL_OPERATION_TIMEOUT_MS = 10_000;
 
 type Props = ConversationDraftSuggestedPromptsContainerProps & {
   proactive?: boolean;
-  onOpenAutomations?: (automationTab?: AutomationsNavigationTab) => void;
 };
 
 let draftSuggestedPluginOperationSequence = 0;
@@ -82,7 +79,6 @@ export function ConversationDraftSuggestedPromptsContainer({
   workspacePath,
   workspaceIdentity,
   remoteSessionId,
-  onOpenAutomations,
   isDesktop = false,
 }: Props) {
   const { intl, locale } = useZCodeIntl();
@@ -133,23 +129,9 @@ export function ConversationDraftSuggestedPromptsContainer({
   const activeOperationRef = useRef<DraftSuggestedPluginOperation | null>(null);
   const [cancelling, setCancelling] = useState(false);
   const workspaceKey = workspaceIdentity?.trim() || workspacePath;
-  const allItems = useDraftSuggestedPromptItems({
-    clientScenesService: resolution.services.clientScenesService,
-    rpcReady: resolution.rpcReady,
-    workspaceKey,
-  });
-  const items = useMemo(
-    () =>
-      (proactive ? recommendedItems : allItems).filter(
-        (item) =>
-          !item.actions?.some(
-            (action) =>
-              action === DRAFT_SUGGESTED_PROMPT_NAVIGATE_AUTOMATIONS ||
-              action === DRAFT_SUGGESTED_PROMPT_NAVIGATE_AUTOMATIONS_OFFPEAK,
-          ) || Boolean(onOpenAutomations),
-      ),
-    [allItems, onOpenAutomations, proactive, recommendedItems],
-  );
+  // P5 D-P5.4：非主动模式（coding chips）的 Client Scenes 来源已删除；
+  // 主动模式直接使用打包内置推荐池，非主动模式列表恒为空。
+  const items = useMemo(() => (proactive ? recommendedItems : []), [proactive, recommendedItems]);
   const {
     clearPluginActionPopover,
     pluginActionPopover,
@@ -528,20 +510,8 @@ export function ConversationDraftSuggestedPromptsContainer({
       const requestVersion = requestVersionRef.current + 1;
       requestVersionRef.current = requestVersion;
       const prompt = resolveDraftSuggestedPromptText(item.prompt, locale);
-      if (
-        onOpenAutomations &&
-        item.actions?.includes(DRAFT_SUGGESTED_PROMPT_NAVIGATE_AUTOMATIONS_OFFPEAK)
-      ) {
-        onOpenAutomations("idle");
-        return;
-      }
-      if (
-        onOpenAutomations &&
-        item.actions?.includes(DRAFT_SUGGESTED_PROMPT_NAVIGATE_AUTOMATIONS)
-      ) {
-        onOpenAutomations();
-        return;
-      }
+      // P5 D-P5.4：NAVIGATE:AUTOMATIONS* 动作（Client Scenes on_finish 映射）已删除，
+      // 推荐项只剩填入草稿 / Plugin 流两种结局。
       const plugin = item.plugin
         ? {
             stableId: item.plugin.stableId,
@@ -695,7 +665,6 @@ export function ConversationDraftSuggestedPromptsContainer({
       cancelOperation,
       clearOperationFeedback,
       locale,
-      onOpenAutomations,
       replacePlainPrompt,
       replaceWithResolvedPluginAndPrompt,
       resolution.rpcReady,

@@ -19,7 +19,7 @@ import {
   IProviderSettingsService,
   IUsageStatsService,
   // P3 C5 供应商 client/configs 拉取删除：IClientConfigService 注册已随服务移除。
-  IClientScenesService,
+  // P5 D-P5.4：IClientScenesService 已随 endpoint web / clientScenes 链删除。
   ISkillsService,
   ISkillSyncService,
   IMcpSyncService,
@@ -38,13 +38,9 @@ import {
   createSettingService,
   createCredentialService,
   createBroadcastService,
-  createNodeApiClient,
-  createHostApiNetworkTransport,
-  registerHostApiNetworkTransportForDispose,
   createSettingsSyncService,
   createBotsService,
   createUsageStatsService,
-  createClientScenesService,
   createConversationExportService,
   createServiceLogger,
   createSubagentsService,
@@ -78,17 +74,6 @@ export function createRemoteWorkspaceServiceCollection(params: {
   assertLegacyRemoteWorkspaceRpcContract(params.connectionServices);
   const localSettingService = createSettingService();
   const localCredentialService = createCredentialService();
-  const hostApiNetworkTransport = createHostApiNetworkTransport(async () => {
-    const settings = await localSettingService.get();
-    return {
-      httpProxy: settings.httpProxy,
-      noProxy: settings.httpProxyNoProxy,
-      caCertPath: settings.httpProxyCaCertPath,
-    };
-  });
-  const localApiClient = createNodeApiClient({
-    fetchImpl: hostApiNetworkTransport.fetch,
-  });
   const localBroadcastService = createBroadcastService(params.parentPort);
   // P3 供应商套餐/配额面删除：localOAuthCredentialRepo / localAccountProviderCredentialService
   // 只服务已删除的 vendor 用量查询链（localAccountRequestAuthService），一并移除。
@@ -98,7 +83,9 @@ export function createRemoteWorkspaceServiceCollection(params: {
   // P3 C2 供应商套餐/计费面删除：本集合的 coding-plan 订阅服务重实例化
   // （localCodingPlanSubscriptionService）已删除；手机远控不再暴露购买/灰度面。
   // P5 W4：远端 workspace 的分享服务重实例化（zcodejwttoken 读取 + share HTTP client）
-  // 已随会话分享删除；localApiClient 仍由 clientScenesService 消费，保留。
+  // 已随会话分享删除。
+  // P5 D-P5.4：localApiClient（clientScenes 的 HTTP 出口）与 hostApiNetworkTransport
+  // 的 apiClient 装配已随 endpoint web / clientScenes 链删除。
   const reportingRemoteZCodeTaskService = params.createReportingRemoteZCodeTaskService(
     params.connectionServices.zcodeTaskService,
   );
@@ -263,7 +250,7 @@ export function createRemoteWorkspaceServiceCollection(params: {
       }),
     )
     // P3 C5 供应商 client/configs 拉取删除：远端 workspace 不再透传 ClientConfig 服务。
-    .register(IClientScenesService, createClientScenesService({ apiClient: localApiClient }))
+    // P5 D-P5.4：IClientScenesService 注册已随 endpoint web / clientScenes 链删除。
     // 远端 workspace 的项目级 skills/plugins/commands 位于 SSH/Docker 文件系统。
     // 这里必须透出远端服务，避免本机服务拿远端 workspacePath 去本机目录扫描。
     .register(ISkillsService, params.connectionServices.skillsService)
@@ -282,7 +269,8 @@ export function createRemoteWorkspaceServiceCollection(params: {
       createSettingsSyncService({ settingService: localSettingService }),
     )
     .register(IPromptAttachmentTransferService, params.promptAttachmentTransferService);
-  registerHostApiNetworkTransportForDispose(services, hostApiNetworkTransport);
+  // P5 D-P5.4：registerHostApiNetworkTransportForDispose（clientScenes 出口的网络 transport
+  // 回收）已随 localApiClient 删除；本集合不再发起 endpoint web 请求。
   registerRemoteProviderProvisioningExecutor(services, remoteProviderProvisioningService);
   return services;
 }

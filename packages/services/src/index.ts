@@ -217,15 +217,9 @@ export type { IStorageService } from "./storage/contract.js";
 
 // P3 C2 供应商套餐/计费面删除：ICodingPlanSubscriptionService（购买/企业订单/灰度快照
 // 服务描述符）与 OffPeakClientConfig 已随 coding-plan-subscription 目录整体删除。
-export {
-  IClientScenesService,
-  type ClientSceneConfig,
-  type ClientSceneItem,
-  type ClientSceneOption,
-  type ClientSceneResponseBody,
-  type ClientScenesResponse,
-} from "./client-scenes/clientScenes.js";
-export { isValidCronExpr } from "./session/automationCronValidation.js";
+// P5 D-P5.4：IClientScenesService 及 ClientScene* 类型已随 endpoint web / clientScenes 链删除。
+// isValidCronExpr 的 barrel 导出已删除（唯一外部消费方 useAutomationTemplates 随模板链路移除；
+// services 内部 automationService 仍经模块路径使用）。
 // 闲时任务管理服务（与 automation 服务面独立）；接口/描述符 browser-safe。
 export { IOffPeakTaskService } from "./session/offPeakTask.js";
 export type { OffPeakUpdateTaskParams } from "./session/offPeakTask.js";

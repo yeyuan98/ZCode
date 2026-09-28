@@ -21,7 +21,7 @@ import type {
 } from "./model-provider/providerFacadeServices.js";
 import type { IUsageStatsService } from "./usage-stats/usageStats.js";
 // P3 C5 供应商 client/configs 拉取删除：IClientConfigService 已随配置面移除。
-import type { IClientScenesService } from "./client-scenes/clientScenes.js";
+// P5 D-P5.4：IClientScenesService 已随 endpoint web / clientScenes 链删除。
 import type { ISkillsService } from "./skills/skills.js";
 import type { ISkillSyncService } from "./skill-sync/skillSync.js";
 import type { IMcpSyncService } from "./mcp-sync/mcpSync.js";
@@ -67,7 +67,7 @@ export interface IServiceAccessor {
   readonly modelSelectionService: IModelSelectionService;
   readonly usageStatsService: IUsageStatsService;
   // P3 C5：clientConfigService（供应商 client/configs 快照）已删除，不再暴露。
-  readonly clientScenesService: IClientScenesService;
+  // P5 D-P5.4：clientScenesService（client scenes 场景配置）已随 endpoint web 删除。
   /** 闲时任务管理（独立服务面）。 */
   readonly offPeakTaskService: IOffPeakTaskService;
   readonly skillsService: ISkillsService;

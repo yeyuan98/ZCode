@@ -5005,7 +5005,6 @@ const enUS: Record<string, string> = {
   "offPeak.window.end": "Window end",
   // P3 复核：sectionTitle/keepAwakeHint 消费方已随 S1 重写移除，键删除；thought.*/tabs.* 为动态键仍有消费方，保留。
   "offPeak.createButton": "Create idle-time task",
-  "offPeak.templates.sectionTitle": "Idle-time task template",
   "offPeak.list.empty":
     "No idle-time tasks yet. Create one and it runs automatically inside the off-peak window.",
   "offPeak.action.pauseHint":
@@ -5081,8 +5080,6 @@ const enUS: Record<string, string> = {
   "offPeak.create.noModel":
     "Configure at least one model provider in Settings before creating idle-time tasks.",
   "offPeak.create.remoteUnavailable": "Idle-time tasks are unavailable for remote workspaces.",
-  "automations.moreIdeas": "Scheduled task template",
-  "automations.templates.unavailable": "No templates available",
   "automations.runNow": "Run now",
   "automations.runNowQueued": "Triggered — starting soon",
   "automations.runNowAlreadyRunning": "A run is already in progress",

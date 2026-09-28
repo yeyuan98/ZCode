@@ -106,8 +106,7 @@ export const ServiceChannels = {
   // P3 C5 供应商 client/configs 配置拉取删除：ClientConfig 服务频道
   // （/api/v1/client/configs 快照 RPC 面，最后一个消费方是插件商店排序）已随服务删除，
   // 排序回退打包默认顺序。
-  /** ZCode 客户端场景配置服务 */
-  ClientScenes: "client-scenes",
+  // P5 D-P5.4：ClientScenes 服务频道（/api/v1/client/scenes 场景配置）已随 endpoint web 删除。
   /** Skills 管理服务 */
   Skills: "skills",
   /** SSH 远程 skills 同步服务 */

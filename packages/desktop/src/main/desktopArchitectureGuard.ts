@@ -1,5 +1,5 @@
 import type { BrowserWindow, NativeImage } from "electron";
-import { DEFAULT_ZCODE_ENDPOINT_ORIGIN, buildZCodeEndpointUrls, type Locale } from "@zcode/shared";
+import type { Locale } from "@zcode/shared";
 
 interface ArchitectureMismatch {
   /** 当前运行的二进制架构，例如 x64。 */
@@ -44,14 +44,9 @@ function detectArchitectureMismatch(
   return { binaryArch, nativeArch: "arm64" };
 }
 
-function resolveArchitectureDownloadUrl(
-  locale: Locale,
-  endpointOrigin = DEFAULT_ZCODE_ENDPOINT_ORIGIN,
-): string {
-  // 与 changelog 等外链保持一致，按应用语言分流到官网下载页。
-  const origin = buildZCodeEndpointUrls(endpointOrigin).origin;
-  return locale === "zh-CN" ? `${origin}/cn` : `${origin}/en`;
-}
+// P5 D-P5.4：下载入口原为厂商 endpoint web 的 /cn|/en 官网下载页（按语言分流），
+// 已改为本仓库 GitHub Releases 页（语言无关）。
+const ARCHITECTURE_DOWNLOAD_URL = "https://github.com/yeyuan98/ZCode/releases";
 
 interface ArchitectureMismatchDialogText {
   title: string;
@@ -137,8 +132,7 @@ export async function maybeWarnArchitectureMismatch(options: {
       : await dialog.showMessageBox(dialogOptions);
 
   if (response === 0) {
-    const url = resolveArchitectureDownloadUrl(options.locale);
-    options.logger.info(`[architecture] 用户选择前往下载：${url}`);
-    await shell.openExternal(url);
+    options.logger.info(`[architecture] 用户选择前往下载：${ARCHITECTURE_DOWNLOAD_URL}`);
+    await shell.openExternal(ARCHITECTURE_DOWNLOAD_URL);
   }
 }

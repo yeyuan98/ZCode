@@ -11,7 +11,8 @@ function isLucideIconName(name: string): name is IconName {
   return Object.prototype.hasOwnProperty.call(dynamicIconImports, name);
 }
 
-/** 按 Client Scenes 下发的 Lucide canonical 名称加载图标，未知名称保留调用方语义回退。 */
+/** 按 Lucide canonical 名称动态加载图标，未知名称保留调用方语义回退。
+ *  （名称历史上来自 Client Scenes 下发；P5 D-P5.4 后暂无生产方，保留通用加载器。） */
 export function ClientSceneLucideIcon({
   fallback,
   name,

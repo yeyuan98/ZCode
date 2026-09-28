@@ -1,11 +1,5 @@
-export interface ApiRequestInit extends RequestInit {
-  timeoutMs?: number;
-}
-
-export interface ApiClient {
-  request(input: string | URL, init?: ApiRequestInit): Promise<Response>;
-}
-
+// P5 D-P5.4：ApiClient / ApiRequestInit（endpoint web HTTP client 契约）已随
+// nodeApiClient / clientScenes 链删除；ApiError 仍被 claude-native 会话解析使用，保留。
 export interface ApiErrorOptions {
   message: string;
   url: string;

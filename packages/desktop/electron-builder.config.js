@@ -457,10 +457,11 @@ export default {
   extraMetadata: {
     version: buildMetadata.appVersion,
     zcodeProductFlavor: desktopProductIdentity.flavor,
-    homepage: "https://zcode.z.ai",
+    // P5：homepage/author 统一指向本仓库（GitHub），邮箱使用 noreply 地址（D-P5.6）。
+    homepage: "https://github.com/yeyuan98/ZCode",
     author: {
       name: "ZCode",
-      email: "dev@zcode.z.ai",
+      email: "yeyuan98@users.noreply.github.com",
     },
   },
   // macOS 签名阶段会对 Electron Framework 下每个语言包逐个 codesign。
@@ -701,7 +702,8 @@ export default {
     // 与 /usr/share/icons/hicolor/*/apps/zcode.png 保持一致。
     executableName: desktopProductIdentity.linuxExecutableName,
     category: "Development",
-    maintainer: "ZCode <dev@zcode.z.ai>",
+    // P5：maintainer 同步改为仓库 noreply 身份（deb/fpm 元数据仍需该字段，仅换值）。
+    maintainer: "ZCode <yeyuan98@users.noreply.github.com>",
   },
   deb: {
     // 生产版与 Preview 必须是两个 dpkg package；只改可执行名仍会让安装器把另一版本当成升级替换。
