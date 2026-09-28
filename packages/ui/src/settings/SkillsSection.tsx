@@ -454,7 +454,7 @@ export function SkillsSection({
   );
 
   const scopedProviderSkills = useMemo(() => {
-    const allProviderSkills = filterSkillsForProvider(skills, ZCODE_AGENT_PROVIDER);
+    const allProviderSkills = filterSkillsForProvider(skills);
     const pluginStoreMatchesTarget =
       (pluginWorkspaceIdentity?.trim() || pluginWorkspacePath || "") ===
         (activeWorkspaceIdentity?.trim() || activeWorkspacePath || "") &&
@@ -511,7 +511,7 @@ export function SkillsSection({
       return;
     }
     const effectiveProvider: ZCodeProvider = ZCODE_AGENT_PROVIDER;
-    const skillCreator = filterSkillsForProvider(skills, effectiveProvider).find(
+    const skillCreator = filterSkillsForProvider(skills).find(
       (skill) => skill.name === "skill-creator",
     );
     const markdown = buildSkillMentionMarkdown("skill-creator", skillCreator?.path);

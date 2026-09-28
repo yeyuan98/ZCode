@@ -195,8 +195,6 @@ export const resolveBuildAliases = ({
     rootDirectory,
     "../../packages/shared/src/workspace-hook-trust-store-file.ts",
   ),
-  // P5 D-P5.4："@zcode/shared/zcodeEndpoint" 模块映射已随 zcodeEndpoint.ts 删除
-  // （resolveRuntimeZCodeEnv 迁回 env.ts，经 "@zcode/shared" 主入口解析）。
   "@zcode/shared/node": resolve(rootDirectory, "../../packages/shared/src/node.ts"),
   "@zcode/shared": resolve(rootDirectory, "../../packages/shared/src/index.ts"),
   "@zcode/core": resolve(cliDirectory, "../core/dist/index.js"),

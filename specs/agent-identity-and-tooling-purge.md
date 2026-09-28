@@ -74,8 +74,8 @@ domain travel in one commit):
    `third-party/inventory.json` coverage); literal sites in services/desktop (task adapter
    alias renamed to neutral, skills, host, bots schema/labels, task-model recovery); comment
    rot cleanup where touched. **Keep:** GLM model-id capability rules in the catalog (A5),
-   zai/bigmodel provider display names/baseUrls/logos/key-management links, the pre-existing
-   both-strings legacy decode in `provider-selection-v2.ts`.
+   zai/bigmodel provider display names/baseUrls/logos/key-management links（both-strings
+   legacy decode 的保留裁决已被 P6 撤销，见文末 A-P6）。
 4. **Theme rename + fetch identity + comment neutralization (E).** `zai-dark`/`zai-light` →
    `zcode-dark`/`zcode-light` (ids, CSS classes, persistence default, i18n keys, web seed +
    share route, desktop renderer/resource-manager; no old-value fallback); WebFetch
@@ -149,6 +149,14 @@ domain travel in one commit):
   write back the default once; useTheme fallback persists); model-execution regained an
   instance-level proxy/CA fetch memo after the gateway transport cache deletion (CA file was
   being re-read per model binding); two stale "Zai dark" comments neutralized.
+- **A-P6 (P6 修订，2026-09-28，用户指令"遗留结构一律删除"):** 撤销上文 Keep 裁决中的
+  "pre-existing both-strings legacy decode in `provider-selection-v2.ts`"。`["glm","zcode"]`
+  数组仅删除 `"glm"` 字符串；`"zcode"` 与该分支的 `return undefined` 语义保留（执行后端
+  provider 不是供应商身份）。记录的破坏：含 `provider=glm` 且 bare model 的行将持久化
+  dead `providerId:"glm"` 选择而非 NULL —— 按 Ruling 1 硬切断裁决接受（能产生旧行的
+  one-shot 迁移已在早期 alpha 全量执行，现网数据不可能携带该值；checksum 输入为静态
+  字符串数组，改动不影响已迁移 DB）。新增 decode 单测钉死该结果（此前零覆盖）。同文件
+  相邻的 legacy importers（解析外部会话格式，非厂商兼容）**保留**。
 
 ## Test matrix
 

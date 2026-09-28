@@ -288,14 +288,17 @@ Delivered on `agent/coder/vendor-purge-p5` (merge `ca30f8c`, release `37c9c62`, 
 
 **Tests/QA:** unit — URL builders produce flat GitHub asset URLs; updater parses `latest.yml`; feed override honored in packaged builds. Integration — `ZCODE_AUTO_UPDATE_DEV` loop against fixture feed. `pnpm smoke:windows-bundle`. Manual — install A9 over A8 manually (updater disabled on A1–A8 by design); verify in-app update machinery against the dev fixture feed; remote SSH workspace downloads assets from GitHub Releases; overrides work. Real in-app alpha→alpha update is verified at A10 (A9→A10).
 
-### P6 — Cleanup, sweep gate, RC → **alpha.10** (RC), then **final 3.14.3**
+### P6 — Cleanup, sweep gate, RC → **alpha.10** (RC) — final 3.14.3 moved to a separate session
+
+**P6 user directives (2026-09-28, binding; spec of record `specs/vendor-free-gate-and-ci.md`):**
+(1) gate matches ONLY the five fool-proof patterns `zcode\.z\.ai|cdn-zcode|chat\.z\.ai|zhipu-account|com\.zhipu` — `glm` deliberately NOT matched (legit model family + provider icon literal; allowlist collapses to 3 negative-assertion tests); (2) "just in case" legacy structures are DELETED outright (alpha cleanliness ruling; `desktopDeviceMid.ts` gets a stale-comment fix only, deletion assessed separately); (3) docs carry NO search/SearXNG guidance — root READMEs are succinct quickstarts pointing to a new `docs/` folder whose module docs start simple and end with API references; (4) the final non-prerelease 3.14.3 is OUT of P6 scope (separate session inherits the alpha.10→3.14.3 in-app update proof and the §5 final step).
 
 **Changes:**
 
-1. `scripts/check-vendor-free.mjs` — zero-hit gate for `zcode\.z\.ai|cdn-zcode|chat\.z\.ai|zhipu-account|com\.zhipu|glm` (**case-insensitive** so `GlmMonochromeIcon`-style prefixes can't slip through); allowlist: `z.ai`/`bigmodel` only as provider display names, baseUrls, logo keys, key-management URLs, plus model-id patterns + capability properties within catalog `modelConfigRules.modelRules` (A5). Wired into `verify:pre-push` **and a new PR CI workflow** (none exists today — net-new deliverable; lint + architecture check + tests + vendor-free gate).
-2. Third-party notices regen incl. `third-party/inventory.json` (ARMS removal).
-3. Docs: `.env.example` (drop `ZAI_*` platform vars; keep plain provider keys), AGENTS.md, CONTEXT.md, README/README.en.md (Ollama/vLLM setup, MCP search guidance, mirror guidance).
-4. Full dogfood pass of the RC; final release (see §5).
+1. `scripts/check-vendor-free.mjs` — zero-hit gate for the five patterns above (case-insensitive); exclusions: CHANGELOG.md + VENDOR-PURGE-PLAN.md + specs/ (audit docs) + binary-by-extension skip; allowlist: 3 negative-assertion test files with per-entry reasons. Wired into `verify:pre-push` **and a new PR CI workflow** (none exists today — net-new deliverable; lint + architecture check + tests + vendor-free gate).
+2. Third-party notices regen incl. `third-party/inventory.json` (verify + full resync; ARMS/swr entries already absent).
+3. Docs: `.env.example` final trim (+ add missing live `ZCODE_UPDATE_FEED_URL`), AGENTS.md/CONTEXT.md verify, README/README.en.md rewritten as succinct quickstarts + new `docs/{providers,updates,plugins}.md` (Ollama template; vLLM as OpenAI-compatible custom provider; mirror env vars; NO search guidance).
+4. Full dogfood pass of the RC; release alpha.10 per §5 (first real in-app update proof alpha.9→alpha.10).
 
 **Why / consequence / UX / alternative:**
 
