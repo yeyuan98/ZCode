@@ -89,8 +89,6 @@ export const ServiceChannels = {
   ZCodeAgent: "zcode-agent",
   /** ZCode session 应用服务 */
   ZCodeSession: "zcode-session",
-  /** 会话分享发布、预览与 continuation API 编排 */
-  ConversationShare: "conversation-share",
   /** 文件系统监视服务 */
   FileWatcher: "file-watcher",
   /** 新 Provider Config 的设置读写 Facade */
@@ -291,8 +289,7 @@ export const PlatformChannels = {
   NotifyCuaHelperPermissionDragEnded: "zcode:notify-cua-helper-permission-drag-ended",
   // P3 C2 供应商套餐/计费面删除：PaymentCallback（zcode://payment 购买回调）已随
   // 官网购买 webview 链路移除。
-  /** Main → Renderer：外部分享页请求导入 share code。 */
-  ShareImport: "zcode:share-import",
+  // P5 W4：ShareImport（zcode://share/import 深链导入）已随会话分享删除。
   /** Renderer → Main：renderer 已就绪，可接收缓存的 deep link */
   RendererReady: "zcode:renderer-ready",
   /** Renderer → Main：读取 Renderer 用户操作 Trace 灰度配置。 */
@@ -821,10 +818,6 @@ export interface PlatformChannelMap {
   };
   [PlatformChannels.CancelCuaPermissionOnboarding]: {
     request: { operationId: string };
-    response: void;
-  };
-  [PlatformChannels.ShareImport]: {
-    request: { shareCode: string };
     response: void;
   };
   [PlatformChannels.RendererReady]: {

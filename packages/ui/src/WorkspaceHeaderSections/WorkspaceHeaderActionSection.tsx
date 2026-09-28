@@ -4,15 +4,14 @@ import { WorkspaceTerminalToggleButton } from "@/WorkspaceTerminalToggleButton.j
 import { cn } from "@/components/lib/utils.js";
 import type { WorkspaceHeaderActionSectionProps } from "@/WorkspaceHeaderSections/shared.js";
 import { WorkspaceHelpMenuButton } from "@/WorkspaceHelpMenuButton.js";
-import { ConversationShareMenu } from "@/ConversationShareMenu.js";
 import { DesktopWindowControls } from "@/DesktopWindowControls.js";
 
 export type { WorkspaceHeaderActionSectionProps } from "@/WorkspaceHeaderSections/shared.js";
 
 export function WorkspaceHeaderActionSection({
   variant = "task",
-  activeTaskId,
-  user,
+  // P5 W4：activeTaskId / user 原仅供 ConversationShareMenu 使用；W4b 的导出入口
+  // 会重新消费，先保留在 props 契约里、不再解构。
   readOnlyReason,
   workspaceAbsPath,
   workspaceIdentity,
@@ -47,13 +46,7 @@ export function WorkspaceHeaderActionSection({
           onSelectedEditorChange={onSelectedEditorChange}
         />
       ) : null}
-      {/* 分享发布接口依赖登录态；未登录时隐藏入口，避免用户打开后只能得到鉴权失败。 */}
-      {activeTaskId && user && isDesktop !== false ? (
-        <ConversationShareMenu
-          taskId={activeTaskId}
-          useWindowsCaptionSpacing={useWindowsCaptionSpacing}
-        />
-      ) : null}
+      {/* P5 W4：会话分享菜单（ConversationShareMenu）已删除；本地导出入口由 W4b 接入。 */}
       {!simplifyForNarrowRemote ? (
         <>
           {!hideHelpMenu ? <WorkspaceHelpMenuButton isDesktop={Boolean(isDesktop)} /> : null}

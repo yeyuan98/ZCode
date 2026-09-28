@@ -12,7 +12,6 @@ import {
   IZCodeTaskService,
   IZCodeAgentService,
   IZCodeSessionService,
-  IConversationShareService,
   IBotsService,
   IFileWatcherService,
   IModelSelectionService,
@@ -35,8 +34,6 @@ import {
   type IServiceAccessor,
 } from "@zcode/services";
 import {
-  ConversationShareHttpClient,
-  ConversationShareService,
   createSettingService,
   createCredentialService,
   createBroadcastService,
@@ -50,10 +47,8 @@ import {
   createServiceLogger,
   createSubagentsService,
   createMemoryService,
-  createRemoteConversationShareArtifactSource,
 } from "@zcode/services/node";
 import {
-  buildRuntimeZCodeApiUrl,
   DEFAULT_ZCODE_MODEL_CONTEXT_BUDGET_STRATEGY,
   type ZCodeSessionRuntimePreferencesResult,
 } from "@zcode/shared";
@@ -64,7 +59,6 @@ import {
 } from "./remoteProviderProvisioningService.js";
 
 const runtimePreferencesLogger = createServiceLogger("remote-runtime-preferences");
-const ZCODE_JWT_TOKEN_KEY = "zcodejwttoken";
 
 export function createRemoteWorkspaceServiceCollection(params: {
   // P3 C5：clientConfigService 参数（供应商 client/configs 快照透传）已删除。
@@ -98,23 +92,11 @@ export function createRemoteWorkspaceServiceCollection(params: {
   // 只服务已删除的 vendor 用量查询链（localAccountRequestAuthService），一并移除。
   // P3 C1 供应商 OAuth 删除：本集合的 OAuth 服务重实例化（createOAuthService）与
   // OAuth 登出清理（createOAuthProviderLogoutHandler + accountProviderCredentialStore）
-  // 已随登录会话机制删除；凭据 store 仅保留分享 zcodejwttoken 纯字符串读取。
+  // 已随登录会话机制删除。
   // P3 C2 供应商套餐/计费面删除：本集合的 coding-plan 订阅服务重实例化
   // （localCodingPlanSubscriptionService）已删除；手机远控不再暴露购买/灰度面。
-  const conversationShareClient = new ConversationShareHttpClient({
-    // 远端 workspace 的分享也必须使用真实 API；本地 Mock 仅用于单测，不生成无法跨进程访问的链接。
-    apiClient: localApiClient,
-    baseUrl: buildRuntimeZCodeApiUrl(process.env, "/api/v1"),
-    tokenProvider: async () =>
-      (await localCredentialService.load(ZCODE_JWT_TOKEN_KEY))?.trim() || null,
-  });
-  const conversationShareService = new ConversationShareService({
-    zcodeAgentService: params.connectionServices.zcodeAgentService,
-    client: conversationShareClient,
-    artifactSource: createRemoteConversationShareArtifactSource(
-      params.connectionServices.fileService,
-    ),
-  });
+  // P5 W4：远端 workspace 的分享服务重实例化（zcodejwttoken 读取 + share HTTP client）
+  // 已随会话分享删除；localApiClient 仍由 clientScenesService 消费，保留。
   const reportingRemoteZCodeTaskService = params.createReportingRemoteZCodeTaskService(
     params.connectionServices.zcodeTaskService,
   );
@@ -245,7 +227,6 @@ export function createRemoteWorkspaceServiceCollection(params: {
     .register(IZCodeTaskService, remoteZCodeTaskService)
     .register(IZCodeAgentService, params.connectionServices.zcodeAgentService)
     .register(IZCodeSessionService, remoteZCodeSessionService)
-    .register(IConversationShareService, conversationShareService)
     .register(
       IBotsService,
       createBotsService({

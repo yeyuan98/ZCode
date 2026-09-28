@@ -15,18 +15,6 @@ import { ServerTokenLoginPage } from "./login/ServerTokenLoginPage.js";
 import { probeWebServerTokenGate } from "./login/serverTokenLogin.js";
 import { resolveWebCommunityUrl, resolveWebHelpConfig } from "./communityUrl.js";
 import {
-  ConversationShareLandingLoader,
-  ConversationShareLandingStatus,
-} from "./share/ConversationShareLandingPage.js";
-import {
-  ConversationSharePreviewClient,
-  resolveConversationShareRouteLocale,
-} from "./share/conversationSharePreviewClient.js";
-import {
-  isConversationSharePath,
-  resolveConversationShareCodeFromPath,
-} from "./share/conversationShareRoute.js";
-import {
   buildGitHubIssueUrl,
   DEFAULT_GITHUB_ISSUES_URL,
   type IPlatformService,
@@ -43,10 +31,7 @@ function resolveWebThemePreference(defaultTheme: Theme = WEB_DEFAULT_THEME): The
 // 初始化主题：默认 zcode-dark，后续由 useTheme hook 接管
 // system 模式下需要查询系统偏好；非 system 模式直接用存储值
 {
-  // 分享页没有本地主题配置时使用浅色，已有配置仍然沿用；其他 Web 页面继续默认深色。
-  const saved = resolveWebThemePreference(
-    isConversationSharePath(window.location.pathname) ? "zcode-light" : undefined,
-  );
+  const saved = resolveWebThemePreference();
   const resolved =
     saved === "system"
       ? window.matchMedia("(prefers-color-scheme: dark)").matches
@@ -87,66 +72,6 @@ interface WebBootstrapResult {
   initialTaskId?: string;
   restoreSession?: boolean;
   allowOpenWorkspace?: boolean;
-}
-
-async function renderConversationSharePage(): Promise<void> {
-  // 页面语言跟随路径前缀：/cn/share 中文，裸 /share 英文。
-  const routeLocale = resolveConversationShareRouteLocale(window.location.pathname);
-  // index.html 固定 lang="en"；不同步会让中文分享页对无障碍与浏览器翻译都报错语言。
-  document.documentElement.lang = routeLocale;
-  // 分享页必须设置 title：否则浏览器标签只显示 index.html 的通用标题。
-  // 会话标题要等 preview 加载完，先给一个语言正确的兜底。
-  document.title = routeLocale === "zh-CN" ? "ZCode 会话分享" : "ZCode Conversation Share";
-  const shareCode = resolveConversationShareCodeFromPath(window.location.pathname);
-  if (!shareCode) {
-    root.render(
-      <ConversationShareLandingStatus
-        state={{ kind: "error", error: "invalid_contract" }}
-        locale={routeLocale}
-      />,
-    );
-    return;
-  }
-
-  const endpointOrigin =
-    import.meta.env.VITE_ZCODE_BASE_URL?.trim().replace(/\/+$/u, "") || window.location.origin;
-  const mockMode =
-    import.meta.env.DEV && import.meta.env.VITE_CONVERSATION_SHARE_PREVIEW_MOCK === "true";
-  // Share 加载失败不能只有通用 network 文案：需要区分 mock、endpoint 配置或跨域 fetch。
-  // 这里只记录运行时路由与 endpoint，不记录完整 pathname，避免把 share code 写入日志。
-  console.info("[conversation-share-web]", "preview_runtime_initialized", {
-    browserOrigin: window.location.origin,
-    routeKind: "canonical",
-    endpointOrigin,
-    transport: mockMode ? "mock" : "fetch",
-  });
-  const client = mockMode
-    ? new (
-        await import("./share/mockConversationSharePreviewClient.js")
-      ).MockConversationSharePreviewClient()
-    : new ConversationSharePreviewClient({ baseUrl: `${endpointOrigin}/api/v1` });
-  const getMockToken = () =>
-    mockMode && window.sessionStorage.getItem("zcode:share:mock-auth") === "owner"
-      ? "mock-owner-token"
-      : null;
-  // P3 供应商 OAuth 删除：分享页 owner 登录（startLogin/getZCodeJwtToken/logout）已移除，
-  // 真实链路只剩匿名公开分享访问；mock 模式保留本地 owner 态用于开发调试。
-  const onLogout = () => {
-    if (mockMode) {
-      window.sessionStorage.removeItem("zcode:share:mock-auth");
-      window.location.reload();
-    }
-  };
-  root.render(
-    <ConversationShareLandingLoader
-      shareCode={shareCode}
-      client={client}
-      getAccessToken={() => getMockToken()}
-      onLogout={onLogout}
-      locale={routeLocale}
-      theme={resolveWebThemePreference("zcode-light")}
-    />,
-  );
 }
 
 function createWebPlatform(): IPlatformService {
@@ -227,7 +152,7 @@ function createWebPlatform(): IPlatformService {
     openExternalFile: () => Promise.resolve({ success: false, error: "Not supported in web mode" }),
     // P3 C2 供应商套餐/计费面删除：onPaymentCallback（zcode://payment 购买回调）
     // 已随官网购买 webview 链路移除。
-    onShareImport: () => () => {},
+    // P5 W4：onShareImport（zcode://share/import 导入意图）已随会话分享删除。
     notifyRendererReady: () => {},
     showTaskNotification: (payload) => {
       if (document.hasFocus()) {
@@ -402,13 +327,9 @@ function renderServerTokenLoginPage(): void {
 
 async function bootstrapWebApp() {
   // P3 供应商 OAuth 删除：`/share/callback` OAuth 回调页与 auth/ 目录一并移除，
-  // 旧回调路径按普通路由处理（分享页路由仅匹配 /cn/share 与 /share 本身）。
+  // 旧回调路径按普通路由处理。
+  // P5 W4：会话分享落地页（/share、/cn/share）已删除，旧分享链接按普通路由处理。
   const params = new URLSearchParams(window.location.search);
-
-  if (isConversationSharePath(window.location.pathname)) {
-    await renderConversationSharePage();
-    return;
-  }
 
   // 自托管登录门禁：仅凭 /api/server-info 的 fetch 状态码判断登录态
   // （WebSocket 报错无状态码，用于跳转会形成回环）。401 → 登录页；

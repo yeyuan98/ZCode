@@ -539,12 +539,9 @@ function RootInner({
     isDesktop,
     locale,
     tabs,
-    activeWorkspacePath,
-    activeWorkspaceIdentity,
     totalUnreadTaskCount,
     hasCompletedFullTabRestore: hasCompletedFullRestore,
     intl,
-    startupStatePending: providerStartupSyncPending,
   });
 
   useEffect(() => {

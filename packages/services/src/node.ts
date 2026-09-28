@@ -185,10 +185,6 @@ export { createSettingsSyncService } from "./settings-sync/settingsSyncService.j
 // P2：feedback 工单服务与诊断归档（createFeedbackService / createFeedbackDiagnosticArchive）
 // 随内置反馈中心一起删除；反馈入口改为外部 GitHub Issues，桌面“导出日志”保留独立链路。
 export { createLocalPromptAttachmentTransferService } from "./prompt-attachment-transfer/promptAttachmentTransferService.js";
-export {
-  createLocalConversationShareArtifactSource,
-  createRemoteConversationShareArtifactSource,
-} from "./conversation-share/conversationShareArtifactSource.js";
 export { createNodeApiClient, NodeApiClient } from "./providers/api/nodeApiClient.js";
 export {
   createHostApiNetworkTransport,
@@ -247,17 +243,6 @@ import { IZCodeTaskService } from "./session/zcodeTaskService.js";
 import { IZCodeAgentService } from "./zcode-agent/zcodeAgent.js";
 import type { CuaOperationStateReporter } from "./zcode-agent/cuaOperationTurnTracker.js";
 import { IZCodeSessionService } from "./zcode-session/zcodeSession.js";
-import {
-  createUnsupportedConversationShareService,
-  IConversationShareService,
-  type IConversationShareService as IConversationShareServiceType,
-} from "./conversation-share/conversationShare.js";
-import {
-  ConversationShareService,
-  conversationShareConnectionScopeFactory,
-} from "./conversation-share/conversationShareService.js";
-import { createLocalConversationShareArtifactSource } from "./conversation-share/conversationShareArtifactSource.js";
-import { ConversationShareHttpClient } from "./conversation-share/conversationShareHttpClient.js";
 import { IBotsService } from "./bots/bots.js";
 import { IFileWatcherService } from "./fileWatcher/fileWatcher.js";
 import { IUsageStatsService } from "./usage-stats/usageStats.js";
@@ -420,17 +405,9 @@ import {
   type ZCodeAutomationRun,
   getCapturedZCodeAgentTelemetryEnv,
   ZCODE_DESKTOP_CONTEXT_PROMPT_ENABLED_ENV,
-  // P3 C5：ZCODE_VERSION 仅剩的 client/configs 请求上下文用途已随配置拉取删除。
-  buildRuntimeZCodeApiUrl,
+  // P5 W4：buildRuntimeZCodeApiUrl 的分享 client 用途已删除；clientScenes 走 apiEndpoints
+  // 自己的导入。P3 C5：ZCODE_VERSION 仅剩的 client/configs 请求上下文用途已随配置拉取删除。
 } from "@zcode/shared";
-
-// 这些 conversation-share 实现依赖 Node 文件系统；仅通过 @zcode/services/node 暴露，
-// 防止 browser-safe 根入口把 node:* 依赖带进 renderer。
-export {
-  ConversationShareService,
-  ConversationShareHttpClient,
-  conversationShareConnectionScopeFactory,
-};
 
 interface ServiceWithDisposeAll {
   disposeAll: () => void;
@@ -2038,35 +2015,8 @@ export function createLocalServices(options: {
     authorizeLocalMediaPreviewPath: options?.authorizeLocalMediaPreviewPath,
     createLocalMediaPreviewUrl: buildLocalMediaPreviewUrl,
   });
-  const conversationShareClient = new ConversationShareHttpClient({
-    // 分享运行时始终走真实 API；测试/Mock 场景应在 service 单测或 Web fixture 中显式注入，
-    // 不能让开发环境默认生成仅存在于进程内存的 mock-share 链接。
-    apiClient,
-    baseUrl: buildRuntimeZCodeApiUrl(process.env, "/api/v1"),
-    // P3 C1 供应商 OAuth 删除：分享链路保留 zcodejwttoken 的纯字符串凭据读取
-    // （不复活 OAuth 仓储/解密恢复语义）；P5 移除分享功能时一并删除。
-    tokenProvider: async (): Promise<string | null> => {
-      const activeProvider = await credentialService.load("oauth:active_provider");
-      if (!activeProvider) {
-        return null;
-      }
-      const zcodeJwtToken = await credentialService.load("zcodejwttoken");
-      if (zcodeJwtToken) {
-        return zcodeJwtToken;
-      }
-      return credentialService.load(`oauth:${activeProvider}:access_token`);
-    },
-  });
-  const conversationShareService: IConversationShareServiceType = isDesktopAttachedRemote
-    ? createUnsupportedConversationShareService({
-        message: "Conversation publishing is not available for remote workspaces",
-      })
-    : new ConversationShareService({
-        zcodeAgentService,
-        zcodeSessionService,
-        client: conversationShareClient,
-        artifactSource: createLocalConversationShareArtifactSource(),
-      });
+  // P5 W4：会话分享（发布/导入/能力面）已删除，zcodejwttoken 的最后读取链路
+  // （oauth:* 回退 + 分享 HTTP client）随之移除；本地 Markdown 导出见 conversation-export。
   // 注册链上的懒工厂（如 OffPeak）会各自创建 tasks-index sqlite repo；先收集到本数组，
   // services 集合建好后在 return 前统一登记进 sharedSqliteRepos 侧表
   const sqliteReposToClose: Array<{ close(): void }> = [];
@@ -2086,7 +2036,6 @@ export function createLocalServices(options: {
     .register(IZCodeSessionService, zcodeSessionService)
     .register(ICuaPermissionService, cuaPermissionService)
     .register(ICuaPipSessionService, cuaPipSessionService)
-    .register(IConversationShareService, conversationShareService)
     .register(
       IBotsService,
       createBotsService({
