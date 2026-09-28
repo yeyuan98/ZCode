@@ -188,3 +188,23 @@ icons).
     `networkErrorClassifier`) / client-scenes 目录整体删除；`api.ts` 仅保留 `ApiError`
     （claude-native 解析仍用）。`nodeApiNetwork`（undici transport）保留——provider 发现
     仍消费。`stdioDeviceMid` 保留（通用设备身份，P0 裁决非厂商遥测）。
+
+## P6 修订（2026-09-28，用户指令"遗留结构一律删除"）
+
+- **builtinSkillI18n 标记收缩**：`packages/ui/src/lib/builtinSkillI18n.ts` 中仅为已删除
+  插件保留的显示名/路径标记（P5 删除的 documents quartet、plugin-creator、
+  skill-creator、zcode-guide、image-search、emulators、computer-use、
+  restore-legacy-sessions，以 `official-plugin-definitions.ts` 的 P5 删除清单为准）
+  整体删除；`superpowers` 标记**保留**（上文 §8：superpowers-plugin 是在用内置技能
+  文案的 MIT 归属记录）；`browser` 条目在动手前对照随包技能清单核实去留。记录的
+  破坏：早期 alpha 缓存了已删插件技能的安装，其技能描述回退英文原文（该模块只做
+  描述本地化，不做名称本地化）。
+- **已知市场记录严格化**：撤销 §7 "legacy known_marketplaces guard" 的 inert 语义
+  （ensure-skip / update-skip 两层随之下线）。`apps/zcode-cli/packages/adapters/
+  src/plugins/marketplace.ts` 的 `isKnownMarketplaceRecord` 收紧为当前记录形状（含
+  `source` 的具体形状校验），`loadKnownMarketplacesSync` 不再接受 array 容器格式；
+  不匹配的旧格式记录（含 pre-P5 vendor CDN source 形状）**加载即丢弃**。保留
+  reserved-id 守卫（`RESERVED_PLUGIN_MARKETPLACE_IDS`）。默认市场经
+  `ensureDefaultPluginMarketplaces` 自动重播种。记录的破坏：pre-P5 格式的个人市场
+  记录从列表消失、需重新添加。shared schema（`zcodePluginMarketplaceSummarySchema`）
+  已是 strict，不动；CLI adapter 新增严格行为单测（此前零测试覆盖）。
