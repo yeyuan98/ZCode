@@ -1,0 +1,166 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# 同一 ref 连续推送时取消旧跑，节省 runner；发布链路（release-desktop）不受影响。
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  root-gates:
+    name: Root typecheck / lint / format / architecture
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24.14.0
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+        env:
+          # CI 里不需要安装 git hooks，跳过 husky 的 prepare 脚本。
+          HUSKY: "0"
+
+      # CI 用全量检查（比本地 --changed 更强）：完整边界扫描，基线外违规即失败。
+      - name: Typecheck
+        run: pnpm typecheck
+      - name: Lint
+        run: pnpm lint
+      - name: Format check
+        run: pnpm fmt:check
+      - name: Architecture check
+        run: pnpm architecture:check
+
+  vendor-free:
+    name: Vendor-free gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24.14.0
+
+      # 零依赖脚本：只需 git 跟踪文件 + node，不需要 install。
+      - name: Run vendor-free gate
+        run: node scripts/check-vendor-free.mjs
+
+  cli-gates:
+    name: CLI typecheck / lint / format / registry
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24.14.0
+          cache: pnpm
+
+      # turbo 从根 workspace 的 node_modules/.bin 解析；两个 workspace 都要安装。
+      - name: Install root dependencies
+        run: pnpm install --frozen-lockfile
+        env:
+          HUSKY: "0"
+
+      - name: Install CLI workspace dependencies
+        run: pnpm --dir apps/zcode-cli install --frozen-lockfile
+
+      - name: CLI gates
+        run: |
+          export PATH="$PWD/node_modules/.bin:$PATH"
+          pnpm --dir apps/zcode-cli typecheck
+          pnpm --dir apps/zcode-cli lint
+          pnpm --dir apps/zcode-cli format:check
+          pnpm --dir apps/zcode-cli registry:check
+
+  unit-tests:
+    name: Unit tests (packages + scripts)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24.14.0
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+        env:
+          HUSKY: "0"
+
+      - name: Package unit tests
+        run: |
+          pnpm --filter @zcode/shared test
+          pnpm --filter @zcode/ui test
+          pnpm --filter @zcode/services test
+          pnpm --filter @zcode/desktop test
+          pnpm --filter @zcode/server test
+      # scripts 测试此前无任何 runner；CI 显式执行，避免再次失管。
+      - name: Scripts tests
+        run: node --test scripts/check-vendor-free.test.mjs scripts/flat-asset-names.test.mjs
+
+  e2e:
+    name: E2E (builds web first)
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24.14.0
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+        env:
+          HUSKY: "0"
+
+      - name: Install Playwright Chromium
+        run: pnpm exec playwright install --with-deps chromium
+
+      # test:e2e 先构建 web 包再起服务（e2e/serverBootstrap 服务 packages/web/dist）。
+      - name: Run e2e suite
+        run: pnpm test:e2e
