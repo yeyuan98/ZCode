@@ -1,5 +1,66 @@
 # Changelog
 
+## [3.14.3-alpha.8](https://github.com/yeyuan98/ZCode/compare/v3.14.3-alpha.7...v3.14.3-alpha.8) (2026-09-28)
+
+### Features
+
+* **p4-b:** delete WebSearch tool + supportsNativeWebSearch + providerNative mechanism ([d63aae0](https://github.com/yeyuan98/ZCode/commit/d63aae0a16978c835d5e1f236c5c181cccc24826))
+  * delete websearch handler/contract files and all registry/barrel/subpath-export entries
+  * remove anthropic-only provider-native encoding branch + helpers + option feeders in adapters
+  * remove required per-model field supportsNativeWebSearch across shared/provider/prompt-trajectory (hard cut per spec Ruling 2; strict parse rejects old configs, no normalization)
+  * remove tool from name-keyed lists: tool-identity known names, explore tools, microcompact, permission read-only, explore profile, provider-visible order, tool alias map (now identity), scheduler, subagents defaults, UI tool options, CLI argument alias rewrite
+  * remove identity-mapped telemetry enum pair (agent-execution + model-api operation + querySource case)
+  * excise providerNative tool mechanism (contracts tool contract fields, model contract passthrough, core registry/types)
+  * remove UI metadata-editor field, i18n key + capabilities help bullet (both locales), NOTICE.md WebSearch sentence
+  * keep: webSearchRequests usage accounting, 'search' tool family, embedded-search, catalog glm-free invariant test
+  * tests: shared toolIdentity (no WebSearch + search family intact); services schema-rejection of removed field; fix providerModelDiscovery personal-path isolation (resolve after setDataBaseDir)
+
+* **p4-c:** delete coding-plan gateway, start-plan error cluster, ModelRequestAuth chain, dead vendor residue ([630a19e](https://github.com/yeyuan98/ZCode/commit/630a19ee2e801fcedb5968b97acf7c9cbb03ddcd))
+  * delete official-coding-plan-gateway.ts + model-execution transport cache/wiring + barrel export; zai/bigmodel templates now connect directly to configured base URLs (NOTICE.md gateway row removed)
+  * delete start-plan 3008/3009/3010 cluster: streaming-recovery sets/helpers, turn-model-step admission-retry branch + start_plan_admission_retry_discarded, target-completion-verification retry loop, failure-code entries (generic 429 path absorbs), UI providerBusinessError entries + i18n 3008/3009/3010 + dead 3102 + dead team-plan code/keys
+  * delete dead OffpeakQueued retry reason + all consumers (telemetry recorder, governor, product-projection, dynamic-workflow, UI throttle map + keys); old replays may render raw codes (documented degradation)
+  * delete inert ModelRequestAuth chain end-to-end: contracts types + ModelRequestAuthMissing code, core attach sites + port machinery, adapters runner-runtime chain (incl. runner-runtime-headers.ts), bootstrap port, desktop protocol schemas/methods, host fast-fail handler; session-title dead deferral gate removed (titles now generate on normal schedule)
+  * delete phase-3 residue: /login redaction regex in tui app-submit, history.ts api-key pattern, login/logout slash-command union members + argv routing, shared-credentials vendor keys/types/methods (generic MCP OAuth store kept), unreachable account-plan model-selection branch + union + mapping
+  * neutral-rename bracketed business-code parser symbols/comments (behavior kept)
+  * tests: shared zcodeProtocolP4Purge guard (protocol no longer exports runtime-headers methods/schemas)
+
+* **p4-d:** rename agent provider identity glm -> zcode end-to-end ([0263400](https://github.com/yeyuan98/ZCode/commit/0263400b88f5b03f51891f3f2cf175aaf1ac4ece))
+  * flip both provider literals in one commit (providers.ts ZCODE_PROVIDERS + zcode-task-types-core ZCodeProvider) + ZCODE_AGENT_PROVIDER const; rename task event glm_agent_model_state_update -> zcode_agent_model_state_update + ZCodeGlm* type names (desktop-internal literal)
+  * outbound identity headers: X-ZCode-Agent: zcode; HTTP-Referer vendor platform origin -> repo URL (https://github.com/yeyuan98/ZCode)
+  * env/dir rename in lockstep: GLM_BINARY_PATH -> ZCODE_AGENT_BINARY_PATH + bundled/remote dir glm/ -> zcode/ via shared descriptor; desktop env writer now derives from descriptor (single-source invariant); resolveBundledGlmBinaryPath -> resolveBundledAgentBinaryPath; deploy paths, remote package id, glm-content cache id, windows install locks, electron-builder from/to + signIgnore, prepare-prebuilds/stage-agent-bundle/prepare-agent-node-bundle/koffi scripts (old asset ids kept in nonReusableReleaseAssetIds history + new ids added)
+  * skill prefix glm: -> zcode: producer + UI filter/permission map/display-help keys + 16 mode.* i18n keys both locales (atomic flip; enablement stays path-keyed)
+  * icons: GlmMonochromeIcon -> ZcodeMonochromeIcon + icon assets renamed; orphan icon-glm.png deleted; third-party/inventory.json regenerated via licenses script
+  * literal sites: task adapter alias, skills service, host WSL release, legacy remote allowlist query (hard cut, persisted rows orphaned per Ruling 1), task-model recovery (hard cut + 中文注释), bots mode-label key; comment rot updated where touched
+  * tests: update 3 glm-asserting tests; add shared agentIdentityInvariants (provider/env/dir/event values) + ui skillReferencePrefixContract
+
+* **p4-e:** rename zai themes to zcode, neutral WebFetch UA, neutralize vendor-citing comments ([056ee0e](https://github.com/yeyuan98/ZCode/commit/056ee0ed33b3526e9c0778a0641da55f689538ab))
+  * rename theme ids zai-dark/zai-light -> zcode-dark/zcode-light across ui/web/desktop (93 replacements, 23 files: type/normalize/fallback, CSS classes, persisted default, settings config/sidebar, diff/mermaid/message/preview surfaces, palette, logo, i18n keys both locales, web seed + share route + index.html, desktop renderer/resource-manager); no old-value fallback (stored themes reset once, 中文注释 at fallback)
+  * WebFetch User-Agent URL -> https://github.com/yeyuan98/ZCode (was vendor domain)
+  * neutralize vendor-citing comments on kept behavior: compact empty-length finish guard, tool_result image-block ordering, workflow submit_result coercion, browser locator stable-pointer note
+
+
+### Bug Fixes
+
+* **p4-review:** apply [ulw] review fixes — durable theme reset, proxy/CA fetch memo, spec amendments ([1489271](https://github.com/yeyuan98/ZCode/commit/14892714a039b19adbeeeda091f0b14eb6226021))
+  * theme hard-cut made durable: pre-hydration readers (desktop renderer main, resource-manager window, web index.html bootstrap) validate stored theme and write back zcode-dark once; useTheme fallback persists — reset now happens exactly once instead of recurring first-paint flash
+  * model-execution: instance-level proxy/CA fetch memo restores single CA read (lost with gateway transport cache deletion); business-error wrapper reuses memoized network fetch
+  * neutralize two stale 'Zai dark' comments (desktop renderer main, web main)
+  * spec amendments: A-P4.1 descope CLI-infra-dependent test units (compensating guards recorded), A-P4.2 accepted degradations (HTTP-200 SSE 3008 terminal-unknown; personal-config whole-file degradation under Ruling 2; offpeak_queued raw replay), A-P4.3 review fixes
+
+
+### Documentation
+
+* **plan:** A7 matrix row — delivered test counts + pending manual-pass note ([573bd66](https://github.com/yeyuan98/ZCode/commit/573bd668cf984e483856a5d126dca85fb059ee94))
+
+* **plan:** record P3 merge/release hashes (b508f3c / 020f430 / v3.14.3-alpha.7) ([2e82768](https://github.com/yeyuan98/ZCode/commit/2e82768782f2551fe5f3b70bd8780cb720ce43d9))
+
+* **spec:** P4 design of record — agent identity rename + WebSearch/gateway purge ([6df4204](https://github.com/yeyuan98/ZCode/commit/6df4204fc9216da1534122c041a5039666b8d854))
+  * add specs/agent-identity-and-tooling-purge.md as P4 (alpha.8) spec
+  * record rulings 1-8 incl. hard-cut for old glm data/configs (no migration, no config normalization)
+  * define rename lockstep invariants (provider literal, env/dir descriptor, skill prefix, packaging scripts)
+  * protect keep-lists: webSearchRequests accounting, search tool family, catalog GLM rules, BigModel ordinary error codes
+  * test matrix incl. mandatory windows-bundle smoke (installer layout change)
+
 ## [3.14.3-alpha.7](https://github.com/yeyuan98/ZCode/compare/v3.14.3-alpha.6...v3.14.3-alpha.7) (2026-09-27)
 
 ### ⚠ BREAKING CHANGES
