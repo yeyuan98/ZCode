@@ -84,10 +84,7 @@ export {
   type PluginMarketplaceManifest,
 } from "./marketplace.js";
 
-export {
-  writeBundledOfficialMarketplacePartitionSync,
-  writeCdnOfficialMarketplacePartitionSync,
-} from "./official-marketplace.js";
+export { writeBundledOfficialMarketplacePartitionSync } from "./official-marketplace.js";
 
 export { getPluginSourceDiagnosticCode } from "./source-errors.js";
 

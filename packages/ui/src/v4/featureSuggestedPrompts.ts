@@ -2,13 +2,14 @@
 import finderIcon from "@/onboarding/assets/finder.png";
 import terminalIcon from "@/onboarding/assets/terminal.png";
 import feishuIcon from "@/onboarding/assets/feishu.png";
-import documentsIcon from "@/assets/plugin-icons/documents.png";
-import pdfIcon from "@/assets/plugin-icons/pdf.png";
-import presentationsIcon from "@/assets/plugin-icons/presentations.png";
-import spreadsheetsIcon from "@/assets/plugin-icons/spreadsheets.png";
 import type { DraftSuggestedPromptItem } from "@/v4/draftSuggestedPromptItems.js";
 
-const ASSETS = "https://cdn-zcode.z.ai/zcode/official-plugin/assets";
+// P5 去供应商化：vendor CDN 图标基址（cdn-zcode.z.ai/zcode/official-plugin/assets）删除。
+// 保留条目的图标只允许客户端打包资源（terminal/finder/feishu）；browser-use/gitlab/github
+// 等无打包图标的条目不再携带 iconUrl，chips 布局回退通用图标、list 布局留空图标位。
+// 目标插件已从官方目录消失且不在 libre 集合内的推荐（presentations/pdf/documents/
+// spreadsheets、computer-use、wind/hexin/tianyancha 金融数据源）整体删除；
+// lark-cli 可经 libre 市场安装，保留条目。
 
 type FeatureRecommendedPrompt = DraftSuggestedPromptItem & {
   mode: "office" | "coding";
@@ -32,8 +33,6 @@ export const featureSuggestedPrompts: FeatureRecommendedPrompt[] = [
   {
     id: "feature-recvvsQoVaqVGC",
     mode: "office",
-    iconUrl: `${ASSETS}/browser-use/icon.png`,
-    iconStyle: "plugin",
     label: {
       cn: "每天推送我关注方向的最新新闻并生成简报",
       en: "Send me a daily briefing on news I care about",
@@ -50,8 +49,6 @@ export const featureSuggestedPrompts: FeatureRecommendedPrompt[] = [
   {
     id: "feature-office-browser-business-reading",
     mode: "office",
-    iconUrl: `${ASSETS}/browser-use/icon.png`,
-    iconStyle: "plugin",
     label: {
       cn: "帮我挑出今天值得读的三篇商业文章",
       en: "Find three business stories worth reading today",
@@ -68,8 +65,6 @@ export const featureSuggestedPrompts: FeatureRecommendedPrompt[] = [
   {
     id: "feature-office-browser-work-reading",
     mode: "office",
-    iconUrl: `${ASSETS}/browser-use/icon.png`,
-    iconStyle: "plugin",
     label: {
       cn: "帮我找几篇能用在工作中的好文章",
       en: "Find practical articles I can use at work",
@@ -86,8 +81,6 @@ export const featureSuggestedPrompts: FeatureRecommendedPrompt[] = [
   {
     id: "feature-office-browser-economic-data",
     mode: "office",
-    iconUrl: `${ASSETS}/browser-use/icon.png`,
-    iconStyle: "plugin",
     label: {
       cn: "帮我看懂最近公布的重要经济数据",
       en: "Explain the latest economic data in plain language",
@@ -99,24 +92,6 @@ export const featureSuggestedPrompts: FeatureRecommendedPrompt[] = [
     plugin: {
       stableId: "browser-use@zcode-plugins-official",
       label: { cn: "浏览器操作", en: "Browser Use" },
-    },
-  },
-  {
-    id: "feature-recvvsPdvcUwzl",
-    mode: "office",
-    iconUrl: presentationsIcon,
-    iconStyle: "plugin",
-    label: {
-      cn: "生成一份可以直接分享的演示文稿",
-      en: "Create a presentation I can share",
-    },
-    prompt: {
-      cn: "请使用 [@演示文档](plugin://presentations@zcode-plugins-official) 帮我围绕 [主题] 做一份可以直接分享的演示文稿。先用公开资料补齐背景，形成清晰的核心观点和叙事结构，再生成带标题、关键结论和来源的幻灯片。不要编造事实，未确定的内容请标注。",
-      en: "Use [@Presentations](plugin://presentations@zcode-plugins-official) to create a shareable presentation about [topic]. Research public background, develop a clear argument and narrative, and produce slides with titles, conclusions, and sources. Label uncertain claims instead of inventing facts.",
-    },
-    plugin: {
-      stableId: "presentations@zcode-plugins-official",
-      label: { cn: "演示文档", en: "Presentations" },
     },
   },
   {
@@ -137,24 +112,6 @@ export const featureSuggestedPrompts: FeatureRecommendedPrompt[] = [
     },
   },
   {
-    id: "feature-recvvsS2usyGu7",
-    mode: "office",
-    iconUrl: `${ASSETS}/zcode-cua/icon.png`,
-    iconStyle: "plugin",
-    label: {
-      cn: "帮我设置一个闲时任务，体验网站的完整用户旅程",
-      en: "Review a website’s complete first-time user journey",
-    },
-    prompt: {
-      cn: "帮我设置一个闲时任务，使用 [@电脑控制](plugin://computer-use@zcode-plugins-official) 打开 [目标网站]，像第一次来的用户一样实际操作。请选出这个网站最核心的一条公开用户旅程，从首页走到完成任务前的最后一步，记录每一步的页面、困惑点和无法继续的地方，并附关键截图。最后给我一份详细的用户体验报告，按影响程度列出问题、依据和具体改进建议。不要注册、付款或提交真实信息；遇到登录限制就说明未覆盖的步骤。如果还没有选择本地项目，先让我选择一个用于保存报告。",
-      en: "Set up an idle-time task using [@Computer Use](plugin://computer-use@zcode-plugins-official) to open [target website] and act like a first-time user. Follow its main public journey from the home page to the step before final submission, documenting each step, confusion, blockers, and key screenshots. Produce a detailed UX report with evidence and prioritized improvements. Do not register, pay, or submit real information. If no local project is selected, ask me to choose one for the report.",
-    },
-    plugin: {
-      stableId: "computer-use@zcode-plugins-official",
-      label: { cn: "电脑控制", en: "Computer Use" },
-    },
-  },
-  {
     id: "feature-recvvsPdvcPqQQ",
     mode: "office",
     iconUrl: finderIcon,
@@ -165,24 +122,6 @@ export const featureSuggestedPrompts: FeatureRecommendedPrompt[] = [
     prompt: {
       cn: "帮我看看这台电脑下载文件夹里有哪些大量重复文件、旧安装包和明显的临时文件，按预计可释放空间排序，并给出整理建议。先不要移动或删除文件。",
       en: "Inspect this computer’s Downloads folder for duplicates, old installers, and obvious temporary files. Rank the opportunities by space they could free and suggest an organization plan. Do not move or delete anything yet.",
-    },
-  },
-  {
-    id: "feature-recvvsPdvcgq6k",
-    mode: "office",
-    iconUrl: pdfIcon,
-    iconStyle: "plugin",
-    label: {
-      cn: "生成一份有来源的主题研究 PDF 报告",
-      en: "Create a sourced PDF research report on a topic",
-    },
-    prompt: {
-      cn: "请使用 [@PDF](plugin://pdf@zcode-plugins-official)，围绕 [调研主题] 生成一份可以分享的 PDF 研究报告。先查找近期公开可信的资料，再整理背景、关键事实、不同观点和仍待验证的问题；重要数字标明时间与来源，文末附参考链接。缺少可靠依据的内容请明确标注，不要编造。",
-      en: "Use [@PDF](plugin://pdf@zcode-plugins-official) to create a shareable PDF research report on [research topic]. Find recent credible public sources, then cover the background, key facts, differing views, and open questions. Date and source important figures and include references. Mark claims without reliable evidence instead of inventing them.",
-    },
-    plugin: {
-      stableId: "pdf@zcode-plugins-official",
-      label: { cn: "PDF", en: "PDF" },
     },
   },
   {
@@ -203,42 +142,6 @@ export const featureSuggestedPrompts: FeatureRecommendedPrompt[] = [
     },
   },
   {
-    id: "feature-recvvsPdvcsDgI",
-    mode: "office",
-    iconUrl: documentsIcon,
-    iconStyle: "plugin",
-    label: {
-      cn: "生成一份可编辑的项目方案文档",
-      en: "Create an editable project proposal",
-    },
-    prompt: {
-      cn: "请使用 [@Word文档](plugin://documents@zcode-plugins-official)，围绕 [项目主题] 生成一份可编辑的 Word 项目方案。写清目标用户与问题、方案选择、主要工作、里程碑、风险和待确认事项。缺少业务背景时先采用明确标注的合理假设，并在文末列出最需要我补充的三项信息；不要编造内部数据。",
-      en: "Use [@Documents](plugin://documents@zcode-plugins-official) to create an editable Word proposal for [project topic]. Cover users and their problem, options, work plan, milestones, risks, and open decisions. When business context is missing, label reasonable assumptions and list the three most useful details for me to add. Do not invent internal data.",
-    },
-    plugin: {
-      stableId: "documents@zcode-plugins-official",
-      label: { cn: "Word文档", en: "Documents" },
-    },
-  },
-  {
-    id: "feature-recvvsPdvcSvEZ",
-    mode: "office",
-    iconUrl: spreadsheetsIcon,
-    iconStyle: "plugin",
-    label: {
-      cn: "生成一份可以直接使用的月度收支表",
-      en: "Create a ready-to-use monthly income and expense tracker",
-    },
-    prompt: {
-      cn: "请使用 [@电子表格](plugin://spreadsheets@zcode-plugins-official) 生成一份可以直接开始记账的 Excel 月度收支表。每条记录能填写日期、收支类型、分类、金额和备注；提供常用分类、按月和分类自动汇总，以及收入、支出和结余。放几条明确标为示例的数据让我看懂怎么填，正式汇总不要把示例计入真实收支。无需先问我收入或消费明细。",
-      en: "Use [@Spreadsheets](plugin://spreadsheets@zcode-plugins-official) to create an editable Excel monthly income and expense tracker I can start using right away. Let each entry capture its date, income or expense type, category, amount, and note. Include common categories and automatic monthly and category totals, including income, expenses, and balance. Add a few clearly marked example entries to show how it works, but exclude them from real totals. Do not ask for my financial details before creating the template.",
-    },
-    plugin: {
-      stableId: "spreadsheets@zcode-plugins-official",
-      label: { cn: "电子表格", en: "Spreadsheets" },
-    },
-  },
-  {
     id: "feature-recvvsPdvcK0EZ",
     mode: "office",
     iconUrl: terminalIcon,
@@ -249,146 +152,6 @@ export const featureSuggestedPrompts: FeatureRecommendedPrompt[] = [
     prompt: {
       cn: "帮我检查这台电脑当前的资源占用，找出可能让它变慢的进程和磁盘、内存压力。区分眼下可观察到的事实和可能原因，并告诉我可以先做哪几件安全的事。不要结束进程或改系统设置。",
       en: "Check current resource use on this computer and identify processes, disk pressure, or memory pressure that may explain why it feels slow. Separate what you can observe from possible causes, and suggest safe first steps. Do not terminate processes or change system settings.",
-    },
-  },
-  {
-    id: "feature-recvvsPdvclWR1",
-    mode: "office",
-    iconUrl: `${ASSETS}/zcode-cua/icon.png`,
-    iconStyle: "plugin",
-    label: {
-      cn: "帮我把下载文件夹里的截图按月份批量归档",
-      en: "File my downloaded screenshots by month",
-    },
-    prompt: {
-      cn: "请使用 [@电脑控制](plugin://computer-use@zcode-plugins-official) 打开这台电脑的文件管理软件，把下载文件夹里的截图按月份分类，先给我看会移动哪些文件、分别放到哪里；我确认后再批量归档。不要处理其他图片或删除文件。",
-      en: "Use [@Computer Use](plugin://computer-use@zcode-plugins-official) to open this computer’s file manager and sort screenshots in Downloads by month. Show me which files would move and where; after I approve, file them in batches. Leave other images alone and do not delete files.",
-    },
-    plugin: {
-      stableId: "computer-use@zcode-plugins-official",
-      label: { cn: "电脑控制", en: "Computer Use" },
-    },
-  },
-  {
-    id: "feature-recvvsV4e4aOFp",
-    mode: "office",
-    iconUrl: `${ASSETS}/wind/icon.png`,
-    iconStyle: "plugin",
-    label: {
-      cn: "用 Wind 看一个行业最近发生了什么变化",
-      en: "See what has changed in an industry with Wind",
-    },
-    prompt: {
-      cn: "我想了解 [目标行业] 最近三个月发生了什么变化。请使用已连接的 [@Wind 万得](plugin://wind@zcode-plugins-official) 数据，梳理最值得关注的行业指标、重要事件和研究观点，说明变化方向、数据截至日期及来源，最后给我一份能继续追查的行业速览。若 Wind 未连接或没有对应数据，先说明缺口，不要用别的来源冒充 Wind。",
-      en: "I want to understand changes in [target industry] over the past three months. Use connected [@Wind](plugin://wind@zcode-plugins-official) data to review key indicators, major events, and research views. Explain the direction of change, data dates, and sources in a concise industry brief. If Wind is unavailable, describe the gap rather than substituting another source without saying so.",
-    },
-    plugin: {
-      stableId: "wind@zcode-plugins-official",
-      label: { cn: "Wind 万得", en: "Wind" },
-    },
-  },
-  {
-    id: "feature-recvvsV4e4bCq1",
-    mode: "office",
-    iconUrl: `${ASSETS}/wind/icon.png`,
-    iconStyle: "plugin",
-    label: {
-      cn: "用 Wind 梳理一家公司的经营与市场表现",
-      en: "Review a company’s operating and market performance",
-    },
-    prompt: {
-      cn: "帮我研究 [目标公司] 近四个季度的经营变化。请使用已连接的 [@Wind 万得](plugin://wind@zcode-plugins-official) 数据，整理收入、利润、现金流等能查到的关键指标；如果它是上市公司，再补充近一年的市场表现和可比公司。标清数据期间、口径与来源，把事实、分析和未确认的问题分开。",
-      en: "Research [target company] over the past four quarters using connected [@Wind](plugin://wind@zcode-plugins-official) data. Summarize available revenue, profit, and cash-flow metrics. If it is listed, add one year of market performance and relevant peers. State periods, definitions, and sources; separate facts, analysis, and open questions.",
-    },
-    plugin: {
-      stableId: "wind@zcode-plugins-official",
-      label: { cn: "Wind 万得", en: "Wind" },
-    },
-  },
-  {
-    id: "feature-recvvsV4e4ivrd",
-    mode: "office",
-    iconUrl: `${ASSETS}/hexin/icon.png`,
-    iconStyle: "plugin",
-    label: {
-      cn: "用同花顺 iFinD 比较一个行业的龙头公司",
-      en: "Compare leading companies in an industry",
-    },
-    prompt: {
-      cn: "我想快速看懂 [目标行业] 的主要公司。请使用已连接的 [@同花顺](plugin://hexin@zcode-plugins-official) 数据，选取三到五家有代表性的公司，对比最近四个季度的增长、盈利、现金流和能查到的估值指标，解释差异与异常项。每组数字标明期间、口径和来源；没有数据的指标留空，不要给买卖建议。",
-      en: "Help me understand the main companies in [target industry]. Use connected [@RoyalFlush iFinD](plugin://hexin@zcode-plugins-official) data to compare three to five representative companies on recent growth, profitability, cash flow, and available valuation metrics. Explain differences and anomalies, show dates and sources, leave missing values blank, and avoid buy or sell advice.",
-    },
-    plugin: {
-      stableId: "hexin@zcode-plugins-official",
-      label: { cn: "同花顺", en: "RoyalFlush iFinD" },
-    },
-  },
-  {
-    id: "feature-recvvsV4e4g9yq",
-    mode: "office",
-    iconUrl: `${ASSETS}/hexin/icon.png`,
-    iconStyle: "plugin",
-    label: {
-      cn: "用同花顺 iFinD 整理一家公司的重要公告",
-      en: "Summarize a company’s important recent filings",
-    },
-    prompt: {
-      cn: "帮我查看 [目标公司] 最近九十天有哪些值得关注的公告。请使用已连接的 [@同花顺](plugin://hexin@zcode-plugins-official)，按时间梳理公告中的主要事实、相关金额或指标，以及可能影响后续判断的待核实问题。附公告日期和原文入口；不要把推测写成公司已确认的计划。",
-      en: "Use connected [@RoyalFlush iFinD](plugin://hexin@zcode-plugins-official) to review [target company] announcements from the past 90 days. Build a timeline of important facts, figures, and questions to verify, with filing dates and original links. Do not present speculation as confirmed company plans.",
-    },
-    plugin: {
-      stableId: "hexin@zcode-plugins-official",
-      label: { cn: "同花顺", en: "RoyalFlush iFinD" },
-    },
-  },
-  {
-    id: "feature-recvvsV4e4AtLY",
-    mode: "office",
-    iconUrl: `${ASSETS}/tianyancha/icon.png`,
-    iconStyle: "plugin",
-    label: {
-      cn: "用天眼查摸清一家企业的股权与经营风险",
-      en: "Check a company’s ownership and business risks",
-    },
-    prompt: {
-      cn: "我想先了解 [目标企业] 是否值得进一步接触。请使用已连接的 [@天眼查](plugin://tianyancha@zcode-plugins-official)，核对企业当前登记状态、主要股东与实际控制人、对外投资，以及可查到的经营和司法风险。整理成简短尽调清单，标明信息更新日期与来源；同名企业先核对主体，风险记录不要直接等同于违法结论。",
-      en: "Use connected [@Tianyancha](plugin://tianyancha@zcode-plugins-official) to review [target company] before I contact it. Verify the legal entity, registration status, key shareholders, controlling parties, investments, and available business or legal risk records. Provide a concise due-diligence checklist with source dates. Do not treat a risk record alone as proof of wrongdoing.",
-    },
-    plugin: {
-      stableId: "tianyancha@zcode-plugins-official",
-      label: { cn: "天眼查", en: "Tianyancha" },
-    },
-  },
-  {
-    id: "feature-recvvsV4e4Hsa3",
-    mode: "office",
-    iconUrl: `${ASSETS}/tianyancha/icon.png`,
-    iconStyle: "plugin",
-    label: {
-      cn: "用天眼查核对一家企业的关联公司和人员",
-      en: "Map a company’s related entities and key people",
-    },
-    prompt: {
-      cn: "帮我梳理 [目标企业] 的股东、对外投资、分支机构和关键人员之间的关系。请使用已连接的 [@天眼查](plugin://tianyancha@zcode-plugins-official)，先确认企业主体，再把直接关系和间接关系分开，给我一份关系清单，说明每条关系的依据、更新时间及仍需人工核实的地方。",
-      en: "Use connected [@Tianyancha](plugin://tianyancha@zcode-plugins-official) to map shareholders, investments, branches, and key people for [target company]. Verify the legal entity first, distinguish direct from indirect links, and provide a relationship list with evidence, update dates, and points requiring manual confirmation.",
-    },
-    plugin: {
-      stableId: "tianyancha@zcode-plugins-official",
-      label: { cn: "天眼查", en: "Tianyancha" },
-    },
-  },
-  {
-    id: "feature-recvvsV4e4FqWU",
-    mode: "office",
-    iconUrl: `${ASSETS}/wind/icon.png`,
-    iconStyle: "plugin",
-    label: {
-      cn: "结合 Wind、同花顺和天眼查研究一家企业",
-      en: "Research a company across three data sources",
-    },
-    prompt: {
-      cn: "我想全面了解 [目标企业]。请结合我已连接的 [@Wind 万得](plugin://wind@zcode-plugins-official)、[@同花顺](plugin://hexin@zcode-plugins-official) 和 [@天眼查](plugin://tianyancha@zcode-plugins-official)，分别核对经营与市场数据、近期公告及企业关系和风险，再整理一份简短研究报告。相互矛盾的数据请列出口径和时间差，不要强行合并；缺少某个数据源就说明未覆盖的部分。",
-      en: "Help me understand [target company]. Cross-check connected [@Wind](plugin://wind@zcode-plugins-official), [@RoyalFlush iFinD](plugin://hexin@zcode-plugins-official), and [@Tianyancha](plugin://tianyancha@zcode-plugins-official) for operating and market data, recent filings, company relationships, and risks. Write a concise report, preserve conflicting figures with their dates and definitions, and say which sources were unavailable.",
     },
   },
   {
@@ -407,8 +170,6 @@ export const featureSuggestedPrompts: FeatureRecommendedPrompt[] = [
   {
     id: "feature-coding-branch-review",
     mode: "coding",
-    iconUrl: `${ASSETS}/gitlab/icon.png`,
-    iconStyle: "plugin",
     label: {
       cn: "帮我检查当前分支提交前的问题",
       en: "Check this branch before I submit it",
@@ -434,8 +195,6 @@ export const featureSuggestedPrompts: FeatureRecommendedPrompt[] = [
   {
     id: "feature-coding-mr-summary",
     mode: "coding",
-    iconUrl: `${ASSETS}/gitlab/icon.png`,
-    iconStyle: "plugin",
     label: {
       cn: "帮我整理当前分支的 MR 描述",
       en: "Draft a merge request description for this branch",
@@ -461,8 +220,6 @@ export const featureSuggestedPrompts: FeatureRecommendedPrompt[] = [
   {
     id: "feature-recvvsWf8gXmsB",
     mode: "coding",
-    iconUrl: `${ASSETS}/github/icon.png`,
-    iconStyle: "plugin",
     label: {
       cn: "帮我设置一个闲时任务，全面验证仓库的测试覆盖",
       en: "Run a thorough test coverage review of a repository",
@@ -475,8 +232,6 @@ export const featureSuggestedPrompts: FeatureRecommendedPrompt[] = [
   {
     id: "feature-recvvsWf8g0Cg0",
     mode: "coding",
-    iconUrl: `${ASSETS}/github/icon.png`,
-    iconStyle: "plugin",
     label: {
       cn: "帮我设置一个闲时任务，读透仓库并画出功能地图",
       en: "Read a repository deeply and map its features",
@@ -489,22 +244,18 @@ export const featureSuggestedPrompts: FeatureRecommendedPrompt[] = [
   {
     id: "feature-recvvsWf8grDkJ",
     mode: "coding",
-    iconUrl: `${ASSETS}/github/icon.png`,
-    iconStyle: "plugin",
     label: {
       cn: "帮我设置一个闲时任务，深查仓库潜在问题",
       en: "Find significant issues across a repository",
     },
     prompt: {
       cn: "帮我设置一个闲时任务，以 [目标仓库] 这个本地仓库为任务项目，全面检查关键用户流程和跨模块调用，找出可能导致功能错误、兼容性问题或数据丢失的缺陷。对高风险问题尽量复现并核对相关测试，最后按严重程度给我一份详尽报告，包含触发条件、代码位置、证据、修复建议及未验证假设。先不要大范围修改代码；如果仓库未作为本地项目打开，先让我选择它。",
-      en: "Set up an idle-time task for the local [target repository]. Review important user journeys and cross-module calls for functional, compatibility, or data-loss issues. Reproduce high-risk findings where possible, check relevant tests, and deliver a detailed severity-ranked report with triggers, code locations, evidence, suggested fixes, and unverified hypotheses. Avoid broad code changes. Ask me to select the repository if it is not open.",
+      en: "Set up an idle-time task for the local [target repository]. Review important user journeys and cross-module calls for functional, compatibility, or data-loss issues. Reproduce high-risk findings where possible, check relevant tests, and deliver a detailed severity-ranked report with triggers, code locations, evidence, suggested fixes, and unverified hypotheses. Avoid broad code changes. Ask me to select a local repository if none is open.",
     },
   },
   {
     id: "feature-coding-browser-deployed",
     mode: "coding",
-    iconUrl: `${ASSETS}/browser-use/icon.png`,
-    iconStyle: "plugin",
     label: {
       cn: "帮我检查刚部署的网站有没有明显错误",
       en: "Check a deployed website for obvious problems",
@@ -521,8 +272,6 @@ export const featureSuggestedPrompts: FeatureRecommendedPrompt[] = [
   {
     id: "feature-coding-scheduled-ci",
     mode: "coding",
-    iconUrl: `${ASSETS}/gitlab/icon.png`,
-    iconStyle: "plugin",
     label: {
       cn: "每天检查当前仓库有没有新的 CI 失败",
       en: "Check this repository for new CI failures daily",
@@ -535,8 +284,6 @@ export const featureSuggestedPrompts: FeatureRecommendedPrompt[] = [
   {
     id: "feature-coding-scheduled-weekly-changes",
     mode: "coding",
-    iconUrl: `${ASSETS}/gitlab/icon.png`,
-    iconStyle: "plugin",
     label: {
       cn: "每周汇总当前仓库的改动和待处理风险",
       en: "Summarize this repository’s changes and risks weekly",
@@ -549,8 +296,6 @@ export const featureSuggestedPrompts: FeatureRecommendedPrompt[] = [
   {
     id: "feature-coding-idle-external-failures",
     mode: "coding",
-    iconUrl: `${ASSETS}/github/icon.png`,
-    iconStyle: "plugin",
     label: {
       cn: "帮我设置闲时任务，深查外部服务失败路径",
       en: "Deeply review external-service failure paths in idle time",
