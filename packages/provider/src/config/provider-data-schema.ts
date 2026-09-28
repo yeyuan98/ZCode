@@ -25,7 +25,7 @@ const nonBlankRequiredString = z.string().refine((value) => value.trim().length 
 // 拆出未导出的本地定义再分别导出，避免 knip 把别名判定为重复导出。
 const apiKeyAccessSchema = z
   .object({
-    // P2：vendor 账号访问类型已删除；磁盘/信封里残留的 zhipu-account 等类型在 schema 边界整份拒绝。
+    // P2：vendor 账号访问类型已删除；磁盘/信封里残留的供应商账号类型在 schema 边界整份拒绝。
     type: z.literal("api-key"),
     apiKey: z.string().nullable().optional(),
     apiKeyManagementUrl: z.string().url().nullable().optional(),

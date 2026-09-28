@@ -35,6 +35,6 @@ test("skill 引用前缀契约：CLI 生产 zcode: 且 UI 过滤器只认 zcode:
     path: "/home/u/.zcode/cli/plugins/cache/p",
     scope: "plugin",
   };
-  const filtered = filterSkillsForProvider([zcodeSkill, legacySkill, pluginSkill], "zcode");
+  const filtered = filterSkillsForProvider([zcodeSkill, legacySkill, pluginSkill]);
   assert.deepEqual(filtered, [zcodeSkill, pluginSkill]);
 });
