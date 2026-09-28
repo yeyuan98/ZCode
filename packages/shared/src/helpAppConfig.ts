@@ -15,9 +15,8 @@ export type HelpAppConfig = z.infer<typeof helpConfigSchema>;
 
 // P2：远端 /api/v1/client/configs 帮助配置拉取随供应商反馈通道一起移除，
 // 反馈 / 社群入口只读本地 config/default.json（specs/onboarding-and-gate.md 第 5 条）。
-// P3 C5：/api/v1/client/configs 的其余 consumer（context-prompt 滚动配置、
-// rendererActionTrace 灰度、插件商店排序、内置目录下载）已一并删除；
-// 唯一残留读取方是主进程强更 gate（forceUpdateGuard，P5 更新域处理）。
+// P5 更新域硬切：该接口最后一个读取方（主进程强更 gate）已随 GitHub provider 切换删除，
+// /api/v1/client/configs 不再有任何代码路径消费。
 export function resolveHelpAppConfig(config: unknown): HelpAppConfig {
   const localConfig = helpConfigSchema.safeParse(config).data;
   return {

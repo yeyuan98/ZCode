@@ -2,13 +2,10 @@
 import type { ISettingService } from "@zcode/services";
 import {
   DEFAULT_LOCALE,
-  DEFAULT_ZCODE_ENDPOINT_ORIGIN,
   desktopMenuMessageIds,
   formatDesktopMenuMessage,
   getDesktopMenuMessage,
-  isVendorManifestUpdateFeedWired,
   PlatformChannels,
-  resolveRuntimeZCodeEndpointOrigin,
   ZCODE_VERSION,
   type ElectronReleaseChannel,
   type Locale,
@@ -20,13 +17,16 @@ import { app, BrowserWindow, ipcMain, Menu } from "electron";
 import pkg, { CancellationToken } from "electron-updater";
 import semver from "semver";
 import { logger } from "./logger.js";
-import { getElectronReleasePlatform, ManifestUpdateProvider } from "./manifestUpdateProvider.js";
+import {
+  resolveAutoUpdaterAllowPrerelease,
+  resolveReleaseChannelForVersion,
+  resolveUpdateFeedOverrideFromStartupConfig,
+  resolveUpdateFeedProviderConfig,
+} from "./updateFeedRuntime.js";
 const { autoUpdater } = pkg;
 
 export const CHECK_FOR_UPDATE_MENU_ID = "check-for-update";
 const AUTO_UPDATE_POLL_INTERVAL_MS = 60 * 60 * 1000;
-const UPDATE_FEED_URL_ENV = "ZCODE_UPDATE_FEED_URL";
-const UPDATE_FEED_URL_SWITCH = "--zcode-update-feed-url";
 const DEV_AUTO_UPDATE_ENV = "ZCODE_AUTO_UPDATE_DEV";
 const DEV_AUTO_UPDATE_SWITCH = "--zcode-auto-update-dev";
 const DEV_AUTO_UPDATE_VERSION_ENV = "ZCODE_AUTO_UPDATE_DEV_VERSION";
@@ -42,7 +42,6 @@ let autoUpdatePollTimer: NodeJS.Timeout | null = null;
 let checkForUpdatesInFlight = false;
 let autoUpdateCheckGeneration = 0;
 let activeAutoUpdateCheckId: number | null = null;
-let activeAutoUpdateCheckChannel: ElectronReleaseChannel | null = null;
 let settlingAutoUpdateCheckId: number | null = null;
 let availableUpdateReleaseNotes: PostUpdateReleaseNotesPayload | null = null;
 let availableUpdateChannel: ElectronReleaseChannel = "stable";
@@ -51,7 +50,9 @@ let downloadingUpdateReleaseNotes: PostUpdateReleaseNotesPayload | null = null;
 let downloadingUpdateChannel: ElectronReleaseChannel | null = null;
 let downloadCancellationToken: CancellationToken | null = null;
 let readyUpdateChannel: ElectronReleaseChannel | null = null;
-let pendingManifestReleaseChannelRefresh: ElectronReleaseChannel | null = null;
+// P5：单 channel 文件（latest.yml）后 preview 偏好只映射 autoUpdater.allowPrerelease；
+// 该标志仅记“检查进行中时用户切换了偏好”，待收口后重放。
+let pendingManifestReleaseChannelRefresh: boolean | null = null;
 let onBeforeQuitAndInstall: (() => void | Promise<void>) | undefined;
 const acknowledgedPostUpdateReleaseNotesVersions = new Set<string>();
 const cancelledDownloadTokens = new WeakSet<CancellationToken>();
@@ -74,7 +75,6 @@ type UpdateDownloadedInfoLike = {
   path?: string | null;
   files?: Array<{ url?: string | null } | null> | null;
   packages?: Record<string, { path?: string | null } | null> | null;
-  zcodeReleaseChannel?: ElectronReleaseChannel | null;
   releaseName?: string | null;
   releaseNotes?: string | ReleaseNoteInfoLike[] | null;
   releaseDate?: string | Date | null;
@@ -92,22 +92,12 @@ type UpdateDownloadedInfoLike = {
   > | null;
 };
 
-type RuntimeUpdateFeedSource = { url: string };
+type RuntimeUpdateFeedSource = { baseUrl: string };
 
 type AutoUpdaterMenuState = UpdateStatePayload;
 let menuState: AutoUpdaterMenuState = { kind: "idle", enabled: true };
 
-export type ForceAutoUpdateState =
-  | { kind: "checking" }
-  | { kind: "downloading"; version?: string; progress?: string }
-  | { kind: "ready"; version?: string }
-  | { kind: "installing" }
-  | { kind: "error"; message: string }
-  | { kind: "dev-skipped"; message?: string };
-
-let activeForceAutoUpdateListener: ((state: ForceAutoUpdateState) => void) | null = null;
 const autoUpdaterStateListeners = new Set<(state: UpdateStatePayload) => void>();
-let forceAutoUpdateLastLoggedProgressBucket: number | null = null;
 
 interface InitAutoUpdaterOptions {
   enabled?: boolean;
@@ -115,7 +105,6 @@ interface InitAutoUpdaterOptions {
   settingService?: SettingServiceLike;
   locale?: Locale;
   updateFeedSource?: RuntimeUpdateFeedSource;
-  resolveEndpointOrigin?: () => string | Promise<string>;
 }
 
 let quitAndInstallInFlight = false;
@@ -192,6 +181,9 @@ function applyDevAutoUpdateRuntimeOverrides(): void {
     // 不一定跟产品版本一致。验证自动更新时需要显式把 electron-updater 的
     // currentVersion 改成产品版本，否则 3.3.1 -> 3.3.2 这类流程无法复现。
     mutableAutoUpdater.currentVersion = parsedVersion;
+    // P5（D-P5.1）：ctor 已按改写前的运行壳版本计算 allowPrerelease；
+    // dev 覆盖版本是 alpha 时必须显式抬高下限，否则检查会命中 /releases/latest 404。
+    mutableAutoUpdater.allowPrerelease = true;
   }
 
   logger.info(
@@ -225,32 +217,10 @@ function canPollForUpdatesFromState(state: AutoUpdaterMenuState): boolean {
   return state.kind === "idle" || state.kind === "update-downloaded";
 }
 
-function getAutoUpdaterReleaseChannelForCurrentState(): ElectronReleaseChannel {
-  switch (menuState.kind) {
-    case "update-available":
-      return menuState.channel ?? availableUpdateChannel;
-    case "download-progress":
-      return menuState.channel ?? downloadingUpdateChannel ?? availableUpdateChannel;
-    case "update-downloaded":
-      return menuState.channel ?? readyUpdateChannel ?? availableUpdateChannel;
-    default:
-      return availableUpdateChannel;
-  }
-}
-
-function readUpdateInfoReleaseChannel(
-  info: UpdateDownloadedInfoLike,
-): ElectronReleaseChannel | null {
-  return info.zcodeReleaseChannel === "preview" || info.zcodeReleaseChannel === "stable"
-    ? info.zcodeReleaseChannel
-    : null;
-}
-
 function beginAutoUpdateCheck(): number {
   checkForUpdatesInFlight = true;
   autoUpdateCheckGeneration += 1;
   activeAutoUpdateCheckId = autoUpdateCheckGeneration;
-  activeAutoUpdateCheckChannel = availableUpdateChannel;
   settlingAutoUpdateCheckId = null;
   return activeAutoUpdateCheckId;
 }
@@ -262,17 +232,16 @@ function completeAutoUpdateCheck(reason: string, checkId: number | null): void {
 
   checkForUpdatesInFlight = false;
   activeAutoUpdateCheckId = null;
-  activeAutoUpdateCheckChannel = null;
   settlingAutoUpdateCheckId = null;
 
-  const pendingChannel = pendingManifestReleaseChannelRefresh;
-  if (!pendingChannel) {
+  const pendingPreviewRefresh = pendingManifestReleaseChannelRefresh;
+  if (pendingPreviewRefresh === null) {
     return;
   }
 
   pendingManifestReleaseChannelRefresh = null;
   refreshAutoUpdaterReleaseChannel(
-    pendingChannel === "preview",
+    pendingPreviewRefresh,
     `${reason} pending release channel refresh`,
   );
 }
@@ -312,11 +281,6 @@ function settleAutoUpdateCheckResult(
   }
 }
 
-function shouldIgnoreStaleAvailableUpdate(infoChannel: ElectronReleaseChannel | null): boolean {
-  const expectedChannel = activeAutoUpdateCheckChannel ?? availableUpdateChannel;
-  return Boolean(infoChannel && infoChannel !== expectedChannel);
-}
-
 function buildUpdateDownloadedState(version: string): AutoUpdaterMenuState {
   return {
     kind: "update-downloaded",
@@ -341,16 +305,6 @@ function buildUpdateAvailableState(
   };
 }
 
-function notifyForceAutoUpdate(state: ForceAutoUpdateState) {
-  activeForceAutoUpdateListener?.(state);
-}
-
-function getForceAutoUpdateNoUpdateMessage(): string {
-  return menuLocale === "zh-CN"
-    ? "未找到可安装更新，请使用手动升级。"
-    : "No installable update was found. Use manual update instead.";
-}
-
 function normalizeProgressPercent(progress: unknown): string | undefined {
   if (typeof progress !== "object" || progress === null || !("percent" in progress)) {
     return undefined;
@@ -362,19 +316,6 @@ function normalizeProgressPercent(progress: unknown): string | undefined {
   }
 
   return Math.max(0, Math.min(100, percent)).toFixed(0);
-}
-
-function logForceAutoUpdateProgress(progress: string | undefined) {
-  if (!progress) {
-    return;
-  }
-
-  const bucket = Math.floor(Number(progress) / 10) * 10;
-  if (bucket === forceAutoUpdateLastLoggedProgressBucket) {
-    return;
-  }
-  forceAutoUpdateLastLoggedProgressBucket = bucket;
-  logger.info(`[force-update] 自动升级下载进度 ${progress}%`);
 }
 
 function buildDownloadProgressState(
@@ -455,7 +396,7 @@ async function quitAndInstallUpdate(rejectUnavailable = false) {
 
   try {
     if (shouldRelaunchForDevAutoUpdateInstall()) {
-      // 开发态只用于验证服务端 manifest、下载进度和安装入口 UI 闭环，
+      // 开发态只用于验证更新 feed、下载进度和安装入口 UI 闭环，
       // 未打包应用没有可被安装器接管的真实发布包上下文。这里改为重启当前 dev app，
       // 避免点击“重启以更新”执行退出准备后停在无响应状态。
       logger.info("[auto-update] dev update install fallback: relaunch app");
@@ -671,47 +612,28 @@ function redactUpdateFeedUrlForLog(value: string): string {
   }
 }
 
-function readSwitchValue(argv: readonly string[], switchName: string): string | undefined {
-  const equalsPrefix = `${switchName}=`;
-  for (let index = 0; index < argv.length; index += 1) {
-    const arg = argv[index];
-    if (!arg) {
-      continue;
-    }
-    if (arg.startsWith(equalsPrefix)) {
-      return arg.slice(equalsPrefix.length).trim() || undefined;
-    }
-    if (arg === switchName) {
-      const next = argv[index + 1];
-      if (next && !next.startsWith("--")) {
-        return next.trim() || undefined;
-      }
-      return undefined;
-    }
-  }
-  return undefined;
-}
-
 export function resolveUpdateFeedSourceFromStartupConfig(
   options: {
     argv?: readonly string[];
     env?: Record<string, string | undefined>;
   } = {},
 ): RuntimeUpdateFeedSource | undefined {
-  const argv = options.argv ?? process.argv;
-  const env = options.env ?? process.env;
-  const feedUrl = readSwitchValue(argv, UPDATE_FEED_URL_SWITCH) ?? env[UPDATE_FEED_URL_ENV]?.trim();
-  if (!feedUrl) {
-    return undefined;
+  // P5 硬切：删除 P0 的 app.isPackaged 忽略守卫——镜像覆盖（ZCODE_UPDATE_FEED_URL /
+  // --zcode-update-feed-url）在打包构建同样生效，语义为 generic feed BASE URL（纯解析
+  // 逻辑见 updateFeedRuntime.ts，此处只负责日志脱敏）。
+  const resolution = resolveUpdateFeedOverrideFromStartupConfig({
+    argv: options.argv ?? process.argv,
+    env: options.env ?? process.env,
+  });
+  if (resolution.kind === "override") {
+    return { baseUrl: resolution.baseUrl };
   }
-  // 更新源覆盖仅供开发构建联调;正式包按 isPackaged 忽略,避免更新请求被环境变量/启动参数改道
-  if (app.isPackaged) {
+  if (resolution.kind === "invalid") {
     logger.warn(
-      `[auto-update] ignore update feed override in packaged app: ${redactUpdateFeedUrlForLog(feedUrl)}`,
+      `[auto-update] ignore invalid update feed override (expected http(s) base URL without query): ${redactUpdateFeedUrlForLog(resolution.raw)}`,
     );
-    return undefined;
   }
-  return { url: feedUrl };
+  return undefined;
 }
 
 async function resolveUpdateReleaseChannel(
@@ -745,31 +667,23 @@ async function syncAutoUpdateCheckChannelFromSettings(
       `[auto-update] ${reason}: check channel ${availableUpdateChannel} -> ${nextChannel}`,
     );
   }
-  // 服务端 manifest provider 会在 checkForUpdates 内部读取 preview 设置。
-  // 如果 begin 阶段仍用默认 stable 作为 expected channel，冷启动 preview 结果会被误判为 stale。
+  // P5：单 channel 文件下 preview 偏好只影响 allowPrerelease（init/refresh 已接线）；
+  // 这里同步的是 UI 标签用的 availableUpdateChannel，让检查结果按用户当前偏好标注。
   availableUpdateChannel = nextChannel;
-  activeAutoUpdateCheckChannel = nextChannel;
 }
 
-function applyManifestUpdateProvider(options: InitAutoUpdaterOptions): void {
-  const manifestUrl = options.updateFeedSource?.url.trim();
-  autoUpdater.setFeedURL({
-    provider: "custom",
-    updateProvider: ManifestUpdateProvider,
-    endpointOrigin: DEFAULT_ZCODE_ENDPOINT_ORIGIN,
-    ...(manifestUrl ? { manifestUrl } : {}),
-    releasePlatform: getElectronReleasePlatform(),
-    resolveEndpointOrigin:
-      options.resolveEndpointOrigin ?? (() => resolveRuntimeZCodeEndpointOrigin(process.env)),
-    resolveReleaseChannel: async () => {
-      availableUpdateChannel = await resolveUpdateReleaseChannel(options.settingService);
-      return availableUpdateChannel;
-    },
-  });
+function applyUpdateFeed(options: InitAutoUpdaterOptions): void {
+  // P5：更新源 = 本仓库 GitHub Releases（electron-updater github provider）；
+  // 配置了镜像覆盖时切换 generic provider（平铺 latest.yml + 安装包 + .blockmap）。
+  // 禁止给任何更新 URL 追加 query 参数，也禁止写 autoUpdater.channel（残留 channel 值
+  // 会改变 channel 文件名并卡死 GitHubProvider 的 atom 遍历）。
+  const overrideBaseUrl = options.updateFeedSource?.baseUrl.trim();
+  const feedConfig = resolveUpdateFeedProviderConfig(overrideBaseUrl);
+  autoUpdater.setFeedURL(feedConfig);
   logger.info(
-    manifestUrl
-      ? `[auto-update] service manifest provider applied platform=${getElectronReleasePlatform()} manifestUrl=${redactUpdateFeedUrlForLog(manifestUrl)}`
-      : `[auto-update] service manifest provider applied platform=${getElectronReleasePlatform()}`,
+    feedConfig.provider === "generic"
+      ? `[auto-update] generic mirror feed applied url=${redactUpdateFeedUrlForLog(feedConfig.url)}`
+      : `[auto-update] github release feed applied owner=${feedConfig.owner} repo=${feedConfig.repo}`,
   );
 }
 
@@ -1004,7 +918,7 @@ function handleAutoUpdateFailure(error: unknown, source: string) {
     readyUpdateVersion &&
     isDevSquirrelReadyError(error)
   ) {
-    // 开发态验证真实测试环境 manifest 时，macOS Squirrel 仍可能在
+    // 开发态验证真实更新 feed 时，macOS Squirrel 仍可能在
     // update-downloaded 后补一个 code=2 staging 错误。生产包必须清掉失败的 ready，
     // 但开发态需要保留 ready 状态来验证“重启以更新”交互闭环。
     logger.warn(
@@ -1028,7 +942,7 @@ function handleAutoUpdateFailure(error: unknown, source: string) {
   }
   clearAvailableUpdateState();
   clearDownloadingUpdateState();
-  if (failedDownload?.version && !readyUpdateVersion && !activeForceAutoUpdateListener) {
+  if (failedDownload?.version && !readyUpdateVersion) {
     // 用户点击“下载更新”后如果下载启动或 staging 很快失败，
     // 清空 available/downloading 并广播 idle 会让 renderer 入口和弹窗同时消失。
     // 失败并不等同于用户跳过该版本，应退回“发现更新”状态，让用户能看到并重试下载。
@@ -1048,16 +962,14 @@ function handleAutoUpdateFailure(error: unknown, source: string) {
         : { kind: "idle", enabled: true },
     );
   }
-  notifyForceAutoUpdate({ kind: "error", message });
   sendManualCheckResult({ kind: "error", message });
 }
 
 async function isSkippedUpdateVersion(
   version: string,
-  channel: ElectronReleaseChannel,
   settingService: SettingServiceLike | undefined,
 ): Promise<boolean> {
-  if (!settingService || activeForceAutoUpdateListener) {
+  if (!settingService) {
     return false;
   }
 
@@ -1069,7 +981,10 @@ async function isSkippedUpdateVersion(
 
   try {
     const settings = await settingService.get();
-    return settings.skippedElectronUpdateVersions?.[channel]?.trim() === version.trim();
+    // P5 硬切：skippedElectronUpdateVersions 由按通道嵌套扁平化为版本列表（单 channel 文件）。
+    const skipped = settings.skippedElectronUpdateVersions ?? [];
+    const normalized = version.trim();
+    return skipped.some((skippedVersion) => skippedVersion.trim() === normalized);
   } catch (error) {
     logger.warn("[auto-update] read skipped update version failed:", error);
     return false;
@@ -1095,11 +1010,6 @@ async function skipAvailableUpdateVersion(
   version: string,
   settingService: SettingServiceLike | undefined,
 ): Promise<void> {
-  if (activeForceAutoUpdateListener) {
-    logger.info(`[auto-update] ignore skip version=${version}: force update active`);
-    return;
-  }
-
   if (
     (menuState.kind !== "update-available" && menuState.kind !== "download-progress") ||
     menuState.version !== version
@@ -1108,15 +1018,11 @@ async function skipAvailableUpdateVersion(
     return;
   }
 
-  const channel =
-    menuState.channel ??
-    (menuState.kind === "download-progress" ? downloadingUpdateChannel : availableUpdateChannel) ??
-    availableUpdateChannel;
   if (downloadCancellationToken) {
     markCancelledDownload(downloadCancellationToken);
     downloadCancellationToken.cancel();
     logger.info(
-      `[auto-update] skipped downloading version; cancel active download channel=${channel} version=${version}`,
+      `[auto-update] skipped downloading version; cancel active download version=${version}`,
     );
   }
 
@@ -1140,20 +1046,20 @@ async function skipAvailableUpdateVersion(
 
   try {
     const settings = await settingService.get();
+    // P5 硬切：扁平版本列表去重追加（原按通道嵌套结构已随单 channel 文件删除）。
+    const nextSkippedVersions = Array.from(
+      new Set([...(settings.skippedElectronUpdateVersions ?? []), version]),
+    );
     await settingService.update({
-      skippedElectronUpdateVersions: {
-        ...settings.skippedElectronUpdateVersions,
-        [channel]: version,
-      },
+      skippedElectronUpdateVersions: nextSkippedVersions,
     });
-    logger.info(`[auto-update] skipped version persisted channel=${channel} version=${version}`);
+    logger.info(`[auto-update] skipped version persisted version=${version}`);
   } catch (error) {
     logger.error("[auto-update] persist skipped update version failed:", error);
   }
 }
 
 async function clearSkippedUpdateVersionForManualCheck(
-  channel: ElectronReleaseChannel,
   settingService: SettingServiceLike | undefined,
 ): Promise<void> {
   if (!settingService) {
@@ -1162,19 +1068,17 @@ async function clearSkippedUpdateVersionForManualCheck(
 
   try {
     const settings = await settingService.get();
-    const skippedVersions = settings.skippedElectronUpdateVersions;
-    const skippedVersion = skippedVersions?.[channel]?.trim();
-    if (!skippedVersion) {
+    if (!settings.skippedElectronUpdateVersions?.length) {
       return;
     }
 
-    const nextSkippedVersions = { ...skippedVersions };
-    delete nextSkippedVersions[channel];
+    // P5：单 channel 下手动检查清空整个跳过列表；低于当前版本的条目本就翻不出更新
+    // （electron-updater 拒绝降级），无需按版本精确剔除。
     await settingService.update({
-      skippedElectronUpdateVersions: nextSkippedVersions,
+      skippedElectronUpdateVersions: [],
     });
     logger.info(
-      `[auto-update] manual check cleared skipped update channel=${channel} version=${skippedVersion}`,
+      `[auto-update] manual check cleared skipped updates versions=${settings.skippedElectronUpdateVersions.join(",")}`,
     );
   } catch (error) {
     logger.warn("[auto-update] clear skipped update version failed:", error);
@@ -1213,11 +1117,6 @@ function downloadAvailableUpdate(reason = "renderer") {
   // electron-updater 如果命中本地已下载缓存，会在 downloadUpdate() 内直接触发
   // update-downloaded。这里不能先广播 0% 下载态，否则用户会先看到“下载中”，
   // 再跳到“已下载”；真实下载态改由第一条 download-progress 事件驱动。
-  notifyForceAutoUpdate({
-    kind: "downloading",
-    version: downloadingUpdateVersion,
-    progress: "0",
-  });
 
   const cancellationToken = new CancellationToken();
   downloadCancellationToken = cancellationToken;
@@ -1228,7 +1127,7 @@ function downloadAvailableUpdate(reason = "renderer") {
         logger.info(`[auto-update] ${reason} download cancelled`);
         return;
       }
-      // 下载由用户点击或强更 gate 显式触发，Promise reject 也必须立即反馈。
+      // 下载由用户点击或自动下载偏好显式触发，Promise reject 也必须立即反馈。
       // 不能只依赖 electron-updater 后续是否额外触发 error 事件，否则 UI 会卡在下载态。
       handleAutoUpdateFailure(error, "download update failed");
     })
@@ -1241,11 +1140,6 @@ function downloadAvailableUpdate(reason = "renderer") {
 }
 
 function cancelDownloadingUpdate(reason = "renderer") {
-  if (activeForceAutoUpdateListener) {
-    logger.info(`[auto-update] skip ${reason} cancel download: force update active`);
-    return;
-  }
-
   if (menuState.kind !== "download-progress" || !downloadCancellationToken) {
     logger.info(`[auto-update] skip ${reason} cancel download: state=${menuState.kind}`);
     return;
@@ -1261,7 +1155,7 @@ function cancelDownloadingUpdate(reason = "renderer") {
     `[auto-update] ${reason}: cancel download channel=${channel} version=${version ?? "unknown"}`,
   );
 
-  // 取消下载不是跳过版本，只回退到发现更新状态，保留同一份 manifest 信息让用户可以稍后重试。
+  // 取消下载不是跳过版本，只回退到发现更新状态，保留同一份更新信息让用户可以稍后重试。
   clearDownloadingUpdateState();
   if (version) {
     availableUpdateReleaseNotes = releaseNotes;
@@ -1352,39 +1246,45 @@ export function refreshAutoUpdaterReleaseChannel(
   receivePreviewUpdates: boolean,
   reason = "settings receivePreviewUpdates changed",
 ) {
-  const nextChannel: ElectronReleaseChannel = receivePreviewUpdates ? "preview" : "stable";
-
   if (!canUseAutoUpdaterInCurrentRuntime()) {
     logger.info(`[auto-update] skip ${reason}: not packaged`);
     return;
   }
 
   if (menuState.kind === "download-progress" || menuState.kind === "update-downloaded") {
-    logger.info(`[auto-update] skip ${reason}: state=${menuState.kind} channel=${nextChannel}`);
+    logger.info(`[auto-update] skip ${reason}: state=${menuState.kind}`);
     return;
   }
 
+  // P5（D-P5.1）：单 channel 文件（latest.yml），preview 偏好不再切换 manifest 通道，
+  // 只翻转 autoUpdater.allowPrerelease 并重新检查（下限规则见 updateFeedRuntime.ts）。
+  // 注意永远不能写 autoUpdater.channel。
+  const nextAllowPrerelease = resolveAutoUpdaterAllowPrerelease(
+    receivePreviewUpdates,
+    getCurrentAppVersionForUpdate(),
+  );
+
   if (checkForUpdatesInFlight) {
     // 用户可能在启动检查尚未完成时切换 preview 开关。
-    // 不能立刻改 availableUpdateChannel，否则旧请求返回时会把旧通道的版本标成新通道；
-    // 这里只记录待刷新通道，等当前 check 收口后再重新请求 manifest。
-    pendingManifestReleaseChannelRefresh = nextChannel;
+    // 不能立刻翻转 allowPrerelease 并发起重新检查，否则旧请求返回时会把状态来回覆盖；
+    // 这里只记录待刷新偏好，等当前 check 收口后再重放。
+    pendingManifestReleaseChannelRefresh = receivePreviewUpdates;
     logger.info(
-      `[auto-update] defer ${reason}: check already in flight, next channel=${nextChannel}`,
+      `[auto-update] defer ${reason}: check already in flight, next allowPrerelease=${nextAllowPrerelease}`,
     );
     return;
   }
 
-  const currentChannel = getAutoUpdaterReleaseChannelForCurrentState();
-  if (currentChannel === nextChannel) {
-    logger.info(`[auto-update] skip ${reason}: channel unchanged (${nextChannel})`);
+  if (autoUpdater.allowPrerelease === nextAllowPrerelease) {
+    logger.info(`[auto-update] skip ${reason}: allowPrerelease unchanged (${nextAllowPrerelease})`);
     return;
   }
 
   logger.info(
-    `[auto-update] ${reason}: refresh manifest channel ${currentChannel} -> ${nextChannel}`,
+    `[auto-update] ${reason}: refresh allowPrerelease ${autoUpdater.allowPrerelease} -> ${nextAllowPrerelease}`,
   );
-  availableUpdateChannel = nextChannel;
+  autoUpdater.allowPrerelease = nextAllowPrerelease;
+  availableUpdateChannel = receivePreviewUpdates ? "preview" : "stable";
   clearAvailableUpdateState();
   setAutoUpdaterMenuState({ kind: "checking", enabled: false });
   const checkId = beginAutoUpdateCheck();
@@ -1483,7 +1383,6 @@ export async function initAutoUpdater(options: InitAutoUpdaterOptions = {}): Pro
   }
   checkForUpdatesInFlight = false;
   activeAutoUpdateCheckId = null;
-  activeAutoUpdateCheckChannel = null;
   settlingAutoUpdateCheckId = null;
   pendingManifestReleaseChannelRefresh = null;
   devAutoUpdateVersionOverride = null;
@@ -1503,7 +1402,13 @@ export async function initAutoUpdater(options: InitAutoUpdaterOptions = {}): Pro
   // 这里仅在 Windows 关闭“退出即自动安装”，要求用户显式点更新；其他平台保持原有行为，避免改动既有升级链路。
   autoUpdater.autoInstallOnAppQuit = process.platform !== "win32";
   autoUpdater.logger = logger;
-  applyManifestUpdateProvider(options);
+  applyUpdateFeed(options);
+  // P5（D-P5.1）：allowPrerelease 下限 = preview 偏好开启，或当前版本本身带 prerelease 组件。
+  // 必须在首次 checkForUpdates 之前设定（ctor 按运行壳版本计算的默认值可能偏低）。
+  autoUpdater.allowPrerelease = resolveAutoUpdaterAllowPrerelease(
+    (await resolveUpdateReleaseChannel(options.settingService)) === "preview",
+    getCurrentAppVersionForUpdate(),
+  );
 
   const triggerCheckForUpdates = (reason: string) => {
     if (checkForUpdatesInFlight) {
@@ -1530,8 +1435,8 @@ export async function initAutoUpdater(options: InitAutoUpdaterOptions = {}): Pro
 
     checkForUpdatesPromise
       .catch((err) => {
-        // 强更弹窗可能复用启动期后台检查；如果 checkForUpdates 直接 reject 且没有后续 error 事件，
-        // 只写日志会让弹窗停在 checking。这里复用失败收敛逻辑，把状态恢复并反馈给强更监听。
+        // checkForUpdates 直接 reject 且没有后续 error 事件时，只写日志会让菜单停在
+        // checking。这里复用失败收敛逻辑，把状态恢复并反馈给手动检查结果通道。
         handleAutoUpdateFailure(err, `${reason} check failed`);
       })
       .finally(() => {
@@ -1546,15 +1451,6 @@ export async function initAutoUpdater(options: InitAutoUpdaterOptions = {}): Pro
 
   autoUpdater.on("update-available", (info: UpdateDownloadedInfoLike) => {
     logger.info(`[auto-update] new version available: ${info.version}`);
-    const infoChannel = readUpdateInfoReleaseChannel(info);
-    if (shouldIgnoreStaleAvailableUpdate(infoChannel)) {
-      // 用户切换“接收 preview 版本”时，旧通道的 manifest 请求可能晚于新请求返回。
-      // 旧结果如果继续写 menuState，或提前结束当前 generation，会让独立更新弹窗继续显示旧版本/旧 release notes。
-      logger.info(
-        `[auto-update] ignore stale update channel=${infoChannel} expected=${activeAutoUpdateCheckChannel ?? availableUpdateChannel} version=${info.version}`,
-      );
-      return;
-    }
 
     void settleAutoUpdateCheckResult("update available", async () => {
       if (!shouldDownloadAvailableUpdate(info.version)) {
@@ -1567,11 +1463,11 @@ export async function initAutoUpdater(options: InitAutoUpdaterOptions = {}): Pro
         return;
       }
 
-      const channel = infoChannel ?? availableUpdateChannel;
-      if (await isSkippedUpdateVersion(info.version, channel, options.settingService)) {
-        logger.info(
-          `[auto-update] ignore skipped update channel=${channel} version=${info.version}`,
-        );
+      // P5：单 channel 文件下 preview/stable 标签由版本号自身推导（zcodeReleaseChannel
+      // 戳记与跨通道 stale 丢弃已随厂商 provider 删除）。
+      const channel = resolveReleaseChannelForVersion(info.version);
+      if (await isSkippedUpdateVersion(info.version, options.settingService)) {
+        logger.info(`[auto-update] ignore skipped update version=${info.version}`);
         clearAvailableUpdateState();
         setAutoUpdaterMenuState({ kind: "idle", enabled: true });
         sendManualCheckResult({
@@ -1585,18 +1481,13 @@ export async function initAutoUpdater(options: InitAutoUpdaterOptions = {}): Pro
       if (readyUpdateRestoredFromPendingReleaseNotes) {
         // pendingPostUpdateReleaseNotes 只能证明“曾经下载完成并持久化了版本说明”，
         // 不能恢复当前进程里的 electron-updater downloadedUpdateHelper、Squirrel.Mac proxy server
-        // 或 native staged update。遇到 manifest 再次确认同版本可用时必须清掉伪 ready，
+        // 或 native staged update。遇到再次确认同版本可用时必须清掉伪 ready，
         // 重新 downloadUpdate，让缓存命中/重新下载后的 update-downloaded 建立真实安装上下文。
         clearReadyUpdateState();
       }
       setAutoUpdaterMenuState(
         buildUpdateAvailableState(info.version, availableUpdateReleaseNotes, channel),
       );
-
-      if (activeForceAutoUpdateListener) {
-        downloadAvailableUpdate("force-update");
-        return;
-      }
 
       if (await shouldAutoDownloadAndInstallUpdates(options.settingService)) {
         // 功能原因：自动下载偏好属于 main 进程更新状态机，不能依赖 renderer 弹窗是否打开。
@@ -1630,11 +1521,6 @@ export async function initAutoUpdater(options: InitAutoUpdaterOptions = {}): Pro
       clearAvailableUpdateState();
       clearDownloadingUpdateState();
       setAutoUpdaterMenuState({ kind: "idle", enabled: true });
-      // 强制升级弹窗复用启动期检查时，也必须在无可用更新时给出闭环反馈，避免一直停在 checking。
-      notifyForceAutoUpdate({
-        kind: "error",
-        message: getForceAutoUpdateNoUpdateMessage(),
-      });
       sendManualCheckResult({
         kind: "up-to-date",
         currentVersion: getCurrentAppVersionForUpdate(),
@@ -1666,12 +1552,6 @@ export async function initAutoUpdater(options: InitAutoUpdaterOptions = {}): Pro
         totalBytes: progress.total,
       }),
     );
-    logForceAutoUpdateProgress(normalizedProgress);
-    notifyForceAutoUpdate({
-      kind: "downloading",
-      ...(downloadingUpdateVersion ? { version: downloadingUpdateVersion } : {}),
-      progress: normalizedProgress,
-    });
   });
 
   autoUpdater.on("update-downloaded", (info: UpdateDownloadedInfoLike) => {
@@ -1686,12 +1566,6 @@ export async function initAutoUpdater(options: InitAutoUpdaterOptions = {}): Pro
       `[auto-update] downloaded: ${info.version}, ${process.platform === "win32" ? "waiting for explicit install" : "ready to install on quit or explicit install"}`,
     );
     setAutoUpdaterMenuState(buildUpdateDownloadedState(info.version));
-    notifyForceAutoUpdate({ kind: "ready", version: info.version });
-
-    if (activeForceAutoUpdateListener) {
-      notifyForceAutoUpdate({ kind: "installing" });
-      void quitAndInstallUpdate();
-    }
 
     if (options.settingService) {
       const releaseNotesPayload = readyUpdateReleaseNotes;
@@ -1760,79 +1634,6 @@ export async function initAutoUpdater(options: InitAutoUpdaterOptions = {}): Pro
   autoUpdatePollTimer.unref?.();
 }
 
-export function requestForceAutoUpdate(
-  onStateChange: (state: ForceAutoUpdateState) => void,
-  reason = "force-update",
-  _minimumVersion?: string,
-) {
-  const dispose = () => {
-    if (activeForceAutoUpdateListener === onStateChange) {
-      activeForceAutoUpdateListener = null;
-    }
-  };
-
-  activeForceAutoUpdateListener = onStateChange;
-  forceAutoUpdateLastLoggedProgressBucket = null;
-  logger.info(`[force-update] 自动升级开始 reason=${reason}`);
-  onStateChange({ kind: "checking" });
-
-  if (!canUseAutoUpdaterInCurrentRuntime()) {
-    const message = "not packaged";
-    logger.info(`[force-update] 自动升级跳过：${message}`);
-    onStateChange({ kind: "dev-skipped", message });
-    return dispose;
-  }
-
-  if (menuState.kind === "update-downloaded") {
-    onStateChange({ kind: "installing" });
-    void quitAndInstallUpdate();
-    return dispose;
-  }
-
-  if (menuState.kind === "update-available") {
-    downloadAvailableUpdate("force-update");
-    return dispose;
-  }
-
-  if (menuState.kind === "download-progress") {
-    onStateChange({
-      kind: "downloading",
-      ...("version" in menuState && menuState.version ? { version: menuState.version } : {}),
-      progress: menuState.progress,
-    });
-    return dispose;
-  }
-
-  if (checkForUpdatesInFlight) {
-    logger.info(`[force-update] 自动升级复用进行中的更新检查`);
-    return dispose;
-  }
-
-  const checkId = beginAutoUpdateCheck();
-  setAutoUpdaterMenuState({ kind: "checking", enabled: false });
-  autoUpdater
-    .checkForUpdates()
-    .catch((err) => {
-      const message = err instanceof Error ? err.message : String(err);
-      logger.error(`[auto-update] ${reason} check failed:`, err);
-      setAutoUpdaterMenuState(
-        readyUpdateVersion
-          ? buildUpdateDownloadedState(readyUpdateVersion)
-          : { kind: "idle", enabled: true },
-      );
-      onStateChange({ kind: "error", message });
-    })
-    .finally(() => {
-      finishAutoUpdateCheck(reason, checkId);
-    });
-
-  return () => {
-    if (activeForceAutoUpdateListener === onStateChange) {
-      activeForceAutoUpdateListener = null;
-    }
-  };
-}
-
 export function checkForUpdateMenuClick(originWindow?: BrowserWindow | null) {
   logger.info("[auto-update] user clicked Check for Updates");
 
@@ -1856,13 +1657,11 @@ export function checkForUpdateMenuClick(originWindow?: BrowserWindow | null) {
     return;
   }
 
-  if (autoUpdaterDisabledForProductFlavor || isVendorManifestUpdateFeedWired()) {
-    // 入口本应已按产品身份隐藏；这里是最后一道闸，不让未初始化的 updater 实例向占位 feed 发请求。
-    // 厂商 manifest feed 接线期间同样禁用（见 shared/updateFeedPolicy.ts）：semver 上
-    // 3.14.3 > 3.14.3-alpha.N，手动检查会把 alpha"升级"回厂商构建，故 fail-closed。
-    logger.info(
-      "[auto-update] skip manual check: updater disabled for this product flavor or vendor feed policy",
-    );
+  if (autoUpdaterDisabledForProductFlavor) {
+    // 入口本应已按产品身份隐藏；这里是最后一道闸，不让未初始化的 updater 实例
+    // 在未配置 feed 的情况下发请求（fail-closed）。P5 起更新源为本仓库 GitHub
+    // Releases，厂商 manifest feed 策略开关已删除。
+    logger.info("[auto-update] skip manual check: updater disabled for this product flavor");
     targetWindow.webContents.send(PlatformChannels.UpdateCheckResult, {
       kind: "dev-skipped",
     } satisfies UpdateCheckResultPayload);
@@ -1904,14 +1703,13 @@ export function checkForUpdateMenuClick(originWindow?: BrowserWindow | null) {
   }
 
   manualCheckWebContentsId = targetWindow.webContents.id;
-  const manualCheckChannel = getAutoUpdaterReleaseChannelForCurrentState();
   // Windows 自绘菜单不能只等 electron-updater 的 checking 事件。
   // 某些环境里用户点击后会先重新打开菜单，如果事件尚未送达 renderer，就仍显示“检查更新”。
   // 这里在发起手动检查前先落一份稳定状态，后续 download-progress 再覆盖成百分比。
   setAutoUpdaterMenuState({ kind: "checking", enabled: false });
   const checkId = beginAutoUpdateCheck();
   void (async () => {
-    await clearSkippedUpdateVersionForManualCheck(manualCheckChannel, autoUpdaterSettingService);
+    await clearSkippedUpdateVersionForManualCheck(autoUpdaterSettingService);
     await autoUpdater.checkForUpdates();
   })()
     .catch((err) => {

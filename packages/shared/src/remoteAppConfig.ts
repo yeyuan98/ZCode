@@ -3,7 +3,6 @@ import type { Locale } from "./protocol.js";
 interface RemoteAppConfigLike {
   feedback_url?: unknown;
   community_urls?: unknown;
-  forceUpdate?: unknown;
 }
 
 type LocaleUrlMap = Partial<Record<Locale, string>>;
@@ -43,20 +42,4 @@ export function getCommunityUrlsFromConfig(config: unknown): LocaleUrlMap {
 export function getCommunityUrlFromConfig(config: unknown, locale: Locale): string | undefined {
   const communityUrls = getCommunityUrlsFromConfig(config);
   return communityUrls[locale];
-}
-
-export function getForceUpdateMinimalVersionFromConfig(config: unknown): string | undefined {
-  if (!isRecord(config)) {
-    return undefined;
-  }
-
-  const forceUpdate = (config as RemoteAppConfigLike).forceUpdate;
-  if (!isRecord(forceUpdate)) {
-    return undefined;
-  }
-
-  const minimalVersion = forceUpdate.minimalVersion;
-  return typeof minimalVersion === "string" && minimalVersion.trim() !== ""
-    ? minimalVersion.trim()
-    : undefined;
 }

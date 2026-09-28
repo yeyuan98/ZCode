@@ -754,14 +754,13 @@ export default {
     installerHeaderIcon: "build/icon_installer.ico",
   },
   detectUpdateChannel: false,
+  // P5：更新源 = 本仓库 GitHub Releases（specs/distribution-and-updates.md §A）。
+  // latest.yml 与 .exe.blockmap 由 release-desktop.yml 上传到 tag Release；
+  // 该显式 github publish 配置会触发 electron-builder 在 CI tag 构建时的隐式 onTag
+  // 发布，bundle.mjs 必须传 --publish never（softprops 仍是唯一上传通道）。
   publish: {
-    provider: "generic",
-    // 当前 OSS/CDN 对多 Range 请求返回 206，但 Content-Type 仍是 application/x-msdownload，
-    // electron-updater 会因缺少 multipart/byteranges 直接回退整包下载。关闭 multiple range 后仍走差分，
-    // 只是按单 Range 顺序拉取差异块，避免 Windows 用户更新时从约 15MB 退化成 300MB+ 全量包。
-    useMultipleRangeRequest: false,
-    // 新客户端运行时使用服务端 manifest provider；这里仅保留 electron-builder 必需的
-    // generic publish 占位，避免打包产物继续携带可配置的旧 stable feed。
-    url: "http://localhost:8081",
+    provider: "github",
+    owner: "yeyuan98",
+    repo: "ZCode",
   },
 };
