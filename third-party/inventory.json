@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "inputHashEncoding": "UTF-8 with CRLF normalized to LF; notice and source snapshot hashes remain byte-exact",
   "scope": "Production dependency union across current workspace projects, copied source/assets and native tools; not a per-installer SBOM or a certification of all licensing obligations.",
-  "noticesSha256": "c78a8fa5723335c466751bf710d5cdc961cc75e3741e692aa235befc9be2135a",
+  "noticesSha256": "301d28fc5dfedd8aa1d82f3cf77e983d9ccf31cd828fc684765353395d4ea19f",
   "inputs": {
     ".agents/skills/agent-browser/references/authentication.md": "e2c3b0f4a1dc1368dee821f03c000d818a48421d09f3872525dddffe73f2112b",
     ".agents/skills/agent-browser/references/commands.md": "17522fc56d742663f47231ff06c4811abc87e12c7f78e11f94d253ddd540a909",
@@ -244,7 +244,7 @@
     "apps/zcode-cli/packages/tui/package.json": "097d5896b0b37a455eafaf015f21113dfbea7b05bb3f92666f423f7753720eb1",
     "apps/zcode-cli/tools/prompt-trajectory/package.json": "7f161fc87f36691f01eb8c2034bd89cf28107da36db02bc20e76f059edd36af6",
     "apps/zcode-cli/tools/typescript/package.json": "23d7e50d2089d205ce3022c5bafbb6b3e31d000e41ac678a5934e0b72627cf3a",
-    "package.json": "717b9f2d3120935107ec25f0ca3bcc6090693140fbfadf6c810b54400d3a19e5",
+    "package.json": "3085f9a83a3c7d7d2104344eac55d373652b973490029937e533f74e2a02d4c8",
     "packages/client/package.json": "e76f441549130dc3e5e68072a36b6cb9044e19a6625f1e813f19a4def2b1b689",
     "packages/desktop/package.json": "c9f5eff35160306891515fb4b4f3fe4bf9a8949747533863164c60a6bcd246da",
     "packages/desktop/src/renderer/public/material-icons/3d.svg": "9527b849f0fba57ca7640e2717b3a19cb5f5e046712cbbd8b75d73af338c68fb",
@@ -1418,11 +1418,11 @@
     "packages/rpc/src/proxy-channel.ts": "67dc42c2550a79e4772cb06d5f3c1b8521c91602b04cb7a842f077e3263318ef",
     "packages/rpc/src/remote.ts": "a11e072d5df7e1c1ce64814a68f72afc081246b364f0da409b5c9d22bc815957",
     "packages/rpc/src/serialization.ts": "e949418e1cd17cc863c147fc8d1ff15237e1b5f0cb8e3344fd2a9ccfae9d54e7",
-    "packages/server/package.json": "0a6119239c88af79bc766e3c023eb4437105a0d35b03ecca1137d1e688e60a90",
+    "packages/server/package.json": "e5edfa5a54b76f277e462097e6b1f906b6e34fc0fdd6431ebb25fb48759611a7",
     "packages/services/package.json": "d355274e3ad3fc29a21a8bcf1f42babf00213126eef1540663bfac280a3b310b",
-    "packages/shared/package.json": "022ff76c99e02ad48848c1667524a33729cfc4c6ee865f37e3446e6e7949c622",
+    "packages/shared/package.json": "040a9444516f80ffe66620a0b6b333729c330cc16364cd000acef471698cfa01",
     "packages/shared/src/zcode-protocol-v4/wire-codec.ts": "ac2494a3acc795c809c94ee9393f50271a9c2a0fd33813459e5ab93842ceef75",
-    "packages/ui/package.json": "c07f55d09be2ac35480e9fc80ed4712ae53a3fdbeece53c65b5d0527ef1bd514",
+    "packages/ui/package.json": "9f877628cd69535f8ffa7dbe4a003ff92139aa519817a2882237b46917764b1c",
     "packages/ui/src/components/ai-elements/agent.tsx": "830e7ea9e927de1524851337f1d35bda0e5690e3e4fa307fff854b60006b16c7",
     "packages/ui/src/components/ai-elements/artifact.tsx": "7d73f08864d6280ac86c77d32e56d0e702f8aa6208e5910820139d0fb08ce64c",
     "packages/ui/src/components/ai-elements/attachments.tsx": "7a847ce6c8ac9dc630481a82dd20a5e9e00949bf710a41fea1d32a18123011d8",
@@ -1515,7 +1515,7 @@
     "packages/ui/src/components/ui/ZCodeAboutLogo.tsx": "1e5b7c2e8a9dc98a3c597cbe34122521319eaeb89825e4c41641e77715d1407a",
     "packages/ui/src/components/ui/ZcodeMonochromeIcon.tsx": "c0da6214be3eee7a9eb625d4baff7b6f90e78b37b78ff97bba43dbc25085523d",
     "packages/ui/src/lib/builtinSkillI18n.ts": "fbb44f7044214b70148f64dbafc1cea5ea550531e8084965ea978c5defc06deb",
-    "packages/ui/src/styles.css": "02c54308ad7745e1e572cac6201ec7358734e2bc70557873c8d7af965ff3bf7a",
+    "packages/ui/src/styles.css": "0d32e5caa7585bf951c0019ff1d75b702b3097ca17f61de3e181498613145e45",
     "packages/web/package.json": "0810e762bf1d6641d5f73ab642b81953e183e53fd963a1d405ffc65b206e5ce6",
     "packages/web/public/material-icons/3d.svg": "9527b849f0fba57ca7640e2717b3a19cb5f5e046712cbbd8b75d73af338c68fb",
     "packages/web/public/material-icons/abap.svg": "1335bd7eb9a0ed49deb622330d680c2e97731726a7a5eee8e4f46dc1e5db4de4",
@@ -2667,7 +2667,7 @@
     "packages/zcode-server-cli/package.json": "6e294c4409cb90863d85b2e3d60f92766b156ccee577ebfeaffcb85e94194004",
     "patches/@ai-sdk__anthropic@3.0.81.patch": "d3a7c381eba7f5157f765a0528003af17cf84544911dfb7412c7800168e01c18",
     "patches/@ai-sdk__openai-compatible@2.0.60.patch": "9632fe9d821b3dc20939ae509cc35b968d90d018bbd1d812390718898182a38b",
-    "pnpm-lock.yaml": "2a65fefce522f34921fcfc5eafe4f9a616178e50e1f65569caf16c6b6b5f574c",
+    "pnpm-lock.yaml": "32902d4b36212e7b85fb5992f1f399b6568a8197ef205152e64cde4649c71d18",
     "pnpm-workspace.yaml": "f18a18233e82cda1dc40be61bf2ad1bc99de25de63ad0be64bc652761a638372",
     "scripts/license-texts/Apache-2.0.txt": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
     "scripts/native-search-tools-config.mjs": "281d368464f61363fa2d8ab74f416962fe730dd0a0572db5564475f876bb65aa",
@@ -16646,22 +16646,6 @@
       ]
     },
     {
-      "name": "swr",
-      "version": "2.5.1",
-      "license": "MIT",
-      "repository": "github:vercel/swr",
-      "notices": [
-        {
-          "member": "LICENSE",
-          "sha256": "2eb01c9bb506815f353fc3053a396b0a4ec1b15255cdcf292a437ecc9f5e6ae2"
-        },
-        {
-          "member": "README.md (license section)",
-          "sha256": "27490088c473281a75d95935a8d5d0791ed9e3ac0b6eb38e5f0852ee4b6d9aa3"
-        }
-      ]
-    },
-    {
       "name": "tabbable",
       "version": "6.4.0",
       "license": "MIT",
@@ -18610,7 +18594,7 @@
         },
         {
           "file": "packages/ui/src/styles.css",
-          "sha256": "02c54308ad7745e1e572cac6201ec7358734e2bc70557873c8d7af965ff3bf7a"
+          "sha256": "0d32e5caa7585bf951c0019ff1d75b702b3097ca17f61de3e181498613145e45"
         }
       ]
     },
