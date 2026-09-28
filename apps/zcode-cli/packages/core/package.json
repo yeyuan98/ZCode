@@ -33,9 +33,9 @@
   "dependencies": {
     "@zcode/contracts": "workspace:*",
     "@zcode/dynamic-workflow": "workspace:*",
-    "@zcode/shared": "link:../../../packages/shared",
+    "@zcode/shared": "workspace:*",
     "@zcode/shared-types": "workspace:*",
-    "@zcode/zcode-cua": "link:../../../packages/zcode-cua",
+    "@zcode/zcode-cua": "workspace:*",
     "cheerio": "^1.0.0",
     "diff": "^9.0.0",
     "ipaddr.js": "1.9.1",

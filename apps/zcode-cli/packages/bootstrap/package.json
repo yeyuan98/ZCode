@@ -29,9 +29,9 @@
     "@zcode/dynamic-workflow": "workspace:*",
     "@zcode/dynamic-workflow-runtime": "workspace:*",
     "@zcode/i18n": "workspace:*",
-    "@zcode/provider": "link:../../../packages/provider",
-    "@zcode/provider-node": "link:../../../packages/provider-node",
-    "@zcode/shared": "link:../../../packages/shared",
+    "@zcode/provider": "workspace:*",
+    "@zcode/provider-node": "workspace:*",
+    "@zcode/shared": "workspace:*",
     "@zcode/telemetry": "workspace:*",
     "diff": "^9.0.0",
     "zod": "4.6.5"
@@ -39,7 +39,7 @@
   "devDependencies": {
     "@types/node": "^24.0.0",
     "@types/yazl": "^3.3.1",
-    "@zcode/formal-proof": "link:../../../packages/formal-proof",
+    "@zcode/formal-proof": "workspace:*",
     "yazl": "^3.3.1"
   }
 }
