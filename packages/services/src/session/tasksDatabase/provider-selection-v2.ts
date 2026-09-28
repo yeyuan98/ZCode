@@ -56,8 +56,10 @@ function decodeLegacySelection(row: LegacySelectionRow): ModelSelection | undefi
       if (!reasoningLevel) return undefined;
       model = model.slice(0, levelSeparator);
     }
-  } else if (["glm", "zcode"].includes(provider)) {
-    // 旧 provider=glm/zcode 是执行后端，不是供应商身份。
+  } else if (provider === "zcode") {
+    // 旧 provider=zcode 是执行后端，不是供应商身份。（A-P6：早期拼写 "glm" 已按
+    // alpha 硬切断裁决移除——能产生该行的 one-shot 迁移早已全量执行，现网数据不可
+    // 能携带；若 hypothetical 旧行再现，将持久化 dead providerId 而非 NULL，已记录。）
     return undefined;
   }
   provider = provider.trim();
