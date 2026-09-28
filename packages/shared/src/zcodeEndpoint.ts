@@ -24,7 +24,6 @@ export function readProductEndpointEnv(): Record<string, string | undefined> {
 export interface ZCodeEndpointUrls {
   origin: string;
   apiBaseUrl: string;
-  webShareCallbackUrl: string;
 }
 
 export interface RuntimeZCodeEndpointEnv {
@@ -104,12 +103,12 @@ export function buildRuntimeZCodeApiUrl(
   return `${resolveRuntimeZCodeEndpointOrigin(env)}${normalizedPath}`;
 }
 
+// P5：webShareCallbackUrl（厂商 share 回调地址）已随 share 链路删除。
 export function buildZCodeEndpointUrls(origin: string): ZCodeEndpointUrls {
   const normalizedOrigin = normalizeZCodeEndpointOrigin(origin);
   return {
     origin: normalizedOrigin,
     apiBaseUrl: `${normalizedOrigin}/api/v1`,
-    webShareCallbackUrl: `${normalizedOrigin}/cn/share/callback`,
   };
 }
 
