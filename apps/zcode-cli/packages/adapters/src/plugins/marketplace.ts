@@ -10,7 +10,11 @@ import {
   isReservedPluginMarketplaceId,
   ZCODE_OFFICIAL_PLUGIN_MARKETPLACE,
 } from "@zcode/contracts";
-import { DEFAULT_PLUGIN_MARKETPLACES, sanitizeZCodeRuntimeEnv } from "@zcode/shared";
+import {
+  DEFAULT_PLUGIN_MARKETPLACES,
+  isAllowedPersistedMarketplaceSource,
+  sanitizeZCodeRuntimeEnv,
+} from "@zcode/shared";
 import { loadPluginMcpServerDefinitions, resolvePluginMcpServers } from "./mcp.js";
 import {
   appendPluginSourceCleanupError,
@@ -274,10 +278,10 @@ export async function parseMarketplaceSourceInput(input: string): Promise<Market
 export function loadKnownMarketplacesSync(storageRoot: string): KnownMarketplaceRecord[] {
   const parsed = readJsonFileSync(join(storageRoot, KNOWN_MARKETPLACES_FILE));
   if (!isRecord(parsed)) return [];
+  // P6：容器格式收敛为 array；历史 map 容器随“遗留结构一律删除”裁决不再接受。
   const value = parsed.marketplaces;
-  if (Array.isArray(value)) return value.filter(isKnownMarketplaceRecord);
-  if (isRecord(value)) return Object.values(value).filter(isKnownMarketplaceRecord);
-  return [];
+  if (!Array.isArray(value)) return [];
+  return value.filter(isKnownMarketplaceRecord);
 }
 
 export function ensureDefaultPluginMarketplaces(storageRoot: string): KnownMarketplaceRecord[] {
@@ -325,10 +329,10 @@ export async function ensureMarketplaceManifestAvailable(input: {
     (item) => item.id === input.marketplace,
   );
   if (!record) return null;
-  // P5 去供应商化：官方市场 bundled-only，一律不做网络刷新。旧安装的 known record 可能
-  // 仍携带 vendor CDN source——若照旧走 addMarketplace 会永远继续拉取 cdn-zcode.z.ai，
-  // 因此这里直接返回 record：manifest 由 bootstrap 的内置 seed 重建，网络路径彻底关闭。
-  if (isOfficialMarketplaceId(input.marketplace)) return record;
+  // bundled 市场没有网络源（官方目录由应用内置 seed 构成）：刷新语义即原样返回，
+  // manifest 由 bootstrap 的内置 seed 重建。（P6：历史供应商 CDN source 记录已在
+  // 加载边界丢弃，本分支不再承担拦截遗留流量的职责。）
+  if (record.source.source === "bundled") return record;
   // 受信任的内部懒加载：用 known record 的规范 source 拉取，并以 record.id 作为 trustedId，
   // 使保留 id（libre）只能由本来就是该 id 的记录刷新得到。
   return await addMarketplace({
@@ -365,9 +369,9 @@ export async function addMarketplace(input: {
       signal: operationSignal,
     });
     throwIfPluginOperationAborted(operationSignal);
-    // P5 保留 id 守卫（R6）：libre 只能由 trustedId 匹配的内部刷新物化；官方 id 一律拒绝
-    // ——本构建中官方市场 bundled-only，即便 trustedId 匹配（旧安装 known record 遗留的
-    // vendor CDN source 走刷新路径）也不允许经网络声明复活，杜绝 cdn-zcode.z.ai 残留流量。
+    // P5/P6 保留 id 守卫（R6）：libre 只能由 trustedId 匹配的内部刷新物化；官方 id 一律
+    // 拒绝网络声明——官方市场 bundled-only，任何来源都不允许经网络声明占用保留 id，
+    // 杜绝对保留 id 的冒名与历史遗留 source 复活。
     if (
       isReservedPluginMarketplaceId(loaded.manifest.name) &&
       (loaded.manifest.name !== input.trustedId || isOfficialMarketplaceId(loaded.manifest.name))
@@ -2663,7 +2667,11 @@ function isKnownMarketplaceRecord(value: unknown): value is KnownMarketplaceReco
     typeof value.id === "string" &&
     typeof value.name === "string" &&
     typeof value.pluginCount === "number" &&
-    isRecord(value.source)
+    typeof value.addedAt === "string" &&
+    // P6 严格化（specs/distribution-and-updates.md P6 修订）：source 形状 + 保留 id 磁盘
+    // 契约在加载边界整份校验。旧宽松守卫只查 isRecord(source)，历史供应商 CDN 等旧
+    // 记录靠运行时守卫挡网络流量；现在加载即丢弃，默认市场由 ensure 自动重播种。
+    isAllowedPersistedMarketplaceSource(value.id, value.source)
   );
 }
 

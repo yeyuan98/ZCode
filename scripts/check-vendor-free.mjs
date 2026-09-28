@@ -27,7 +27,13 @@ export const VENDOR_PATTERNS = [
   { id: "com-zhipu", source: "com\\.zhipu" },
 ].map(({ id, source }) => ({ id, regex: new RegExp(source, "i") }));
 
-export const EXCLUDED_PATHS = new Set(["CHANGELOG.md", "VENDOR-PURGE-PLAN.md"]);
+export const EXCLUDED_PATHS = new Set([
+  "CHANGELOG.md",
+  "VENDOR-PURGE-PLAN.md",
+  // 门禁自身的模式表与单测合成语料必须包含被禁字面量（定义处即引用处）。
+  "scripts/check-vendor-free.mjs",
+  "scripts/check-vendor-free.test.mjs",
+]);
 export const EXCLUDED_PREFIXES = ["specs/"];
 export const BINARY_EXTENSIONS = new Set([
   ".png", ".ico", ".icns", ".webp", ".gif", ".bmp", ".mp3", ".wav", ".gz", ".zip",

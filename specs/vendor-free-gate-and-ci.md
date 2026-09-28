@@ -27,7 +27,8 @@
 - 扫描范围：git 跟踪文件；二进制按扩展名 denylist 跳过（保险措施；当前五模式在
   二进制/lockfile/`.agents`/`third-party` 均零命中，不做额外排除）。
 - 结构性排除：`CHANGELOG.md`（release-it 生成物）、`VENDOR-PURGE-PLAN.md` 与
-  `specs/`（审计文档必须引用其所禁字符串）。
+  `specs/`（审计文档必须引用其所禁字符串）、门禁自身与其单测（模式表/合成语料
+  即被禁字面量的定义处）。
 - Allowlist（文件 + 模式 + 理由，逐条显式；负向断言测试必须包含字面量才能断言其不存在）：
   1. `packages/shared/test/endpointWebPurge.test.ts` —— 断言 `com.zhipu` 不回流。
   2. `packages/shared/test/pluginMarketplacesP5.test.ts` —— 断言 `cdn-zcode.z.ai`

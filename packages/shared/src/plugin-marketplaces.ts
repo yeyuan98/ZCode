@@ -35,8 +35,8 @@ export const DEFAULT_ENABLED_OFFICIAL_PLUGIN_IDS: ReadonlySet<string> = new Set(
 export const DEFAULT_PLUGIN_MARKETPLACES: DefaultPluginMarketplace[] = [
   {
     // ZCode 官方市场（P5 起 bundled-only）：目录完全由应用内置 seed 分片构成，无网络 source，
-    // 不做网络刷新；旧安装 known_marketplaces.json 里遗留的 vendor CDN source 由 adapter 侧
-    // 守卫拒绝刷新（官方 id 一律不网络刷新）。
+    // 不做网络刷新。P6：known_marketplaces.json 里遗留的旧 source 记录在加载边界整体丢弃
+    //（见 isAllowedPersistedMarketplaceSource），官方市场由默认注册机制重播种为 bundled。
     id: ZCODE_OFFICIAL_PLUGIN_MARKETPLACE_ID,
     name: ZCODE_OFFICIAL_PLUGIN_MARKETPLACE_ID,
     description: "Official ZCode plugins marketplace: built-in plugins bundled with the app.",
@@ -62,4 +62,59 @@ export const PUBLIC_STORE_MARKETPLACE_IDS = [
 
 export function isPublicStoreMarketplaceId(id: string): boolean {
   return (PUBLIC_STORE_MARKETPLACE_IDS as readonly string[]).includes(id);
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/**
+ * P6（specs/distribution-and-updates.md P6 修订）：known_marketplaces 落盘记录的
+ * source 形状校验。P5 及之前的宽松守卫（isRecord(source) 即通过）随“遗留结构
+ * 一律删除”裁决收紧：未知判别式或缺必需字段的旧记录在加载边界整份丢弃。
+ */
+export function isValidPersistedMarketplaceSource(source: unknown): boolean {
+  if (!isRecord(source)) return false;
+  switch (source.source) {
+    case "url":
+      return typeof source.url === "string" && source.url.length > 0;
+    case "github":
+      return typeof source.repo === "string" && source.repo.length > 0;
+    case "git":
+      return typeof source.url === "string" && source.url.length > 0;
+    case "npm":
+      return typeof source.package === "string" && source.package.length > 0;
+    case "file":
+    case "directory":
+      return typeof source.path === "string" && source.path.length > 0;
+    case "hostPattern":
+      return typeof source.hostPattern === "string" && source.hostPattern.length > 0;
+    case "pathPattern":
+      return typeof source.pathPattern === "string" && source.pathPattern.length > 0;
+    case "settings":
+      return (
+        isRecord(source.marketplace) &&
+        typeof source.marketplace.name === "string" &&
+        Array.isArray(source.marketplace.plugins)
+      );
+    case "bundled":
+      return true;
+    default:
+      return false;
+  }
+}
+
+/**
+ * P6 保留 id 的磁盘 source 契约：保留 id（即默认市场 id）的记录只接受与其默认
+ * 定义一致的 source —— 无网络源默认（官方）只认 bundled；带 url 默认（libre）
+ * 只认默认 raw catalog url。携带其他 source 的保留 id 记录（历史供应商 CDN url、
+ * 外部仓库冒名等）在加载边界丢弃，由默认注册机制按需重播种。非保留 id（个人
+ * 市场）接受一切合法形状（I8：个人源全保留）。
+ */
+export function isAllowedPersistedMarketplaceSource(id: string, source: unknown): boolean {
+  if (!isValidPersistedMarketplaceSource(source)) return false;
+  const definition = DEFAULT_PLUGIN_MARKETPLACES.find((marketplace) => marketplace.id === id);
+  if (!definition) return true;
+  if (!definition.source) return isRecord(source) && source.source === "bundled";
+  return isRecord(source) && source.source === "url" && source.url === definition.source;
 }
