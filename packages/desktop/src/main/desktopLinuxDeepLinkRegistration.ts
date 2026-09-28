@@ -1,5 +1,5 @@
 import { existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { installLinuxAppImageDesktopIconBestEffort } from "./desktopLinuxAppImageIcon.js";
 import {
   runXdgCommand,
@@ -8,10 +8,14 @@ import {
   type LinuxDeepLinkRegistrationLogger,
 } from "./desktopLinuxXdg.js";
 
-const LINUX_DEEP_LINK_DESKTOP_FILE = "zcode.desktop";
+const LINUX_DEEP_LINK_DESKTOP_FILE = "zodex.desktop";
+// 品牌更名前（ZCode 时代）写入的用户级 desktop 文件名；只用于遗留清理识别。
+const LEGACY_LINUX_DEEP_LINK_DESKTOP_FILES = ["zcode.desktop"];
 const LINUX_DEEP_LINK_MIME_TYPE = "x-scheme-handler/zcode";
-// 归属标记：用于识别用户级 zcode.desktop 是否由本应用写入（历史所有版本都带这行 Comment）。
-const LINUX_DESKTOP_ENTRY_OWNERSHIP_MARKER = "Comment=ZCode Desktop App";
+// 归属标记：用于识别用户级 desktop 文件是否由本应用写入。更名后的新安装写新标记；
+// 历史所有 ZCode 版本都带旧标记 Comment=ZCode Desktop App，识别与清理必须同时接受两者。
+const LINUX_DESKTOP_ENTRY_OWNERSHIP_MARKER = "Comment=Zodex Desktop App";
+const LEGACY_LINUX_DESKTOP_ENTRY_OWNERSHIP_MARKERS = ["Comment=ZCode Desktop App"];
 
 type LinuxDesktopEnv = {
   APPIMAGE?: string;
@@ -109,8 +113,8 @@ function createLinuxDeepLinkDesktopEntry(params: {
   productName?: string;
   iconName?: string;
 }): string {
-  const productName = params.productName ?? "ZCode";
-  const iconName = params.iconName ?? "zcode";
+  const productName = params.productName ?? "Zodex";
+  const iconName = params.iconName ?? "zodex";
   const command = {
     executablePath: params.executablePath,
     args: params.args ?? [],
@@ -172,9 +176,14 @@ function isOwnedDesktopEntry(path: string): boolean {
     const content = readFileSync(path, "utf8");
     // 去掉 \r 与行首尾空白，兼容 CRLF 行尾或手工编辑器引入的额外空白，
     // 避免可清理的遗留条目被误判为用户自定义条目而永久残留。
-    return content
-      .split("\n")
-      .some((line) => line.replaceAll("\r", "").trim() === LINUX_DESKTOP_ENTRY_OWNERSHIP_MARKER);
+    // 更名前的旧标记同样视为本应用写入，保证旧 zcode.desktop 仍能被识别清理。
+    return content.split("\n").some((line) => {
+      const normalized = line.replaceAll("\r", "").trim();
+      return (
+        normalized === LINUX_DESKTOP_ENTRY_OWNERSHIP_MARKER ||
+        LEGACY_LINUX_DESKTOP_ENTRY_OWNERSHIP_MARKERS.includes(normalized)
+      );
+    });
   } catch {
     return false;
   }
@@ -187,19 +196,20 @@ function removeOwnedUserDesktopEntry(
   if (!existsSync(desktopFilePath)) {
     return;
   }
+  const desktopFileName = basename(desktopFilePath);
   if (!isOwnedDesktopEntry(desktopFilePath)) {
-    logger.warn("[deep-link] Linux 用户级 zcode.desktop 非本应用写入，保留不清理", {
+    logger.warn(`[deep-link] Linux 用户级 ${desktopFileName} 非本应用写入，保留不清理`, {
       desktopFilePath,
     });
     return;
   }
   try {
     rmSync(desktopFilePath);
-    logger.info("[deep-link] 已清理遗留的用户级 zcode.desktop，恢复系统级条目", {
+    logger.info(`[deep-link] 已清理遗留的用户级 ${desktopFileName}，恢复系统级条目`, {
       desktopFilePath,
     });
   } catch (error) {
-    logger.warn("[deep-link] 清理遗留用户级 zcode.desktop 失败", { desktopFilePath, error });
+    logger.warn(`[deep-link] 清理遗留用户级 ${desktopFileName} 失败`, { desktopFilePath, error });
   }
 }
 
@@ -233,14 +243,16 @@ export function registerLinuxDeepLinkProtocol(options: RegisterLinuxDeepLinkProt
   let protocolRegistered = false;
   const runCommand = options.runCommand ?? runXdgCommand;
 
-  // 用户级 zcode.desktop 在 XDG
+  // 用户级 desktop 文件在 XDG
   // 解析中永远优先于系统级同名条目。rpm/deb 安装后，旧 AppImage 写入的用户级条目会把
-  // /usr/share/applications/zcode.desktop 持续遮蔽，快捷方式和 zcode:// deep link 一直
+  // /usr/share/applications/zodex.desktop 持续遮蔽，快捷方式和 zcode:// deep link 一直
   // 指向旧 AppImage（文件还在时）或直接失效（文件被删后），只有手动跑一次新版才会被覆盖。
   // 现在只要检测到系统级同 ID 条目：
   // - 系统安装形态（rpm/deb）运行时：清掉本应用写入的遗留用户级条目，且不再写用户级；
+  //   更名前的 ZCode AppImage 写的是旧文件名 zcode.desktop（携带旧归属标记），
+  //   同样按归属清理，避免旧条目继续抢占 zcode:// 协议默认 handler；
   // - AppImage 运行时：不再写用户级条目和用户级图标，避免旧 AppImage 再度遮蔽系统安装。
-  // 用户手写的自定义 zcode.desktop（无归属标记）不受影响，保留不清理。
+  // 用户手写的自定义 desktop 文件（无归属标记）不受影响，保留不清理。
   const systemDesktopEntryPath = findSystemLevelDesktopEntryPath(
     options.systemApplicationDirs ?? resolveLinuxSystemApplicationDirs(options.env),
   );
@@ -253,6 +265,9 @@ export function registerLinuxDeepLinkProtocol(options: RegisterLinuxDeepLinkProt
         desktopFilePath,
       });
       removeOwnedUserDesktopEntry(desktopFilePath, options.logger);
+      for (const legacyDesktopFileName of LEGACY_LINUX_DEEP_LINK_DESKTOP_FILES) {
+        removeOwnedUserDesktopEntry(join(applicationsDir, legacyDesktopFileName), options.logger);
+      }
     } else {
       changed = writeFileIfChanged(desktopFilePath, desktopEntry);
     }

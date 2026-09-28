@@ -50,14 +50,14 @@ function buildCliZCodeSourceHeaders(
   const timezone = normalizePrintableHeaderValue(Intl.DateTimeFormat().resolvedOptions().timeZone);
   return {
     // Referer 固定为仓库地址：出站请求不应继续向第三方供应商广告厂商平台来源。
-    "HTTP-Referer": "https://github.com/yeyuan98/ZCode",
-    "User-Agent": `ZCode/${appVersion ?? "unknown"}`,
-    ...(appVersion ? { "X-ZCode-App-Version": appVersion } : {}),
-    "X-Title": `Z Code@${sourceTitle}`,
+    "HTTP-Referer": "https://github.com/yeyuan98/zodex",
+    "User-Agent": `Zodex/${appVersion ?? "unknown"}`,
+    ...(appVersion ? { "X-Zodex-App-Version": appVersion } : {}),
+    "X-Title": `Zodex@${sourceTitle}`,
     "X-Release-Channel": resolveRuntimeZCodeEnv(env),
     "X-Client-Language": locale ?? "unknown",
     "X-Client-Timezone": timezone ?? "unknown",
-    "X-ZCode-Agent": "zcode",
+    "X-Zodex-Agent": "zcode",
     ...createRuntimePlatformHeaders(),
   };
 }

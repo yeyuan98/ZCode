@@ -117,6 +117,10 @@ function collectWindowsForbiddenAppInstallDirs(
     programFilesX86 ? win32.join(programFilesX86, "ZCode") : null,
     programW6432 ? win32.join(programW6432, "ZCode") : null,
     localAppData ? win32.join(localAppData, "Programs", "ZCode") : null,
+    programFiles ? win32.join(programFiles, "Zodex") : null,
+    programFilesX86 ? win32.join(programFilesX86, "Zodex") : null,
+    programW6432 ? win32.join(programW6432, "Zodex") : null,
+    localAppData ? win32.join(localAppData, "Programs", "Zodex") : null,
   ];
   const seen = new Set<string>();
   const result: string[] = [];

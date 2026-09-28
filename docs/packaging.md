@@ -13,10 +13,10 @@ pnpm bundle:desktop -- --help
 
 默认目标为 macOS arm64，默认输出目录为 `packages/desktop/dist/`。`--os` 支持 `mac`、`win`、`linux`，`--arch` 支持 `x64`、`arm64`；实际打包与签名需要目标平台对应的工具和配置。
 
-安装：双击打开产物 DMG，将 ZCode 拖入"应用程序"。本地构建未签名，首次打开若被 macOS 拦截，执行：
+安装：双击打开产物 DMG，将 Zodex 拖入"应用程序"。本地构建未签名，首次打开若被 macOS 拦截，右键 → 打开，或执行：
 
 ```bash
-sudo xattr -rd com.apple.quarantine /Applications/ZCode.app
+sudo xattr -rd com.apple.quarantine /Applications/Zodex.app
 ```
 
 ## Windows 本地交叉打包冒烟
@@ -33,7 +33,7 @@ pnpm smoke:windows-bundle -- --skip-install
 
 脚本在 `~/temp/zcode-smoke/<run-id>/` 暂存当前工作区（含未提交改动）并在容器内执行与工作流一致的 install + bundle 步骤；运行结束默认清理该目录（`--keep` 保留）。pnpm/electron 下载缓存放在 Docker named volume、基础镜像与项目镜像默认保留以加速复跑；`--prune-image` / `--prune-caches` 可显式清理项目镜像与缓存（基础 node 镜像不会删除）。
 
-## ZCode 命令行版打包
+## Zodex 命令行版打包
 
 构建入口为 `pnpm build:zcode`。脚本会依次构建 CLI/TUI、后端和 Web，收集 TUI 的原生库、worker 与运行时依赖，再组装发行包；运行发行包仍需要 Node.js，版本以 `mise.toml` 为准。
 
@@ -79,7 +79,13 @@ node dist/zcode/debug/zcode/bin/zcode.mjs --web \
 
 ## 发布流程
 
-发版唯一入口是 `pnpm release`（release-it）：自动升版本、按 conventional commit 生成/更新 [CHANGELOG.md](../CHANGELOG.md)、提交 `chore: release vX`、打 `vX` 注解标签并推送。标签推送触发 [Release Desktop](../.github/workflows/release-desktop.yml) 工作流，在 windows-latest 上构建 `ZCode-<version>-win-x64.exe`、更新元数据（`latest.yml` + `.exe.blockmap`），并在 ubuntu-latest 上构建远程资产扁平上传集（各平台 manifest 与组件包），全部挂到 GitHub Release。
+发版唯一入口是 `pnpm release`（release-it）：自动升版本、按 conventional commit 生成/更新 [CHANGELOG.md](../CHANGELOG.md)、提交 `chore: release vX`、打 `vX` 注解标签并推送。标签推送触发 [Release Desktop](../.github/workflows/release-desktop.yml) 工作流，产物全部挂到 GitHub Release：
+
+- Windows 任务（windows-latest，每次 tag / 手动触发）：构建 `Zodex-<version>-win-x64.exe` 与更新元数据（`latest.yml` + `.exe.blockmap`）。
+- Linux 任务（ubuntu-latest，每次 tag / 手动触发）：经 `ZCODE_LINUX_CI_TARGETS` 构建 `Zodex-<version>-linux-x86_64.AppImage`（含 blockmap）、`Zodex-<version>-linux-amd64.deb` 与 `latest-linux.yml`。
+- macOS arm64 / x64 双架构任务（仅 tag / 手动触发）：产出 dmg 与 zip（含 blockmap），未签名（`CSC_IDENTITY_AUTO_DISCOVERY=false`）；随后的通道合并任务把双架构合并为单份 `latest-mac.yml` 再挂到 Release。
+- 远程资产任务（ubuntu-latest）：构建远程资产扁平上传集（各平台 manifest 与组件包）。
+- 本地 mac / linux 打包不变：完整目标列表（含 rpm / pacman）本地构建仍可用，CI 的 Linux 目标由 `ZCODE_LINUX_CI_TARGETS` 收窄为 AppImage + deb。
 
 - 详细变更写在 commit 消息体的 bullet 列表中，release-it 会把它们渲染为 changelog 条目的子项。
 - 禁止手工 `git tag` 发版，会绕过 CHANGELOG 生成。

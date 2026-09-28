@@ -3,7 +3,7 @@ import { ZCODE_VERSION } from "@zcode/shared";
 // P5 W2（specs/distribution-and-updates.md §B.1，D-P5.5）：remote 资产默认源由历史
 // 供应商 CDN（嵌套布局）切换为本仓库 GitHub Releases 的扁平布局；
 // __ZCODE_CDN_BASE_URL__ 构建期 define 已删除，仅保留运行时 ZCODE_CDN_BASE_URL 覆盖。
-const GITHUB_RELEASES_DOWNLOAD_BASE = "https://github.com/yeyuan98/ZCode/releases/download";
+const GITHUB_RELEASES_DOWNLOAD_BASE = "https://github.com/yeyuan98/zodex/releases/download";
 
 export interface ResolveRemoteCdnOptions {
   locale?: string;

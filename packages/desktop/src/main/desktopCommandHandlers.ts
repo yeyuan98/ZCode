@@ -238,7 +238,7 @@ function toggleZCodeStdioTapDevProxy(options: {
 // P5 D-P5.4：changelog 外链由供应商 endpoint web（{ZCODE}/cn|/en/changelog，按应用语言分流）
 // 改为本仓库 GitHub Releases 页；endpoint 解析链删除后不再有语言分流。
 export async function openChangelog(): Promise<void> {
-  await shell.openExternal("https://github.com/yeyuan98/ZCode/releases");
+  await shell.openExternal("https://github.com/yeyuan98/zodex/releases");
 }
 
 export async function executeDesktopCommand(options: {

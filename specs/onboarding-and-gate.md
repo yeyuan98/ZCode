@@ -41,10 +41,10 @@ Bearer` for openai-compatible, `x-api-key` + `anthropic-version` for anthropic-c
    started without `ZCODE_SERVER_AUTH_TOKEN` shows no login at all. Vendor OAuth for web is
    deleted in P3.
 5. **Feedback = GitHub Issues (external).** All feedback entries open
-   `https://github.com/yeyuan98/ZCode/issues/new` with context (error text / task id)
+   `https://github.com/yeyuan98/zodex/issues/new` with context (error text / task id)
    URL-prefilled in `title`/`body`. The in-app feedback center (UI, service interface, vendor
    HTTP client, local ticket store, device-id plumbing) is deleted. Community: zh-CN →
-   `https://github.com/yeyuan98/ZCode/discussions`; en-US Discord unchanged. Help config
+   `https://github.com/yeyuan98/zodex/discussions`; en-US Discord unchanged. Help config
    (feedback/community URLs) resolves from the local `config/default.json` only — the remote
    `/api/v1/client/configs` help-config fetch is removed (the remaining client-config consumer,
    the main-process context-prompt rollout, is P3 scope).

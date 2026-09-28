@@ -39,17 +39,17 @@ export const DEFAULT_PLUGIN_MARKETPLACES: DefaultPluginMarketplace[] = [
     //（见 isAllowedPersistedMarketplaceSource），官方市场由默认注册机制重播种为 bundled。
     id: ZCODE_OFFICIAL_PLUGIN_MARKETPLACE_ID,
     name: ZCODE_OFFICIAL_PLUGIN_MARKETPLACE_ID,
-    description: "Official ZCode plugins marketplace: built-in plugins bundled with the app.",
+    description: "Official Zodex plugins marketplace: built-in plugins bundled with the app.",
     pluginCount: 0,
   },
   {
-    // 自由市场：github.com/yeyuan98/zcode-plugins 的 marketplace.json（raw.githubusercontent），
+    // 自由市场：github.com/yeyuan98/zodex-plugins 的 marketplace.json（raw.githubusercontent），
     // 插件 zip 为带 sha256 的 GitHub Release 资产。预注册为默认市场但零默认启用插件，
     // 安装永远是用户显式动作；首次打开商店时由 10 分钟节流的自动刷新物化目录。
     id: ZCODE_LIBRE_PLUGIN_MARKETPLACE_ID,
-    source: "https://raw.githubusercontent.com/yeyuan98/zcode-plugins/main/marketplace.json",
+    source: "https://raw.githubusercontent.com/yeyuan98/zodex-plugins/main/marketplace.json",
     name: ZCODE_LIBRE_PLUGIN_MARKETPLACE_ID,
-    description: "Libre plugin marketplace hosted in the yeyuan98/zcode-plugins repository.",
+    description: "Libre plugin marketplace hosted in the yeyuan98/zodex-plugins repository.",
     pluginCount: 0,
   },
 ];

@@ -15,7 +15,7 @@ const buildMetadata = getBuildMetadata();
 // loadBuiltinProviderConfig，其余构建期 define 均为构建元数据。
 
 const { environment: zcodeEnv } = await loadBuiltinProviderConfig();
-// 安装包身份与后端环境分轴：ZCODE_PREVIEW_IDENTITY=1 让生产后端的构建仍以 ZCode Preview 身份打包运行。
+// 安装包身份与后端环境分轴：ZCODE_PREVIEW_IDENTITY=1 让生产后端的构建仍以 Zodex Preview 身份打包运行。
 const zcodeProductFlavor = resolveDesktopProductFlavor({ ...process.env, ZCODE_ENV: zcodeEnv });
 console.log(`[tsup] ZCODE_ENV=${zcodeEnv} ZCODE_PRODUCT_FLAVOR=${zcodeProductFlavor}`);
 
@@ -58,7 +58,7 @@ function createSharedDefines() {
     // P5 D-P5.4：__ZCODE_ENDPOINT_ENV__（endpoint origin env 注入运行时 define）已删除。
     __ZCODE_PRODUCT_FLAVOR__: JSON.stringify(zcodeProductFlavor),
     // Computer Use Helper build identity — helperInstaller 读它决定下载哪个 Helper bundle。
-    // 缺失时 installer 抛 "Packaged ZCode is missing its embedded Computer Use Helper build identity"。
+    // 缺失时 installer 抛 "Packaged Zodex is missing its embedded Computer Use Helper build identity"。
     // CI 构建时通过 ZCODE_CUA_HELPER_BUILD_ID env 注入；dev 为空串走兜底（dev helper 不走下载）。
     __ZCODE_CUA_HELPER_BUILD_ID__: JSON.stringify(
       process.env.ZCODE_CUA_HELPER_BUILD_ID?.trim() ?? "",

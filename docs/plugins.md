@@ -1,6 +1,6 @@
 # 插件与市场
 
-ZCode 的能力扩展以插件为单位（技能、命令、MCP 工具、子代理）。插件来自三类市场：
+Zodex 的能力扩展以插件为单位（技能、命令、MCP 工具、子代理）。插件来自三类市场：
 
 ## 官方内置市场（zcode-plugins-official）
 
@@ -11,7 +11,7 @@ ZCode 的能力扩展以插件为单位（技能、命令、MCP 工具、子代�
 
 ## 自由市场（zcode-plugins-libre，默认注册）
 
-托管在 [yeyuan98/zcode-plugins](https://github.com/yeyuan98/zcode-plugins)，包含
+托管在 [yeyuan98/zodex-plugins](https://github.com/yeyuan98/zodex-plugins)，包含
 skill-creator 等 9 个显式来源、可审计的插件。默认注册但**零默认启用**——安装任何
 插件都是用户显式动作。插件 zip 为带 sha256 校验的 GitHub Release 资产，目录经
 raw.githubusercontent 分发，可经 jsDelivr 类 CDN 访问（见

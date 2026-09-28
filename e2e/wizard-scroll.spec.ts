@@ -14,7 +14,7 @@ test.describe("wizard screenshots (manual inspection)", () => {
     await expect(page.getByTestId(TEMPLATE_PICKER)).toBeVisible();
 
     // 短视口下列表溢出：头部必须仍在视口内（不被裁掉），这是 alpha.2 裁切缺陷的回归断言。
-    await expect(page.getByRole("heading", { name: "Welcome to ZCode" })).toBeInViewport();
+    await expect(page.getByRole("heading", { name: "Welcome to Zodex" })).toBeInViewport();
 
     const items = page.locator('[data-testid^="model-provider-template-item-"]');
     // 全量模板（含注入的 mock）+ 自定义卡片都必须可滚动到达。
@@ -25,7 +25,7 @@ test.describe("wizard screenshots (manual inspection)", () => {
     await expect(last).toBeInViewport();
 
     // 滚动到底后头部依旧固定可见。
-    await expect(page.getByRole("heading", { name: "Welcome to ZCode" })).toBeInViewport();
+    await expect(page.getByRole("heading", { name: "Welcome to Zodex" })).toBeInViewport();
 
     await page.getByTestId(MOCK_TEMPLATE_ITEM).scrollIntoViewIfNeeded();
     await page.getByTestId(MOCK_TEMPLATE_ITEM).click();

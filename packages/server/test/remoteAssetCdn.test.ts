@@ -17,7 +17,7 @@ import {
 // - 版本锁校验同时识别裸 semver 与 `v` 前缀 tag 目录。
 
 const APP_VERSION = "3.14.3-alpha.9";
-const GITHUB_TAG_BASE = `https://github.com/yeyuan98/ZCode/releases/download/v${APP_VERSION}`;
+const GITHUB_TAG_BASE = `https://github.com/yeyuan98/zodex/releases/download/v${APP_VERSION}`;
 
 test("扁平布局：manifest 候选恰好一个（tag 目录直连）", () => {
   const releaseBaseCandidates = buildReleaseBaseCandidates([GITHUB_TAG_BASE], APP_VERSION);
@@ -41,7 +41,7 @@ test("扁平布局：组件候选恰好一个（无 components 根探测、无�
 });
 
 test("扁平布局：末段 `v` 与当前版本不完全一致时不按扁平处理（走嵌套候选）", () => {
-  const staleTagBase = "https://github.com/yeyuan98/ZCode/releases/download/v3.14.2";
+  const staleTagBase = "https://github.com/yeyuan98/zodex/releases/download/v3.14.2";
   assert.deepEqual(buildReleaseBaseCandidates([staleTagBase], APP_VERSION), [
     `${staleTagBase}/${APP_VERSION}`,
     staleTagBase,
@@ -100,7 +100,7 @@ test("版本锁校验：`v` 前缀与裸 semver 都识别，比较时去掉 `v`"
   );
   assert.throws(() =>
     assertRemoteCdnBaseVersionMatches(
-      ["https://github.com/yeyuan98/ZCode/releases/download/v3.14.2"],
+      ["https://github.com/yeyuan98/zodex/releases/download/v3.14.2"],
       APP_VERSION,
     ),
   );

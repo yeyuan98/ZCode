@@ -7,17 +7,17 @@
     fill="#B7BCBF" style="fill:#B7BCBF;fill:color(display-p3 0.7176 0.7373 0.7490);fill-opacity:1;" />
   <path
     d="M9.03854 3.86902L8.2306 5.01755C8.1036 5.19645 7.89598 5.306 7.67092 5.306H3.26767V3.86328C3.26767 3.86902 9.03854 3.86902 9.03854 3.86902Z"
-    fill="white" style="fill:white;fill-opacity:1;" />
-  <path d="M14.5209 3.86328L7.59573 13.6741H2.97913L9.90426 3.86328H14.5209Z" fill="white"
-    style="fill:white;fill-opacity:1;" />
+    fill="#17181A" style="fill:#17181A;fill-opacity:1;" />
+  <path d="M14.5209 3.86328L7.59573 13.6741H2.97913L9.90426 3.86328H14.5209Z" fill="#17181A"
+    style="fill:#17181A;fill-opacity:1;" />
   <path d="M8.46146 13.6732L9.27514 12.5189C9.40214 12.34 9.60975 12.2305 9.83482 12.2305H14.2323V13.6732H8.46146Z"
-    fill="white" style="fill:white;fill-opacity:1;" />
+    fill="#17181A" style="fill:#17181A;fill-opacity:1;" />
   <defs>
     <linearGradient id="paint0_linear_11758_79291" x1="8.74999" y1="17.32" x2="8.74999" y2="0.187504"
       gradientUnits="userSpaceOnUse">
-      <stop style="stop-color:black;stop-opacity:1;" />
-      <stop offset="1" stop-color="#151718"
-        style="stop-color:#151718;stop-color:color(display-p3 0.0824 0.0902 0.0941);stop-opacity:1;" />
+      <stop stop-color="#F5F3EE" style="stop-color:#F5F3EE;stop-opacity:1;" />
+      <stop offset="1" stop-color="#F5F3EE"
+        style="stop-color:#F5F3EE;stop-color:color(display-p3 0.9608 0.9529 0.9333);stop-opacity:1;" />
     </linearGradient>
   </defs>
 </svg>

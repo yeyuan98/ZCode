@@ -33,7 +33,7 @@ export class NodeZCodeBuiltinProviderConfigSource implements ProviderSource<Prov
 
   constructor(options: NodeZCodeBuiltinProviderConfigSourceOptions) {
     const bundledFilePath = options.bundledFilePath.trim();
-    if (!bundledFilePath) throw new Error("ZCode Built-in bundledFilePath 不能为空");
+    if (!bundledFilePath) throw new Error("Zodex Built-in bundledFilePath 不能为空");
     this.#bundledFilePath = bundledFilePath;
     this.#activeFilePath = options.activeFilePath?.trim() || bundledFilePath;
     // 旧标识只有发布序号，不同 Endpoint 同序号会让 Registry 误复用上一来源。
@@ -175,7 +175,7 @@ function selectReleaseCandidate(
   if (valid.length === 0) {
     throw new AggregateError(
       [bundled?.error, active?.error].filter((error) => error !== undefined),
-      "Bundled 与 Active ZCode Built-in Release 均不可用",
+      "Bundled 与 Active Zodex Built-in Release 均不可用",
     );
   }
   return valid.reduce((newest, candidate) =>

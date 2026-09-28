@@ -46,7 +46,7 @@ function detectArchitectureMismatch(
 
 // P5 D-P5.4：下载入口原为厂商 endpoint web 的 /cn|/en 官网下载页（按语言分流），
 // 已改为本仓库 GitHub Releases 页（语言无关）。
-const ARCHITECTURE_DOWNLOAD_URL = "https://github.com/yeyuan98/ZCode/releases";
+const ARCHITECTURE_DOWNLOAD_URL = "https://github.com/yeyuan98/zodex/releases";
 
 interface ArchitectureMismatchDialogText {
   title: string;

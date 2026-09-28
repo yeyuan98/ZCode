@@ -83,7 +83,7 @@ export function formatConversationExportV1(
   input: ConversationExportFormatterInput,
 ): ConversationExportDocument {
   const title = input.title.trim();
-  const sections = [`# ZCode session${title ? `: ${title}` : ""}`];
+  const sections = [`# Zodex session${title ? `: ${title}` : ""}`];
   const unsupportedKinds = new Set<string>();
   for (const row of input.rows) {
     switch (row.kind) {

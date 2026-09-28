@@ -9,9 +9,9 @@ Covers: (A) app auto-update, (B) remote-asset downloads, (C) plugin marketplace 
 **Behavior.**
 
 1. Update feed = this repo's GitHub Releases via electron-updater's `github` provider
-   (`publish: {provider:"github", owner:"yeyuan98", repo:"ZCode"}` in
+   (`publish: {provider:"github", owner:"yeyuan98", repo:"zodex"}` in
    `packages/desktop/electron-builder.config.js`). The Windows release workflow uploads
-   `latest.yml` + `ZCode-<version>-win-x64.exe.blockmap` alongside the installer.
+   `latest.yml` + `Zodex-<version>-win-x64.exe.blockmap` alongside the installer.
 2. electron-builder invocation must pass `--publish never` (bundle.mjs): an explicit github
    publish config on a CI tag build would otherwise trigger electron-builder's implicit
    onTag publisher, which throws without GH_TOKEN. softprops remains the sole uploader.
@@ -56,7 +56,7 @@ currentVersion has prerelease components`. Never below the electron-updater ctor
 
 **Behavior.**
 
-1. Default base: `https://github.com/yeyuan98/ZCode/releases/download/v<ZCODE_VERSION>`.
+1. Default base: `https://github.com/yeyuan98/zodex/releases/download/v<ZCODE_VERSION>`.
    Every asset is fetched by exactly ONE URL (candidate probing exists only for non-default
    mirror bases). The `__ZCODE_CDN_BASE_URL__` build-time define is deleted (D-P5.5); runtime
    env `ZCODE_CDN_BASE_URL` still overrides.
@@ -92,7 +92,7 @@ currentVersion has prerelease components`. Never below the electron-updater ctor
    proved all other "official" listings were phantom metadata in this build (sources never
    open-sourced; vendor CDN zips 404).
 2. Libre marketplace `zcode-plugins-libre` = first-party network catalog at
-   `github.com/yeyuan98/zcode-plugins` (raw.githubusercontent `marketplace.json`; zips as
+   `github.com/yeyuan98/zodex-plugins` (raw.githubusercontent `marketplace.json`; zips as
    flat-named Release assets with sha256). Pre-registered as a second DEFAULT marketplace
    (D-P5.3a): non-removable via UI (same as official), zero default-enabled plugins —
    installation is always an explicit user action.
@@ -166,14 +166,14 @@ icons).
   末段 = pinned 单候选 + 版本断言；无版本末段 = nested 双候选。检测实现于
   `remoteAssetCdn.ts::isFlatGithubTagReleaseBase`（W2 [ulw] 评审采纳的显式单候选方案）。
 - **W5 落地补充（identity + endpoint web cut）**：
-  - Builder identity per D-P5.6：homepage `https://github.com/yeyuan98/ZCode`；author
-    `{name:"ZCode", email:"yeyuan98@users.noreply.github.com"}`；linux maintainer 同值（deb/fpm
+  - Builder identity per D-P5.6：homepage `https://github.com/yeyuan98/zodex`；author
+    `{name:"Zodex", email:"yeyuan98@users.noreply.github.com"}`；linux maintainer 同值（deb/fpm
     元数据仍需这些字段，仅换值）。
   - 服务名 D7：`app.zcode.server[.<stablePathId>]`；无迁移（`unregisterService` 对“服务不存在”
     已容忍，旧厂商前缀服务留给用户手动清理；`packages/shared/test/endpointWebPurge.test.ts`
     源码扫描守卫禁止 `com.zhipu` 回流）。
   - 帮助菜单「What's new」（OpenChangelog）：changelog 外链由 `{ZCODE}/cn|/en/changelog`
-    改为 `https://github.com/yeyuan98/ZCode/releases`（语言分流随 endpoint web 删除）。
+    改为 `https://github.com/yeyuan98/zodex/releases`（语言分流随 endpoint web 删除）。
   - 架构不匹配弹窗（desktopArchitectureGuard）：下载按钮由厂商 `/cn|/en` 官网页改为同一
     GitHub Releases 页（保留按钮—— Releases 页即安装包分发处，非死链）。
   - clientScenes 内容缺口：automation 模板（「More ideas」+ 闲时模板卡）与新任务页 coding
@@ -210,3 +210,12 @@ src/plugins/marketplace.ts` 的 `isKnownMarketplaceRecord` 收紧为当前记录
   已是 strict，不动；严格形状/保留 id 契约单测落位 shared
   （packages/shared/test/pluginMarketplacesP6.test.ts；A-P4.1 口径下 CLI 无 runner，
   adapter loader 为薄委托，契约逻辑全部在 shared）。
+
+## P7 修订（2026-09-29）
+
+- **Repo 重命名（specs/rebrand-and-final-release.md D1–D3）**：P7: repo renamed to
+  yeyuan98/zodex; product/installer renamed to Zodex; alpha-compat dropped by design。
+  本 spec 的 live-contract URL（§A.1 publish repo、§B.1 默认基址、§C.2 libre 仓库、W5
+  builder homepage / changelog 外链）与 Windows artifact 文件名前缀
+  （`Zodex-<version>-win-x64.exe.blockmap`）随重命名更新；`zcode-remote-*` 资产名与
+  `manifest-<platformArch>.json` 命名按 D2 保持不变。

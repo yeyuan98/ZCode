@@ -64,7 +64,7 @@ test("默认市场形态：官方 bundled-only + libre raw.githubusercontent，�
   assert.equal(official.source, undefined, "官方市场 bundled-only：默认条目不得携带网络 source");
   assert.equal(
     libre.source,
-    "https://raw.githubusercontent.com/yeyuan98/zcode-plugins/main/marketplace.json",
+    "https://raw.githubusercontent.com/yeyuan98/zodex-plugins/main/marketplace.json",
   );
   assert.deepEqual(
     [...PUBLIC_STORE_MARKETPLACE_IDS],

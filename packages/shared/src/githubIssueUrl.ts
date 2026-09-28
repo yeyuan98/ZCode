@@ -1,5 +1,5 @@
 /** 默认反馈入口：GitHub Issues 新建 issue 页（P2 起替代内置反馈中心）。 */
-export const DEFAULT_GITHUB_ISSUES_URL = "https://github.com/yeyuan98/ZCode/issues/new";
+export const DEFAULT_GITHUB_ISSUES_URL = "https://github.com/yeyuan98/zodex/issues/new";
 
 /**
  * 构建 GitHub Issues 新建 issue URL，仅在 title / body 非空时追加查询参数。

@@ -10,7 +10,7 @@ export const UPDATE_FEED_URL_ENV = "ZCODE_UPDATE_FEED_URL";
 export const UPDATE_FEED_URL_SWITCH = "--zcode-update-feed-url";
 
 export const GITHUB_UPDATE_FEED_OWNER = "yeyuan98";
-export const GITHUB_UPDATE_FEED_REPO = "ZCode";
+export const GITHUB_UPDATE_FEED_REPO = "zodex";
 
 export type UpdateFeedProviderConfig =
   | { provider: "generic"; url: string; useMultipleRangeRequest: false }

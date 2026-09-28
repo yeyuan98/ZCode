@@ -195,7 +195,7 @@ registerLocalMediaPreviewScheme(protocol);
 const localMediaPreviewPathRegistry = createLocalMediaPreviewPathRegistry();
 
 // e2e 由 Chromedriver 管理远程调试端口；如果这里继续固定到 9229，
-// 会和开发态已打开的 ZCode Dev 抢端口，导致 WebDriver session 创建前白屏超时。
+// 会和开发态已打开的 Zodex Dev 抢端口，导致 WebDriver session 创建前白屏超时。
 // 仅本地开发运行默认开启远程调试端口，并允许 e2e 通过环境变量交给 Chromedriver 接管。
 if (!app.isPackaged && process.env.ZCODE_DISABLE_FIXED_REMOTE_DEBUGGING_PORT !== "1") {
   app.commandLine.appendSwitch("remote-debugging-port", "9229");
@@ -678,7 +678,7 @@ mainMemoryLogTimer.unref?.();
 
 app.on("browser-window-focus", (_event, win) => {
   rebuildMenu();
-  // 设置/更新等无 Host 的 ZCode 窗口也算前台：router 会先把旧 workspace Host 清成 null，
+  // 设置/更新等无 Host 的 Zodex 窗口也算前台：router 会先把旧 workspace Host 清成 null，
   // 再把无 Host 的新窗口事实静默丢弃，避免旧会话 PiP 继续显示。
   cuaPipFocusRouter.focusWindow(resolveCuaPipWindowKey(win));
 });
@@ -1188,7 +1188,7 @@ function confirmAppQuit(originWindow?: BrowserWindow | null) {
     defaultId: 1,
     cancelId: 1,
     title: isZh ? "退出确认" : "Confirm Quit",
-    message: isZh ? "确认退出 Z Code?" : "Quit Z Code?",
+    message: isZh ? "确认退出 Zodex?" : "Quit Zodex?",
     detail: detailLines.join("\n"),
     icon: nativeImage.createFromPath(iconPath),
   };
@@ -1834,7 +1834,7 @@ app.whenReady().then(async () => {
   logWindowsBundledRuntimeIntegrityDiagnostic();
 
   // 启动自动更新检查（后台执行，不阻塞主界面）
-  // Preview 身份不自动更新：stable feed 上只分发正式 ZCode 安装包，不向 Preview 渠道提供更新。
+  // Preview 身份不自动更新：stable feed 上只分发正式 Zodex 安装包，不向 Preview 渠道提供更新。
   // P5：更新源已切换为本仓库 GitHub Releases（electron-updater github provider），
   // 厂商 manifest feed 策略开关随 provider 一并删除，更新路径恢复。
   void initAutoUpdater({

@@ -168,7 +168,7 @@ test("formatter: 基础行 user/assistant/reasoning/tool 渲染", () => {
     }),
   ];
   const document = formatConversationExportV1({ title: "Repo 概览", rows });
-  assert.match(document.markdown, /^# ZCode session: Repo 概览/u);
+  assert.match(document.markdown, /^# Zodex session: Repo 概览/u);
   assert.match(document.markdown, /## User\n\nSummarize the repo\./u);
   assert.match(document.markdown, /## Assistant\n\nHere is the summary\./u);
   assert.match(document.markdown, /## Reasoning\n\nThinking\.\.\./u);
