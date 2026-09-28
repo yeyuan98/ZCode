@@ -160,6 +160,11 @@ icons).
 
 ## Amendments (in-phase)
 
+- **W2 落地补充（布局选择机制）**：flat 与 nested 布局由基址形态决定，不新增
+  ConnectOptions 字段——基址末段为 `v<version>`（GitHub tag 目录，含 env
+  `ZCODE_CDN_BASE_URL` 根 + 自动追加 `/v<version>` 的形态）即 flat 单候选；裸 semver
+  末段 = pinned 单候选 + 版本断言；无版本末段 = nested 双候选。检测实现于
+  `remoteAssetCdn.ts::isFlatGithubTagReleaseBase`（W2 [ulw] 评审采纳的显式单候选方案）。
 - **W5 落地补充（identity + endpoint web cut）**：
   - Builder identity per D-P5.6：homepage `https://github.com/yeyuan98/ZCode`；author
     `{name:"ZCode", email:"yeyuan98@users.noreply.github.com"}`；linux maintainer 同值（deb/fpm
