@@ -32,7 +32,7 @@ export const ZCODE_AGENT_RUNTIME: ZCodeAgentRuntimeDescriptor = {
   nativeConfigDir: ".zcode/cli",
   nativeConfigFileName: "config.json",
   missingBinaryMessage:
-    "[ZCode Agent] zcode binary 未找到，请设置 ZCODE_AGENT_BINARY_PATH 或先准备 ZCode Agent 运行时资源",
+    "[Zodex Agent] zcode binary 未找到，请设置 ZCODE_AGENT_BINARY_PATH 或先准备 Zodex Agent 运行时资源",
   resolveEntrySegments: (platform) => [resolvePlatformBinaryName("zcode-agent", platform)],
   nodeBundleEntryFile: "zcode.cjs",
   resolveNodeBundleSegments() {
