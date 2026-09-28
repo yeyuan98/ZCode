@@ -31,27 +31,27 @@ export type InputId = string;
 export type QueryId = string;
 // ---- ZCode Provider ----
 
-/** 支持的 ZCode agent 提供方；当前仅保留 glm。 */
-export type ZCodeProvider = "glm";
-export type ZCodeGlmAgentModelStateUpdateReason =
+/** 支持的 ZCode agent 提供方；当前仅保留 zcode。 */
+export type ZCodeProvider = "zcode";
+export type ZCodeAgentModelStateUpdateReason =
   | "session_initialized"
   | "model_changed"
   | "thought_level_changed";
-export interface ZCodeGlmAgentModelStateOption {
+export interface ZCodeAgentModelStateOption {
   value: string;
   name: string;
 }
-export interface ZCodeGlmAgentModelStateUpdatePayload {
+export interface ZCodeAgentModelStateUpdatePayload {
   version: 1;
   sessionId: string;
-  reason: ZCodeGlmAgentModelStateUpdateReason;
+  reason: ZCodeAgentModelStateUpdateReason;
   model: {
     currentValue: string;
   };
   thoughtLevel: {
     enabled: boolean;
     currentValue?: string;
-    options: ZCodeGlmAgentModelStateOption[];
+    options: ZCodeAgentModelStateOption[];
   };
   contextWindow: {
     tokens: number;
@@ -306,7 +306,7 @@ export interface ZCodeTaskMeta {
    * 这里记录 runtimeEpoch，用来区分“task 自身模型保持”与“runtime 基线确实变更后需要收敛”。
    */
   runtimeEpoch?: number;
-  /** 创建此 task 时使用的 agent provider，缺省视为 "glm"（旧数据兼容） */
+  /** 创建此 task 时使用的 agent provider，缺省视为 "zcode"（新数据约定；旧数据缺省值按 Ruling 1 孤儿化） */
   provider?: ZCodeProvider;
   /** 迁移来源；普通新建任务为空，用于识别 Claude Code 原生历史导入。 */
   migrationSource?: ZCodeTaskMigrationSource;
@@ -431,7 +431,7 @@ export type TaskStreamMirrorableEvent = (
 ) & { inputId?: InputId };
 export type ZCodeStreamEvent = (
   | TaskStreamMirrorableEvent
-  | ZCodeGlmAgentModelStateUpdate
+  | ZCodeAgentModelStateUpdate
   | ZCodeGoalIterationStarted
   | ZCodeTurnSteerQueued
   | ZCodeTurnSteerStatus
@@ -829,9 +829,9 @@ export interface ZCodeConfigOptionUpdate {
   inputId?: InputId;
   configOptions: ZCodeConfigOption[];
 }
-/** zcode-cli/GLM agent 专属：模型变化后同步思考等级选项和上下文窗口。 */
-export interface ZCodeGlmAgentModelStateUpdate extends ZCodeGlmAgentModelStateUpdatePayload {
-  type: "glm_agent_model_state_update";
+/** zcode-cli agent 专属：模型变化后同步思考等级选项和上下文窗口。 */
+export interface ZCodeAgentModelStateUpdate extends ZCodeAgentModelStateUpdatePayload {
+  type: "zcode_agent_model_state_update";
   taskId: string;
   traceId: TraceId;
   inputId?: InputId;

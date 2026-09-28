@@ -175,7 +175,7 @@ export function SettingsSyncSelectionStep(props: {
                       </div>
                     </div>
                     <div className="flex min-w-0 flex-1 items-center gap-2">
-                      {renderProviderCliIcon("glm", "size-4 shrink-0 text-foreground")}
+                      {renderProviderCliIcon("zcode", "size-4 shrink-0 text-foreground")}
                       <div className="min-w-0 flex-1">
                         <div className="text-ui-base font-medium leading-none text-foreground">
                           {formatAgentName(agent.agent, intl)}

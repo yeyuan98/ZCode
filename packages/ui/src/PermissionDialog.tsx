@@ -162,8 +162,8 @@ function getOptionLabelMessageId(kind: string): string | null {
 const PROVIDER_PERMISSION_OPTION_NAME_LABELS: Partial<
   Record<ZCodeProvider, Record<string, string>>
 > = {
-  glm: {
-    // GLM/ZCode Agent 通过 ZCode Agent 发来的项目级记忆授权文案是英文原文。
+  zcode: {
+    // ZCode Agent 通过 ZCode Agent 发来的项目级记忆授权文案是英文原文。
     // 这里把已知 provider-native 权限文案统一归一到 i18n，避免被当成自定义选项直出英文。
     "always allow in this project": "chat.permission.allowForProject",
   },

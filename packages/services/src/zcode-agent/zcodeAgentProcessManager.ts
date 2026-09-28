@@ -393,10 +393,10 @@ function resolveDeployedZCodeAgentBinaryCommand(
 ): ZCodeAgentCommand | null {
   // 旧 resolver 只识别 ZCODE_AGENT_SERVER_COMMAND env 和 monorepo 源码树。
   // SSH 远端把 zcode-server.cjs 单文件部署到 ~/.zcode/server/，宿主进程的 cwd 不在仓库内、
-  // env 也不会被 ssh exec 继承，即使 zcode-agent 已经部署到 ~/.zcode/server/agents/glm/，
+  // env 也不会被 ssh exec 继承，即使 zcode-agent 已经部署到 ~/.zcode/server/agents/zcode/，
   // resolver 也找不到，第一次 getClient 就抛 "ZCode agent server command is not configured"。
-  // 这里复用 findZCodeAgentRuntimeBinary 的候选链（含 GLM_BINARY_PATH env、
-  // packagedResourcesPath、~/.zcode/server/agents/glm、bundled-agents 等），
+  // 这里复用 findZCodeAgentRuntimeBinary 的候选链（含 ZCODE_AGENT_BINARY_PATH env、
+  // packagedResourcesPath、~/.zcode/server/agents/zcode、bundled-agents 等），
   // 把已部署的原生 binary 当成最终兜底，远端/桌面打包形态都能命中。
   const binaryPath = findZCodeAgentRuntimeBinary();
   if (!binaryPath) {
@@ -414,7 +414,7 @@ function resolveElectronRuntimeZCodeAgentCommand(
 ): ZCodeAgentCommand | null {
   // 桌面打包态：host 跑在 Electron utility process 里，process.execPath 指向 Electron Helper，
   // 它内置的 Node runtime 与 zcode-cli 目标版本一致（Electron 41 = Node 24.x）。
-  // 这里直接用 app 自带的 Electron Node 执行打进 resources/glm 的 zcode.cjs，
+  // 这里直接用 app 自带的 Electron Node 执行打进 resources/zcode 的 zcode.cjs，
   // 不再随包内置一份独立 Node 二进制（体积从 ~180MB 降到 ~16MB，且跨平台同一份 JS）。
   // 用 process.versions.electron 作为闸门：远端 SSH/WSL host 由系统 Node 运行、没有 electron，
   // 会跳过这里继续走原生二进制兜底，桌面/远端两条链路互不影响。

@@ -1034,7 +1034,7 @@ export function createSkillsService(options?: SkillsServiceOptions): ISkillsServ
       provider?: ZCodeProvider;
     }): Promise<SkillsListResult> {
       const capability = resolveCapabilities(options);
-      const provider = "glm";
+      const provider = "zcode";
       const { skills: discovered, diagnostics } = await discoverSkills({
         workspacePath: params.workspacePath,
         workspaceIdentity: params.workspaceIdentity,
@@ -1058,7 +1058,7 @@ export function createSkillsService(options?: SkillsServiceOptions): ISkillsServ
       enabled: boolean;
     }): Promise<void> {
       const runUpdate = async () => {
-        const provider = "glm";
+        const provider = "zcode";
         const capability = resolveCapabilities(options);
         const { skills } = await discoverSkills({
           workspacePath: params.workspacePath,

@@ -53,8 +53,8 @@ function toReferenceCatalogEntry(skill: SkillMetadata): ZCodeSkillReferenceCatal
   const scope =
     skill.source === "plugin" ? "plugin" : skill.scope === "project" ? "workspace" : "user";
   return {
-    // `glm:` 是现有 UI provider 过滤契约；路径使同名不同来源仍有稳定行身份。
-    id: `glm:${scope}:${skill.path}`,
+    // `zcode:` 是现有 UI provider 过滤契约（P4 前缀随 provider 身份重命名，生产/消费同commit翻转）；路径使同名不同来源仍有稳定行身份。
+    id: `zcode:${scope}:${skill.path}`,
     name: skill.name,
     description: skill.description,
     path: skill.path,
