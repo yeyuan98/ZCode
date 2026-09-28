@@ -86,14 +86,14 @@ jobs:
           node-version: 24.14.0
           cache: pnpm
 
-      # turbo 从根 workspace 的 node_modules/.bin 解析；两个 workspace 都要安装。
-      - name: Install root dependencies
+      # CLI 包也在根 workspace（pnpm-workspace.yaml 含 apps/zcode-cli/packages/*）；
+      # 与本地一致的流程：根 install + turbo 从根 node_modules/.bin 解析。
+      # 注意：apps/zcode-cli 自带的独立 workspace/lockfile 是历史遗留，无法独立
+      # fresh install（workspace:* 在其中不可解析），不做嵌套 install。
+      - name: Install dependencies
         run: pnpm install --frozen-lockfile
         env:
           HUSKY: "0"
-
-      - name: Install CLI workspace dependencies
-        run: pnpm --dir apps/zcode-cli install --frozen-lockfile
 
       - name: CLI gates
         run: |
