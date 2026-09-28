@@ -1,7 +1,7 @@
 import type { IServiceAccessor } from "@zcode/services";
 import { Event, ProxyChannel, type IChannel } from "@zcode/rpc";
 import { useMemo } from "react";
-import { useOptionalServices, useServices } from "@/hooks/useServices.js";
+import { useServices } from "@/hooks/useServices.js";
 import {
   useRemoteWorkspaceSessionStore,
   type RemoteWorkspaceSession,
@@ -133,16 +133,6 @@ export function useBaseWorkspaceServices(): IServiceAccessor {
   // 这类跨 workspace 查询里的本地 shard 必须继续查本机 host。
   // 这里优先使用 renderer 启动时注册的根 services，避免远端连接污染本地任务列表。
   return resolveBaseWorkspaceServices(contextServices, registeredBaseServices);
-}
-
-export function useOptionalBaseWorkspaceServices(): IServiceAccessor | null {
-  const contextServices = useOptionalServices();
-  const registeredBaseServices = useRemoteWorkspaceSessionStore((state) => state.baseServices);
-
-  // usage entitlement 等 app-global 能力曾从当前 workspace ServiceProvider
-  // 取服务；远端 tab 在 attachment ready 前会得到断连代理并产生无效 RPC。base host 才是
-  // app-global 权威；Web/SSR 未注册 base services 时保留原有 context/null 降级语义。
-  return registeredBaseServices ?? contextServices;
 }
 
 interface WorkspaceServicesResolution {

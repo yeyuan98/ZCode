@@ -69,6 +69,8 @@ export {
   RUNTIME_ZCODE_DEBUG,
   normalizeZCodeEnv,
   normalizeZCodeProductFlavor,
+  // P5 D-P5.4：自 zcodeEndpoint.ts 迁入（endpoint 解析链删除；CLI 请求头仍在消费）。
+  resolveRuntimeZCodeEnv,
 } from "./env.js";
 export * from "./errors.js";
 export type { SessionCreateSource } from "./sessionCreateSource.js";
@@ -88,14 +90,13 @@ export * from "./zcode-session-visible-content.js";
 // P3 C3：官方 MCP（Z.ai 托管）服务删除，official-mcp-auth.ts 与 official-mcp-tool-error.ts
 // 整文件移除；通用常量 ZCODE_WORKSPACE_IDENTITY_ENV 已迁至 env.ts。
 export * from "./conversation-message-projection-policy.js";
-export * from "./conversation-share.js";
+// P5 W4：会话分享协议（conversation-share.ts）整体删除，decodeConversationShareRows 无存续消费方。
 export * from "./conversation-preview-artifacts.js";
 export * from "./zcode-session-task-status.js";
 export * from "./zcode-tool-projection-memory.js";
 export * from "./zcode-slash-command-help.js";
-export * from "./zcodeEndpoint.js";
-export * from "./zcode-source-headers.js";
-export * from "./updateFeedPolicy.js";
+// P5 D-P5.4：zcodeEndpoint.js（endpoint origin 解析）与 zcode-source-headers.js
+// （平台来源信任头）已随 endpoint web / clientScenes 链整体删除；resolveRuntimeZCodeEnv 迁至 env.js。
 export * from "./zcode-agent-policy.js";
 export * from "./zcode-media-policy.js";
 export * from "./media-preview.js";
@@ -249,8 +250,8 @@ export * from "./uuid.js";
 // 仅保留通用 App Usage 形状（app-usage.ts）。
 export * from "./app-usage.js";
 // P3 C2 供应商套餐/计费面删除：coding-plan-subscription.ts（购买/企业订单协议类型）
-// 已整体删除；ForceUpdateConfig 已由 forceUpdate.ts 本地内联（S0）。
-export * from "./forceUpdate.js";
+// 已整体删除。P5 更新域硬切：forceUpdate.ts（强更 gate 最小类型）与 updateFeedPolicy.ts
+// （厂商 manifest feed 策略开关）已随 GitHub provider 切换删除。
 export * from "./intranetProbe.js";
 export * from "./intranetDefaults.js";
 export * from "./hooks.js";

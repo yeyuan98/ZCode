@@ -1,21 +1,23 @@
 import { WorkspaceEditorButtonGroup } from "@/WorkspaceEditorButtonGroup.js";
 import { WorkspaceSidePaneToggleButton } from "@/WorkspaceSidePaneToggleButton.js";
 import { WorkspaceTerminalToggleButton } from "@/WorkspaceTerminalToggleButton.js";
+import { WorkspaceExportConversationButton } from "@/WorkspaceHeaderSections/WorkspaceExportConversationButton.js";
 import { cn } from "@/components/lib/utils.js";
 import type { WorkspaceHeaderActionSectionProps } from "@/WorkspaceHeaderSections/shared.js";
 import { WorkspaceHelpMenuButton } from "@/WorkspaceHelpMenuButton.js";
-import { ConversationShareMenu } from "@/ConversationShareMenu.js";
 import { DesktopWindowControls } from "@/DesktopWindowControls.js";
 
 export type { WorkspaceHeaderActionSectionProps } from "@/WorkspaceHeaderSections/shared.js";
 
 export function WorkspaceHeaderActionSection({
   variant = "task",
-  activeTaskId,
-  user,
+  // P5 W4b：导出入口使用 activeSessionId（本地导出无登录门槛）；原 share 的
+  // activeTaskId/user props 契约随 W4a 删除的菜单一起移除。
+  activeSessionId,
   readOnlyReason,
   workspaceAbsPath,
   workspaceIdentity,
+  remoteSessionId,
   remoteTarget,
   isDesktop,
   isTerminalOpen,
@@ -47,10 +49,15 @@ export function WorkspaceHeaderActionSection({
           onSelectedEditorChange={onSelectedEditorChange}
         />
       ) : null}
-      {/* 分享发布接口依赖登录态；未登录时隐藏入口，避免用户打开后只能得到鉴权失败。 */}
-      {activeTaskId && user && isDesktop !== false ? (
-        <ConversationShareMenu
-          taskId={activeTaskId}
+      {/* P5 W4：会话分享菜单（ConversationShareMenu）已删除；W4b 起此槽位为本地导出入口。
+          导出无登录门槛（本地 Markdown），只要存在活跃会话即显示，桌面与 Web 均可用。 */}
+      {variant === "task" && activeSessionId ? (
+        <WorkspaceExportConversationButton
+          sessionId={activeSessionId}
+          workspacePath={workspaceAbsPath}
+          workspaceIdentity={workspaceIdentity}
+          remoteSessionId={remoteSessionId}
+          remoteTarget={remoteTarget}
           useWindowsCaptionSpacing={useWindowsCaptionSpacing}
         />
       ) : null}

@@ -33,6 +33,11 @@ import {
 } from "./deterministic-tar-archive.mjs";
 import { runCommand } from "./spawn-command.mjs";
 import { resolveIntranetDepsBaseUrl } from "./intranetDefaults.mjs";
+import {
+  buildFlatRemoteAssetArtifactName,
+  buildFlatRemoteAssetManifestName,
+  parseFlatRemoteAssetArtifactName,
+} from "./lib/flat-asset-names.mjs";
 
 export { computeComponentSourceSha256, packComponentSourceAsArchive };
 
@@ -53,6 +58,9 @@ const componentSchemaVersion = 1;
 const remotePlatforms = ["linux-arm64", "linux-x64", "darwin-arm64", "darwin-x64"];
 const pnpmCommand = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
 const isBootstrapWithRemote = process.env.ZCODE_BOOTSTRAP_WITH_REMOTE === "1";
+// P5 W2：可选的扁平发布暂存目录。设置后，在既有嵌套 mock-cdn 树（开发流保持不变）之外，
+// 额外产出一套 GitHub Release 扁平资产（manifest 重写 artifactPath 为扁平文件名 + 组件 tarball 改名复制）。
+const flatReleaseStagingDir = process.env.ZCODE_REMOTE_ASSET_FLAT_STAGING_DIR?.trim() || null;
 
 /**
  * Node dist 下载源。默认走国内镜像，`ZCODE_NODE_DIST_MIRROR` 可覆盖（与
@@ -1029,6 +1037,75 @@ function prepareRemoteComponentArtifacts() {
   }
 }
 
+// P5 W2：把嵌套 mock-cdn 树投影为 GitHub Release 扁平上传集。
+// manifest 复用刚生成的嵌套版本（sha/version/mount 不变、无二次哈希），仅重写 components[].artifactPath
+// 为扁平文件名；组件 tarball 从嵌套对象原样复制改名。目录先清空重建，避免本地重跑残留旧资产混入上传集。
+export function stageFlatReleaseAssets(stagingDir) {
+  rmSync(stagingDir, { recursive: true, force: true });
+  mkdirSync(stagingDir, { recursive: true });
+  let stagedCount = 0;
+  const knownComponentIds = new Set();
+
+  for (const platformKey of remotePlatforms) {
+    const nestedManifestPath = join(releaseDir, `manifest-${platformKey}.json`);
+    const manifest = readJsonFile(nestedManifestPath);
+    if (!manifest || !Array.isArray(manifest.components)) {
+      throw new Error(
+        `[prepare-prebuilds] missing nested manifest for flat staging: ${nestedManifestPath}`,
+      );
+    }
+
+    const flatComponents = manifest.components.map((component) => {
+      const flatArtifactName = buildFlatRemoteAssetArtifactName({
+        componentId: component.id,
+        platformArch: platformKey,
+        version: component.version,
+        sha256: component.sha256,
+      });
+      // 上传前的自检：扁平文件名必须能按已知 id 解析回同一组件/平台/sha，防止命名规约回归混入 Release。
+      const parsed = parseFlatRemoteAssetArtifactName(
+        flatArtifactName,
+        knownComponentIds.add(component.id),
+      );
+      if (
+        parsed.platformArch !== platformKey ||
+        parsed.sha12 !== component.sha256.slice(0, 12).toLowerCase()
+      ) {
+        throw new Error(`[prepare-prebuilds] flat name round-trip mismatch: ${flatArtifactName}`);
+      }
+      const nestedArtifactPath = join(mockCdnDir, ...component.artifactPath.split("/"));
+      if (!existsSync(nestedArtifactPath)) {
+        throw new Error(
+          `[prepare-prebuilds] flat staging source artifact missing: ${nestedArtifactPath}`,
+        );
+      }
+      copyFileSync(nestedArtifactPath, join(stagingDir, flatArtifactName));
+      stagedCount += 1;
+      return { ...component, artifactPath: flatArtifactName };
+    });
+
+    const flatManifestName = buildFlatRemoteAssetManifestName(platformKey);
+    writeFileSync(
+      join(stagingDir, flatManifestName),
+      `${JSON.stringify(
+        {
+          schemaVersion: manifest.schemaVersion ?? componentSchemaVersion,
+          appVersion: manifest.appVersion ?? version,
+          platformArch: platformKey,
+          components: flatComponents,
+        },
+        null,
+        2,
+      )}\n`,
+      "utf8",
+    );
+    stagedCount += 1;
+    console.log(`  [ok] flat staging ${flatManifestName} (${flatComponents.length} components)`);
+  }
+
+  console.log(`  [ok] flat staging dir ${stagingDir} (${stagedCount} assets total)`);
+}
+
 async function main() {
   console.log(`==> Preparing mock CDN release in ${releaseDir}`);
 
@@ -1053,6 +1130,9 @@ async function main() {
     await stageThirdPartyNotices(join(releaseDir, "zcode", platformKey), rootDir);
   }
   prepareRemoteComponentArtifacts();
+  if (flatReleaseStagingDir) {
+    stageFlatReleaseAssets(resolve(flatReleaseStagingDir));
+  }
 
   console.log(`==> Done! Mock CDN release ready at ${releaseDir}`);
 }

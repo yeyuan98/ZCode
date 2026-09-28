@@ -168,8 +168,8 @@ interface StartAppServerOptions {
 /**
  * 启动一台隔离数据的真实服务器（子进程 + tsx 加载仓库 TS 源码）。
  * - 每次调用生成独立 home/workspace 临时目录，测试之间无状态残留；
- * - ZCODE_ENDPOINT_ORIGIN 指向 mock 服务：阻断 builtin 配置的远端 CDN 刷新，
- *   防止真实远端 release 覆盖掉注入的 mock-e2e 模板。
+ * - builtin provider 配置由 server-config.json 显式指向 mock 文件（P3 C5 起远端
+ *   刷新已删除，无需再以 ZCODE_ENDPOINT_ORIGIN 阻断 CDN 刷新）。
  */
 async function startAppServer(options: StartAppServerOptions): Promise<AppServer> {
   await mkdir(artifactsRoot, { recursive: true });
@@ -208,7 +208,6 @@ async function startAppServer(options: StartAppServerOptions): Promise<AppServer
       HOME: homeDir,
       USERPROFILE: homeDir,
       ZCODE_DATA_BASE_DIR: homeDir,
-      ZCODE_ENDPOINT_ORIGIN: options.mockOrigin,
     },
     stdio: ["ignore", "pipe", "pipe"],
   });

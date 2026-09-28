@@ -709,6 +709,11 @@ async function main() {
     "electron-builder.config.js",
     osBuilderFlagMap[os],
     archBuilderFlagMap[arch],
+    // P5：electron-builder.config.js 显式配置 github publish 后，CI tag 构建
+    // （CI=true + GITHUB_REF_TYPE=tag）会触发隐式 onTag 发布，无 GH_TOKEN 时
+    // GitHubPublisher 构造直接抛错。这里显式关闭，softprops 仍是唯一上传通道。
+    "--publish",
+    "never",
   ];
 
   console.log(`[bundle] target=${os}/${arch}`);

@@ -6,6 +6,24 @@ import type { ExecutionContext, TraceContext } from "../tracing/tracer.js";
 
 export const ZCODE_OFFICIAL_PLUGIN_MARKETPLACE = "zcode-plugins-official";
 export const ZCODE_INLINE_PLUGIN_MARKETPLACE = "inline";
+/**
+ * 自由市场 id（P5 D-P5.3a）：first-party 网络目录，与官方市场同为预注册保留身份。
+ * 注意 `isOfficialMarketplaceId` 仍只认官方 id——libre 永远不被标记为 "official"。
+ */
+export const ZCODE_LIBRE_PLUGIN_MARKETPLACE = "zcode-plugins-libre";
+/**
+ * 反冒用保留市场 id 集合（P5 R6）：官方（bundled-only，一律拒绝网络声明）与 libre
+ * （仅允许 trustedId 匹配的内部刷新物化）。用户侧 addMarketplace 声明这两个 id 会被拒绝，
+ * bootstrap 的同 id 声明保护也以此为判据。
+ */
+export const RESERVED_PLUGIN_MARKETPLACE_IDS: ReadonlySet<string> = new Set([
+  ZCODE_OFFICIAL_PLUGIN_MARKETPLACE,
+  ZCODE_LIBRE_PLUGIN_MARKETPLACE,
+]);
+
+export function isReservedPluginMarketplaceId(id: string): boolean {
+  return RESERVED_PLUGIN_MARKETPLACE_IDS.has(id);
+}
 export const ZCODE_PLUGIN_HOST_COMMAND = "__zcode-plugin-host";
 /**
  * 隐藏子命令：dynamic workflow 的沙箱子进程入口（`__zcode-dwf-child <entry path>`；argv 末位是
@@ -130,12 +148,6 @@ export interface PluginStoreListing {
   /** 详情页示例提示词胶囊；点击后新建会话预填。 */
   examplePrompts?: string[];
   examplePromptsI18n?: Record<string, string[]>;
-  /**
-   * 需要付费套餐才好用：目录条目声明 `requiresPaidPlan: true`，商店卡片与详情页
-   * 标题右侧展示提示图标。表达「使用条件」，不代表插件本身是收费商品，
-   * 因此不参与安装门禁与计费；命名不绑定具体套餐商品名，套餐改名不会让字段过期。
-   */
-  requiresPaidPlan?: boolean;
 }
 
 export interface PluginManifest {

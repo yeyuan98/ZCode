@@ -48,7 +48,11 @@ import type {
   PluginMetadata,
   PluginStoreListing,
 } from "@zcode/contracts";
-import { ZCODE_OFFICIAL_PLUGIN_MARKETPLACE, isOfficialMarketplaceId } from "@zcode/contracts";
+import {
+  ZCODE_OFFICIAL_PLUGIN_MARKETPLACE,
+  isOfficialMarketplaceId,
+  isReservedPluginMarketplaceId,
+} from "@zcode/contracts";
 import { ZCODE_CUA_OFFICIAL_PLUGIN_ID, isZCodeCuaInternalFeatureEnabled } from "@zcode/shared";
 import { resolveOfficialPluginRoots } from "./app/bundled-plugins.js";
 import {
@@ -98,8 +102,6 @@ export interface ZCodeMarketplaceSummaryData {
     failedAt: string;
     message: string;
   };
-  // 目录顶层 featured 策展名单（商店「公开」分段 Featured 区），随 manifest 下发。
-  featured?: string[];
 }
 
 export interface ZCodeAvailablePluginData {
@@ -290,8 +292,8 @@ export function getZCodePluginsOverview(
   const installed = listInstalledPluginRecords(pluginStorageRoot);
   const installedIds = new Set(installed.map((record) => record.id));
 
-  // 每个市场的 manifest 只读一次：同时取 entries（目录条目）与 featured（策展名单）。
-  // zcode-plugins-official 的内置与 CDN 分片已在 adapter 层合并为唯一 canonical manifest。
+  // 每个市场的 manifest 只读一次：同时取 entries（目录条目）。
+  // zcode-plugins-official 的合并目录只含 bundled 分片（P5：CDN 分片合并路径已删除）。
   const catalogs: Array<{
     summary: ZCodeMarketplaceSummaryData;
     entries: PluginMarketplaceEntry[];
@@ -306,7 +308,6 @@ export function getZCodePluginsOverview(
     catalogs.push({
       summary: toMarketplaceSummaryData(
         record,
-        manifest?.featured,
         countVisibleMarketplacePlugins(record.id, manifest?.plugins),
       ),
       entries: manifest?.plugins ?? [],
@@ -567,7 +568,7 @@ export async function updateZCodePluginMarketplace(
     );
   }
 
-  // map 回调只吃第一个参数：toMarketplaceSummaryData 的第二参是 featured，不能接 map 的 index。
+  // toMarketplaceSummaryData 单参直传（P5：featured 策展名单已随远程 Featured 机制删除）。
   const records = loadKnownMarketplacesSync(pluginStorageRoot);
   const selectedFailures = records.flatMap((record): PluginLoadOutcome["diagnostics"] => {
     if (options.marketplace && record.id !== options.marketplace) return [];
@@ -1079,9 +1080,9 @@ function resolveEffectiveMarketplaceRecords(input: {
     if (isDeepStrictEqual(record.source, declarationSource)) {
       return { record, useCachedManifest: true };
     }
-    // 官方 marketplace id 是 Host 保留身份。Workspace 声明同 id 异 source
-    // 只能产生诊断，不能把官方缓存投影替换成 pluginCount=0 的空目录。
-    if (isOfficialMarketplaceId(record.id)) {
+    // 预注册保留市场 id（官方 + libre，P5 R6）是 Host 保留身份。声明同 id 异 source
+    // 只能产生诊断，不能把内置缓存投影替换成 pluginCount=0 的空目录。
+    if (isReservedPluginMarketplaceId(record.id)) {
       return { record, useCachedManifest: true };
     }
     return {
@@ -1091,7 +1092,7 @@ function resolveEffectiveMarketplaceRecords(input: {
   });
   for (const [marketplaceId, source] of declared) {
     if (knownIds.has(marketplaceId)) continue;
-    if (isOfficialMarketplaceId(marketplaceId)) continue;
+    if (isReservedPluginMarketplaceId(marketplaceId)) continue;
     records.push({
       record: createDeclaredMarketplaceRecord(marketplaceId, source),
       useCachedManifest: false,
@@ -1108,7 +1109,7 @@ function resolveMarketplaceDeclarationDiagnostics(input: {
   const declared = resolveDeclaredMarketplaceSources(input);
   const knownById = new Map(input.known.map((record) => [record.id, record]));
   return [...declared.entries()].flatMap(([marketplaceId, source]) => {
-    if (!isOfficialMarketplaceId(marketplaceId)) return [];
+    if (!isReservedPluginMarketplaceId(marketplaceId)) return [];
     const known = knownById.get(marketplaceId);
     if (known && isDeepStrictEqual(known.source, source)) return [];
     return [createReservedMarketplaceDeclarationDiagnostic(marketplaceId)];
@@ -1171,7 +1172,6 @@ function resolvePluginSelector(selector: string, plugins: PluginMetadata[]): Plu
 
 function toMarketplaceSummaryData(
   record: KnownMarketplaceRecord,
-  featured?: string[],
   pluginCount?: number,
 ): ZCodeMarketplaceSummaryData {
   return {
@@ -1191,7 +1191,6 @@ function toMarketplaceSummaryData(
           },
         }
       : {}),
-    ...(featured && featured.length > 0 ? { featured } : {}),
   };
 }
 
@@ -1347,7 +1346,7 @@ function createReservedMarketplaceDeclarationDiagnostic(
   return {
     code: "plugin_marketplace_declaration_reserved",
     message:
-      `Workspace marketplace declaration "${marketplaceId}" uses a reserved official id and was ignored. ` +
+      `Workspace marketplace declaration "${marketplaceId}" uses a reserved built-in marketplace id and was ignored. ` +
       "Use a different marketplace id for project declarations.",
     pluginId: marketplaceId,
     severity: "warning",

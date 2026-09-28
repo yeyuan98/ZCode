@@ -31,6 +31,7 @@ import { waitForServerStopped } from "./runtime/shutdownWait.js";
 export { readPersistedStatus } from "./runtime/statusSnapshot.js";
 import {
   hasLegacyServiceRegistration,
+  sweepStaleRootScopedServicesBeforeRegister,
   unregisterInstalledService,
   unregisterLegacyServiceForRoot,
 } from "./runtime/serviceInstallation.js";
@@ -190,6 +191,8 @@ async function runServe(
       const descriptorPath = serviceDescriptorPath(layout, descriptor);
       await writeFile(descriptorPath, descriptor.content, "utf8");
       await unregisterLegacyServiceForRoot(layout);
+      // P5 服务改名：清掉同 root 旧命名守护，避免旧 DataRootLock 阻塞新服务。
+      await sweepStaleRootScopedServicesBeforeRegister(layout);
       // 注册失败必须向调用方返回真实错误；只有显式 opt-out 才允许 detached fallback。
       await registerService(descriptor, descriptorPath);
       serviceStarted = true;

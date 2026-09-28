@@ -19,6 +19,8 @@ import {
   ServiceCollection,
   IZCodeAgentService,
   createZCodeAgentConnectionScope,
+  IConversationExportService,
+  scopeConversationExportServiceForConnection,
   IFileService,
   IGitService,
   ISystemService,
@@ -104,6 +106,18 @@ function setupChannelServer(
   const overrides = new Map<string, unknown>();
   if (connectionScope) {
     overrides.set(IZCodeAgentService.channelName, connectionScope.service);
+  }
+  const conversationExportService = services.getOptional(IConversationExportService);
+  if (conversationExportService) {
+    // P5 W4b：导出服务持有 raw Agent 时 rowsRange 会被 trusted-carrier 校验拒绝；
+    // 必须绑定当前 WebSocket 的 scoped Agent（本地导出无网络，web/mobile 均可用）。
+    overrides.set(
+      IConversationExportService.channelName,
+      scopeConversationExportServiceForConnection(
+        conversationExportService,
+        connectionScope?.service,
+      ),
+    );
   }
   // Provisioning 携带跨 Environment 凭据，只允许 Desktop trusted host 使用；普通 Web
   // remote/replayable 客户端即使知道频道名，也不能获得 target 写入接口。

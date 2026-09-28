@@ -337,6 +337,14 @@ function runContainerBuild({ imageTag, runDir, archivePath, options, commitId })
     "ZCODE_ENV=production",
     "-e",
     "ZCODE_SKIP_REMOTE_ASSETS=1",
+    // P5：复刻 CI tag 构建环境，让 electron-builder 的隐式 onTag 发布路径在
+    // smoke 中被真实执行（bundle.mjs 以 --publish never 关闭，softprops 才是唯一上传通道）。
+    "-e",
+    "CI=true",
+    "-e",
+    "GITHUB_REF_TYPE=tag",
+    "-e",
+    "GITHUB_REF_NAME=v0.0.0-smoke",
     "-e",
     `ZCODE_COMMIT=${commitId}`,
     "-e",

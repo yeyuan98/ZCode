@@ -488,10 +488,7 @@ export const DesktopCommandIds = {
   ToggleDevTools: "toggleDevTools",
   OpenResourceManager: "openResourceManager",
   ToggleZCodeStdioTapDevProxy: "toggleZCodeStdioTapDevProxy",
-  SetZCodeEndpointProduction: "setZCodeEndpointProduction",
-  SetZCodeEndpointTest: "setZCodeEndpointTest",
-  SetZCodeEndpointCustom: "setZCodeEndpointCustom",
-  ResetZCodeEndpoint: "resetZCodeEndpoint",
+  // P5 D-P5.4：SetZCodeEndpoint* / ResetZCodeEndpoint 命令已随帮助菜单 Endpoint 选择器删除。
   ClearAllData: "clearAllData",
   GetCuaOsSupport: "getCuaOsSupport",
 } as const;
@@ -673,12 +670,10 @@ export interface IPlatformService {
   startCuaHelperPermissionDrag?(): void;
 
   // P3 C1 供应商 OAuth 删除：registerOAuthState / onOAuthCallback 已随登录
-  // deep link 链路一并移除；分享导入回调保持不变。
+  // deep link 链路一并移除。
   // P3 C2 供应商套餐/计费面删除：onPaymentCallback（zcode://payment 购买回调）
   // 已随官网购买 webview 链路移除。
-
-  /** 注册 `zcode://share/import?code=...` 导入意图。 */
-  onShareImport?(callback: (payload: { shareCode: string }) => void): () => void;
+  // P5 W4：onShareImport（zcode://share/import 导入意图）已随会话分享删除。
 
   /** 通知 main process renderer 已就绪，触发缓存的冷启动 deep link 转发 */
   notifyRendererReady(): void;

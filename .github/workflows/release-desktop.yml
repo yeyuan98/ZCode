@@ -23,7 +23,7 @@ jobs:
     env:
       # 生产身份出包：productName 为 ZCode，产物文件名不带 _TEST 后缀。
       ZCODE_ENV: production
-      # 安装包运行时从 CDN 拉取 remote 资产，打包阶段不需要准备 mock-cdn 远程资源。
+      # 安装包运行时从 GitHub Releases 拉取 remote 资产，打包阶段不需要准备 mock-cdn 远程资源。
       ZCODE_SKIP_REMOTE_ASSETS: "1"
     steps:
       - name: Check out
@@ -56,7 +56,12 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: windows-x64-installer
-          path: packages/desktop/dist/ZCode-*-win-x64.exe
+          # P5：latest.yml + .exe.blockmap 与安装包同属 electron-updater feed，
+          # 一并上传 artifact 便于核对（安装包 glob 保持 error-on-missing）。
+          path: |
+            packages/desktop/dist/ZCode-*-win-x64.exe
+            packages/desktop/dist/latest.yml
+            packages/desktop/dist/*.exe.blockmap
           if-no-files-found: error
 
       # workflow_dispatch（无 tag）调试运行只出 artifact，不碰 Release。
@@ -64,8 +69,56 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
-          files: packages/desktop/dist/ZCode-*-win-x64.exe
+          # P5：electron-updater github provider 依赖同 Release 上的 latest.yml +
+          # blockmap（差分下载）；softprops 是唯一上传通道（bundle.mjs --publish never）。
+          files: |
+            packages/desktop/dist/ZCode-*-win-x64.exe
+            packages/desktop/dist/latest.yml
+            packages/desktop/dist/*.exe.blockmap
           fail_on_unmatched_files: true
           generate_release_notes: true
           # 阶段测试版（v3.14.3-alpha.N）标记为 pre-release，正式版（v3.14.3）不受影响。
+          prerelease: ${{ contains(github.ref_name, '-') }}
+
+  # P5 W2：远程资产扁平上传集（4 份 manifest + 各平台组件 tarball，数量随平台变化，
+  # 必须按 glob 上传）。prepare-prebuilds 内部串联 server bundle / agent bundle 构建。
+  build-remote-assets:
+    name: Build remote assets (flat GitHub Release set)
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    concurrency:
+      group: release-remote-assets-${{ github.ref }}
+      cancel-in-progress: false
+    env:
+      ZCODE_REMOTE_ASSET_FLAT_STAGING_DIR: ${{ github.workspace }}/remote-assets-flat-staging
+      # GitHub runner 直连官方 Node dist 更稳；npmmirror 是国内默认值。
+      ZCODE_NODE_DIST_MIRROR: https://nodejs.org/dist
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24.14.0
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+        env:
+          HUSKY: "0"
+
+      - name: Build and stage flat remote assets
+        run: pnpm prepare:remote-assets
+
+      # workflow_dispatch（无 tag）调试运行只构建不碰 Release。
+      - name: Attach remote assets to GitHub release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: remote-assets-flat-staging/*
+          fail_on_unmatched_files: true
           prerelease: ${{ contains(github.ref_name, '-') }}

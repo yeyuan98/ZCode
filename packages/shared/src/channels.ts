@@ -89,8 +89,8 @@ export const ServiceChannels = {
   ZCodeAgent: "zcode-agent",
   /** ZCode session 应用服务 */
   ZCodeSession: "zcode-session",
-  /** 会话分享发布、预览与 continuation API 编排 */
-  ConversationShare: "conversation-share",
+  /** 本地会话 Markdown 导出服务（P5 W4：替代已删除的 conversation-share） */
+  ConversationExport: "conversation-export",
   /** 文件系统监视服务 */
   FileWatcher: "file-watcher",
   /** 新 Provider Config 的设置读写 Facade */
@@ -106,8 +106,7 @@ export const ServiceChannels = {
   // P3 C5 供应商 client/configs 配置拉取删除：ClientConfig 服务频道
   // （/api/v1/client/configs 快照 RPC 面，最后一个消费方是插件商店排序）已随服务删除，
   // 排序回退打包默认顺序。
-  /** ZCode 客户端场景配置服务 */
-  ClientScenes: "client-scenes",
+  // P5 D-P5.4：ClientScenes 服务频道（/api/v1/client/scenes 场景配置）已随 endpoint web 删除。
   /** Skills 管理服务 */
   Skills: "skills",
   /** SSH 远程 skills 同步服务 */
@@ -291,8 +290,7 @@ export const PlatformChannels = {
   NotifyCuaHelperPermissionDragEnded: "zcode:notify-cua-helper-permission-drag-ended",
   // P3 C2 供应商套餐/计费面删除：PaymentCallback（zcode://payment 购买回调）已随
   // 官网购买 webview 链路移除。
-  /** Main → Renderer：外部分享页请求导入 share code。 */
-  ShareImport: "zcode:share-import",
+  // P5 W4：ShareImport（zcode://share/import 深链导入）已随会话分享删除。
   /** Renderer → Main：renderer 已就绪，可接收缓存的 deep link */
   RendererReady: "zcode:renderer-ready",
   /** Renderer → Main：读取 Renderer 用户操作 Trace 灰度配置。 */
@@ -821,10 +819,6 @@ export interface PlatformChannelMap {
   };
   [PlatformChannels.CancelCuaPermissionOnboarding]: {
     request: { operationId: string };
-    response: void;
-  };
-  [PlatformChannels.ShareImport]: {
-    request: { shareCode: string };
     response: void;
   };
   [PlatformChannels.RendererReady]: {

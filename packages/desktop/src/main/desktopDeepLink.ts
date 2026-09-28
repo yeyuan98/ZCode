@@ -1,20 +1,16 @@
 /* oxlint-disable eslint(max-lines) -- Deep Link 路由必须在同一模块内保持协议校验和投递原子性。 */
 // P3 C1 供应商 OAuth 删除：本模块由 desktopOAuthDeepLink.ts 拆分而来，只保留通用的
-// workspace 打开 / 分享导入 deep link 机制；OAuth state/callback 路由
+// workspace 打开 deep link 机制；OAuth state/callback 路由
 // （oauthStateToWindow、registerOAuthState、OAuth 回调分支）已随登录链路删除。
 // P3 C2 供应商套餐/计费面删除：zcode://payment/callback 购买回调路由随官网购买
 // webview 链路移除（renderer 侧无消费方）。
+// P5 W4：zcode://share/import 分享导入路由已随会话分享删除。
 import { statSync } from "node:fs";
 import { isAbsolute, resolve } from "node:path";
 import { app, BrowserWindow, dialog } from "electron";
 import type { WebContents } from "electron";
 import { type Locale, PlatformChannels } from "@zcode/shared";
-import {
-  extractWorkspaceOpenPath,
-  extractShareImportCode,
-  isWorkspaceOpenUrl,
-  isShareImportUrl,
-} from "./desktopDeepLinkUrl.js";
+import { extractWorkspaceOpenPath, isWorkspaceOpenUrl } from "./desktopDeepLinkUrl.js";
 import { registerLinuxDeepLinkProtocol } from "./desktopLinuxDeepLinkRegistration.js";
 
 interface DeepLinkWorkspaceGateOptions {
@@ -37,28 +33,6 @@ let pendingOpenWorkspaceRequest: {
   path: string;
   targetWebContentsId?: number;
 } | null = null;
-const pendingShareImports: { shareCode: string; targetWebContentsId?: number }[] = [];
-const MAX_PENDING_SHARE_IMPORTS = 8;
-
-function enqueuePendingShareImport(
-  payload: { shareCode: string },
-  targetWebContentsId?: number,
-): void {
-  if (
-    pendingShareImports.some(
-      (item) =>
-        item.shareCode === payload.shareCode && item.targetWebContentsId === targetWebContentsId,
-    )
-  ) {
-    return;
-  }
-  pendingShareImports.push(
-    targetWebContentsId === undefined ? { ...payload } : { ...payload, targetWebContentsId },
-  );
-  if (pendingShareImports.length > MAX_PENDING_SHARE_IMPORTS) {
-    pendingShareImports.shift();
-  }
-}
 
 function focusDeepLinkTargetWindow(targetWindow: BrowserWindow): void {
   // macOS 的 open-url 回调只会把 URL 投递给当前实例，不会自动把窗口带回前台。
@@ -254,43 +228,6 @@ export function handleDeepLink(
     });
   }
 
-  if (isShareImportUrl(parsedUrl)) {
-    const shareCode = extractShareImportCode(parsedUrl);
-    if (!shareCode) {
-      logger.warn("[deep-link] share import code 无效，已忽略", {
-        host: parsedUrl.hostname,
-        path: parsedUrl.pathname,
-      });
-      return false;
-    }
-    const payload = { shareCode };
-    // share 分支也必须走 resolveApplicationWindow——聚焦兜底
-    // getAllWindows()[0] 会命中 CUA indicator 等辅助窗口；且 pending 队列必须绑定目标窗口，
-    // 否则多窗口时导入会投递给先 ready 的 renderer，写入错误 workspace 的 .zcode-share。
-    const targetWindow = options.resolveApplicationWindow
-      ? options.resolveApplicationWindow()
-      : (BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0] ?? null);
-    if (targetWindow) {
-      if (!rendererReadyWebContentsIds.has(targetWindow.webContents.id)) {
-        enqueuePendingShareImport(payload, targetWindow.webContents.id);
-        focusDeepLinkTargetWindow(targetWindow);
-        logger.info("[deep-link] share import 等待 renderer ready", {
-          windowId: targetWindow.webContents.id,
-        });
-        return true;
-      }
-      targetWindow.webContents.send(PlatformChannels.ShareImport, payload);
-      focusDeepLinkTargetWindow(targetWindow);
-      logger.info("[deep-link] share import 路由成功", {
-        windowId: targetWindow.webContents.id,
-      });
-      return true;
-    }
-    enqueuePendingShareImport(payload);
-    logger.info("[deep-link] share import 等待主窗口");
-    return false;
-  }
-
   // P3 C1 供应商 OAuth 删除：zcode://oauth 回调分支已移除，未知协议 URL 统一忽略。
   return false;
 }
@@ -345,18 +282,6 @@ export function registerDeepLinkProtocol(
 
 export function deliverPendingDeepLink(webContents: WebContents): void {
   rendererReadyWebContentsIds.add(webContents.id);
-
-  // pending share import 绑定目标窗口后，只投递给目标窗口（或冷启动时未绑定目标的
-  // 条目）；非目标窗口 ready 时保留条目，否则导入会写进错误窗口的 workspace。
-  const undeliveredShareImports: typeof pendingShareImports = [];
-  for (const pending of pendingShareImports.splice(0)) {
-    if (pending.targetWebContentsId == null || pending.targetWebContentsId === webContents.id) {
-      webContents.send(PlatformChannels.ShareImport, { shareCode: pending.shareCode });
-    } else {
-      undeliveredShareImports.push(pending);
-    }
-  }
-  pendingShareImports.push(...undeliveredShareImports);
   if (
     pendingOpenWorkspaceRequest &&
     (pendingOpenWorkspaceRequest.targetWebContentsId == null ||
@@ -371,12 +296,5 @@ export function clearDeepLinkRoutesForWindow(windowId: number): void {
   rendererReadyWebContentsIds.delete(windowId);
   if (pendingOpenWorkspaceRequest?.targetWebContentsId === windowId) {
     pendingOpenWorkspaceRequest = null;
-  }
-  // pending share import 绑定目标窗口后，目标窗口关闭必须同步清理，
-  // 否则队列条目永不过期，可能投递给后续 ready 的其他窗口（错误 workspace）。
-  for (let index = pendingShareImports.length - 1; index >= 0; index -= 1) {
-    if (pendingShareImports[index]!.targetWebContentsId === windowId) {
-      pendingShareImports.splice(index, 1);
-    }
   }
 }

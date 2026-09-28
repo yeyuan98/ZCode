@@ -4,7 +4,6 @@ import {
   desktopMenuMessageIds,
   getDesktopMenuMessage,
   isValidShortcutBinding,
-  ZCODE_ENV,
   ZCODE_PRODUCT_FLAVOR,
   type DesktopCommandId,
   type Locale,
@@ -21,7 +20,8 @@ import {
   HELP_TOGGLE_DEV_TOOLS_MENU_ID,
 } from "./desktopCommandHandlers.js";
 
-const HELP_ZCODE_ENDPOINT_PRODUCTION_MENU_ID = "help.zcode-endpoint.production";
+// P5 D-P5.4：帮助菜单「ZCode Endpoint」子菜单（Production/Custom/Reset 单选项）已随
+// endpoint web 删除；HELP_ZCODE_ENDPOINT_PRODUCTION_MENU_ID 一并移除。
 
 export function getDesktopMenuLabel(
   locale: Locale,
@@ -82,7 +82,6 @@ function resolveMenuAccelerator(
 
 function buildApplicationMenuTemplate(options: {
   currentApplicationLocale: Locale;
-  zcodeEndpointSelection?: "production" | "test" | "custom";
   executeDesktopCommand: (
     command: DesktopCommandId,
     senderWindow?: BrowserWindow | null,
@@ -290,37 +289,7 @@ function buildApplicationMenuTemplate(options: {
               { type: "separator" as const },
             ]
           : []),
-        ...(ZCODE_ENV === "test"
-          ? [
-              {
-                label: getLabel(desktopMenuMessageIds.helpZCodeEndpoint),
-                submenu: [
-                  {
-                    id: HELP_ZCODE_ENDPOINT_PRODUCTION_MENU_ID,
-                    label: getLabel(desktopMenuMessageIds.helpZCodeEndpointProduction),
-                    type: "radio" as const,
-                    checked: (options.zcodeEndpointSelection ?? "production") === "production",
-                    click: () =>
-                      void options.executeDesktopCommand(
-                        DesktopCommandIds.SetZCodeEndpointProduction,
-                      ),
-                  },
-                  { type: "separator" as const },
-                  {
-                    label: getLabel(desktopMenuMessageIds.helpZCodeEndpointCustom),
-                    click: () =>
-                      void options.executeDesktopCommand(DesktopCommandIds.SetZCodeEndpointCustom),
-                  },
-                  {
-                    label: getLabel(desktopMenuMessageIds.helpZCodeEndpointReset),
-                    click: () =>
-                      void options.executeDesktopCommand(DesktopCommandIds.ResetZCodeEndpoint),
-                  },
-                ],
-              },
-              { type: "separator" as const },
-            ]
-          : []),
+        // P5 D-P5.4：ZCODE_ENV=test 分支下的 Endpoint 选择子菜单已随 endpoint web 删除。
         {
           id: HELP_TOGGLE_DEV_TOOLS_MENU_ID,
           label: getLabel(desktopMenuMessageIds.helpToggleDevTools),
@@ -353,7 +322,6 @@ function buildApplicationMenuTemplate(options: {
 
 export function rebuildApplicationMenu(options: {
   currentApplicationLocale: Locale;
-  zcodeEndpointSelection?: "production" | "test" | "custom";
   executeDesktopCommand: (
     command: DesktopCommandId,
     senderWindow?: BrowserWindow | null,
@@ -367,7 +335,6 @@ export function rebuildApplicationMenu(options: {
     Menu.buildFromTemplate(
       buildApplicationMenuTemplate({
         currentApplicationLocale: options.currentApplicationLocale,
-        zcodeEndpointSelection: options.zcodeEndpointSelection,
         executeDesktopCommand: options.executeDesktopCommand,
         currentZoomLevel: options.currentZoomLevel,
         shortcutBindings: options.shortcutBindings,
