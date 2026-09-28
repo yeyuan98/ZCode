@@ -167,7 +167,7 @@ icons).
   `remoteAssetCdn.ts::isFlatGithubTagReleaseBase`（W2 [ulw] 评审采纳的显式单候选方案）。
 - **W5 落地补充（identity + endpoint web cut）**：
   - Builder identity per D-P5.6：homepage `https://github.com/yeyuan98/zodex`；author
-    `{name:"ZCode", email:"yeyuan98@users.noreply.github.com"}`；linux maintainer 同值（deb/fpm
+    `{name:"Zodex", email:"yeyuan98@users.noreply.github.com"}`；linux maintainer 同值（deb/fpm
     元数据仍需这些字段，仅换值）。
   - 服务名 D7：`app.zcode.server[.<stablePathId>]`；无迁移（`unregisterService` 对“服务不存在”
     已容忍，旧厂商前缀服务留给用户手动清理；`packages/shared/test/endpointWebPurge.test.ts`

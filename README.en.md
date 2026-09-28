@@ -7,7 +7,7 @@
   <a href="README.md">简体中文</a> | English
 </p>
 
-Zodex is a community fork of ZCode ([github.com/zai-org/ZCode](https://github.com/zai-org/ZCode), upstream v3.14.3, Apache-2.0) — **tracking-free** (no vendor telemetry, only optional standard OTLP export; updates and plugin assets come solely from this repo's GitHub Releases) and **vendor-free** (no Z.ai accounts/login/billing/gateway; any API-key provider or local models work, with an automated CI gate blocking vendor code).
+Zodex is a community fork of ZCode ([github.com/zai-org/ZCode](https://github.com/zai-org/ZCode), upstream v3.14.3, Apache-2.0) — **tracking-free** (no vendor telemetry, only optional standard OTLP export; app updates come solely from this repo's GitHub Releases; plugin packages from the yeyuan98/zodex-plugins repo Releases) and **vendor-free** (no Z.ai accounts/login/billing/gateway; any API-key provider or local models work, with an automated CI gate blocking vendor code).
 
 Zodex is an AI coding workspace with desktop, browser, and terminal interfaces; local models work via Ollama / vLLM and other OpenAI-compatible endpoints.
 

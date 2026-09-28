@@ -7,7 +7,7 @@
   简体中文 | <a href="README.en.md">English</a>
 </p>
 
-Zodex 是 ZCode（[github.com/zai-org/ZCode](https://github.com/zai-org/ZCode)，上游 v3.14.3，Apache-2.0）的社区分支：**不跟踪**（无厂商遥测，仅可选的标准 OTLP 导出；更新与插件资源只来自本仓库 GitHub Releases）、**无厂商绑定**（无 Z.ai 账号/登录/计费/网关，任意 API Key 或本地模型即可用，CI 门禁自动拦截厂商代码回流）。
+Zodex 是 ZCode（[github.com/zai-org/ZCode](https://github.com/zai-org/ZCode)，上游 v3.14.3，Apache-2.0）的社区分支：**不跟踪**（无厂商遥测，仅可选的标准 OTLP 导出；应用更新只来自本仓库 GitHub Releases，插件包来自 yeyuan98/zodex-plugins 仓库 Releases）、**无厂商绑定**（无 Z.ai 账号/登录/计费/网关，任意 API Key 或本地模型即可用，CI 门禁自动拦截厂商代码回流）。
 
 Zodex 是 AI 编程工作台，提供桌面应用、浏览器界面和终端 Agent，本地模型支持 Ollama / vLLM 等 OpenAI 兼容端点。
 

@@ -4,8 +4,8 @@ import { join } from "node:path";
 import { spawn } from "node:child_process";
 import type { Locale } from "@zcode/shared";
 
-// 品牌重命名后 workflow 文件名同步改为 Zodex；旧名安装的服务会被孤立残留，
-// 但本服务只做幂等写入且 bundle id 不变，Finder 会以新文件名重新注册，无功能影响。
+// 品牌重命名后 workflow 文件名与 bundle id 同步改为 Zodex；旧 bundle id 安装的 Services
+// 菜单条目会残留（仍可触发 zcode:// 深链，属可接受的升级残留），新 id 走幂等注册。
 const WORKFLOW_NAME = "Open in Zodex.workflow";
 const WORKFLOW_BUNDLE_ID = "dev.zodex.app.finder-open-workflow";
 const WORKFLOW_VERSION = "5";
