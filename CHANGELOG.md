@@ -1,5 +1,67 @@
 # Changelog
 
+## [3.14.3-alpha.10](https://github.com/yeyuan98/ZCode/compare/v3.14.3-alpha.9...v3.14.3-alpha.10) (2026-09-28)
+
+### Features
+
+* **p6:** vendor-free gate script + unit tests; wire into verify:pre-push and knip ([c668f02](https://github.com/yeyuan98/ZCode/commit/c668f02de4b7a53d0b1afca785cb89e1637ce82d))
+  * scripts/check-vendor-free.mjs: five fool-proof vendor patterns (no glm), binary-by-extension skip, CHANGELOG/plan/specs exclusions, 3-entry negative-assertion allowlist; --list triage mode; strict exit 1 on un-allowlisted hits
+  * scripts/check-vendor-free.test.mjs: synthetic corpus (patterns, line numbers, classification, violations vs allowlisted, glm non-matching, allowlist paths exist)
+  * verify:pre-push appends the gate; knip gains both script entries
+
+
+### Bug Fixes
+
+* **p6:** [ulw] review round fixes (RA/RB/RC applied once) ([c9073b5](https://github.com/yeyuan98/ZCode/commit/c9073b518be1a621243064ad5097d2343815a81c))
+  * spec: correct inverted container wording (map dropped, array kept) and record that marketplace strict-contract tests live in shared (A-P4.1: CLI has no runner; adapter is a thin delegate)
+  * gate: summary counters now report real excluded/binary counts (classify before skip) instead of always printing 0
+  * locales: delete second orphan key settings.modelProvider.namePlaceholder (both locales; no static or dynamic consumer — same class as the 2c orphan)
+
+* **p6:** drop redundant knip entries for vendor-free gate scripts ([2b16064](https://github.com/yeyuan98/ZCode/commit/2b160646f2f7612ffa2f9b8671e413d8342b39c5))
+
+* **p6:** sweep 2a/2b — product docs URL repoints to repo; drop pre-rename glm decode ([80e4ab7](https://github.com/yeyuan98/ZCode/commit/80e4ab76021549cfa86f87288c2cd1542868c1fa))
+  * productDocs: ZCODE_PRODUCT_DOCS_URL now the repo README (Help menu + quick-pick show repo docs, not the deleted vendor site); ui test pins the target
+  * provider-selection-v2: frozen 0002 decode keeps only the "zcode" execution-backend spelling (A-P6 amendment reverses the P4 keep-ruling); services test pins decode outcomes incl. the recorded dead-providerId breakage for hypothetical glm rows
+
+
+### Chores
+
+* **p6:** sweep 2c/2d/2e — dead code, vendor-literal comments, stale locale copy ([678394a](https://github.com/yeyuan98/ZCode/commit/678394ab837c2723b23f239c9be43f5afc2b9701))
+  * drop never-read _legacyProvider param (4 call sites + contract test) and orphan en-only key settings.memory.viewer.disabled
+  * reword vendor-naming comments in remoteCdn/provider-data-schema/zcodeAgentService/zcode-protocol/featureSuggestedPrompts/desktopDeviceMid (device-id module kept per user directive; stale deletion promise removed) and trim the cli build.mjs endpoint tombstone
+  * locales: neutral provider-name placeholder + section title (zh), delete orphan presetDescription pair, and neutralize presetEmpty stale OAuth wording
+
+* **p6:** third-party notices full resync; drop orphaned ARMS evidence files ([4fda2d8](https://github.com/yeyuan98/ZCode/commit/4fda2d86b7eccc9cbabbe0602d16baad4b5118fc))
+  * regenerate via licenses.mjs notices: only expected hash updates land (root package.json verify:pre-push change; builtinSkillI18n sweep) — ARMS/swr entries already absent since P5's regen
+  * the three @arms/* upstream evidence txt files lost their override entries with P0's ARMS removal and are referenced by nothing (hash grep clean) — deleted
+
+
+### Documentation
+
+* **p5:** AGENTS.md release-verification covers both jobs + all asset kinds; record W2 layout-selection amendment in spec §B ([c023f27](https://github.com/yeyuan98/ZCode/commit/c023f272c515c7dfc92fae29adeb02f2f8281c84))
+
+* **p6:** succinct quickstart READMEs + docs/ module docs; trim .env.example ([3baa614](https://github.com/yeyuan98/ZCode/commit/3baa614a2e7043b61859926281fd898ff81d5899))
+  * README(.en): 2-3 line intro, install/first-run quickstart, docs index; build/dev content relocated (not lost) to docs/development.md + docs/packaging.md; inherited vendor/origin community links removed
+  * docs/providers.md (API-key/Ollama-template/vLLM-as-custom + reference), docs/updates.md (update channel, prereleases, three mirror vars), docs/plugins.md (bundled/libre/personal sources)
+  * .env.example: tombstone comments dropped, live vars only, missing ZCODE_UPDATE_FEED_URL mirror var added
+  * config/default.json en-US community URL repointed from inherited Discord to repo Discussions; NOTICE link follows the moved CLI section anchor
+
+* **p6:** vendor-free gate + PR CI spec of record; amend keep-rulings per user directives ([9a43a6b](https://github.com/yeyuan98/ZCode/commit/9a43a6bb8ae49cc9af54bfb879e6cc221ea41d83))
+  * new specs/vendor-free-gate-and-ci.md: five-pattern gate design (no glm), 3-entry allowlist, CI job matrix, four binding user directives
+  * agent-identity spec: A-P6 amendment reverses the both-strings-decode Keep ruling (drop "glm" string, keep "zcode" semantics; new decode unit test; legacy importers kept)
+  * distribution spec: P6 section records builtinSkillI18n marker shrink (superpowers kept) + strict known-marketplaces loading (inert guard layers retired, reserved-id guard kept)
+  * VENDOR-PURGE-PLAN §4 P6 rewritten to the directive-shaped scope; final 3.14.3 moved to a separate session
+
+* **plan:** record P5 delivered state — alpha.9 merge/release, amendments A-P5.1-8, A9 matrix row ([b6bebcd](https://github.com/yeyuan98/ZCode/commit/b6bebcd052d9bc061ce762e926a6fb83ee4328bd))
+
+
+### Refactorings
+
+* **p6:** sweep 2f — delete just-in-case legacy structures ([00c0022](https://github.com/yeyuan98/ZCode/commit/00c00225e988d4f5709672a7eecc828945b1a05a))
+  * builtinSkillI18n: markers and descriptions for P5-deleted plugins removed (superpowers attribution + bundled browser-use kept; legacy "browser" alias had no live producer); cached stale installs fall back to plugin English copy
+  * marketplace records: strict shape validation in shared (isValidPersistedMarketplaceSource/isAllowedPersistedMarketplaceSource) + reserved-id disk source contract (official=bundled, libre=default raw url); adapter loader array-only; old/malformed/vendor-CDN-source records dropped at load and defaults re-seed; official refresh branch is now pure bundled-no-network semantics
+  * shared pluginMarketplacesP6 tests cover shapes + reserved contract + external repo URL pin; endpointWebPurge guard exempts the vendor-free gate script (must name what it bans); gate self-exclusion recorded in spec
+
 ## [3.14.3-alpha.9](https://github.com/yeyuan98/ZCode/compare/v3.14.3-alpha.8...v3.14.3-alpha.9) (2026-09-28)
 
 ### Features
