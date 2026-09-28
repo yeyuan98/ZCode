@@ -6,12 +6,7 @@ import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 import { pdfJsCMapsPlugin } from "../ui/vite/pdfJsCMapsPlugin.js";
 import { thirdPartyNoticesVitePlugin } from "../../scripts/third-party-notices.mjs";
-// Vite 配置在 Node 加载期执行，不能导入 @zcode/shared 根入口。
-// 根入口包含 NodeNext 风格的源码 re-export，Node 会按真实文件查找 .js 并在 bootstrap 阶段失败。
-import {
-  resolveRuntimeZCodeEndpointOrigin,
-  pickProductEndpointEnv,
-} from "@zcode/shared/zcodeEndpoint";
+import { pickProductEndpointEnv } from "@zcode/shared/zcodeEndpoint";
 
 const HERE = fileURLToPath(new URL(".", import.meta.url));
 const REPO_ROOT = resolve(HERE, "../..");
@@ -24,14 +19,9 @@ function resolveZCodeEnv(value: string | undefined): "test" | "production" {
 export default defineConfig(({ mode }) => {
   // `.env*` 只提供链接常量；当前产品环境由启动脚本或 CI 注入 ZCODE_ENV。
   // 启动脚本通过 process.env 显式选择 test/production；它必须优先于 .env 文件，
-  // 否则 share:test 可能被 mode 的旧配置误解析到错误 endpoint。
+  // 否则可能被 mode 的旧配置误解析到错误 endpoint。
   const env = { ...loadEnv(mode, REPO_ROOT, ""), ...process.env };
   const zcodeEnv = resolveZCodeEnv(env.ZCODE_ENV);
-  const endpointEnv = {
-    ...env,
-    ZCODE_ENV: zcodeEnv,
-  };
-  const zcodeEndpointOrigin = resolveRuntimeZCodeEndpointOrigin(endpointEnv);
 
   return {
     plugins: [pdfJsCMapsPlugin(), react(), tailwindcss(), thirdPartyNoticesVitePlugin()],
@@ -74,9 +64,8 @@ export default defineConfig(({ mode }) => {
       __ZCODE_VERSION__: JSON.stringify(version),
       __ZCODE_COMMIT__: JSON.stringify(env.ZCODE_COMMIT || "unknown"),
       __ZCODE_ENV__: JSON.stringify(zcodeEnv),
-      "import.meta.env.VITE_ZCODE_BASE_URL": JSON.stringify(zcodeEndpointOrigin),
-      // 兼容旧 Web runtime 读取名；新代码统一读 VITE_ZCODE_BASE_URL。
-      "import.meta.env.VITE_ZCODE_ENDPOINT_ORIGIN": JSON.stringify(zcodeEndpointOrigin),
+      // P5 W4：VITE_ZCODE_BASE_URL / VITE_ZCODE_ENDPOINT_ORIGIN define 已随会话分享
+      // 落地页删除（唯一消费方）；zcodeEndpoint 常量收缩由 W5 处理。
     },
     build: {
       // 生产不在浏览器产物暴露 sourceMappingURL，避免客户端侧还原业务源码。

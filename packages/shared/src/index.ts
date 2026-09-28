@@ -88,7 +88,7 @@ export * from "./zcode-session-visible-content.js";
 // P3 C3：官方 MCP（Z.ai 托管）服务删除，official-mcp-auth.ts 与 official-mcp-tool-error.ts
 // 整文件移除；通用常量 ZCODE_WORKSPACE_IDENTITY_ENV 已迁至 env.ts。
 export * from "./conversation-message-projection-policy.js";
-export * from "./conversation-share.js";
+// P5 W4：会话分享协议（conversation-share.ts）整体删除，decodeConversationShareRows 无存续消费方。
 export * from "./conversation-preview-artifacts.js";
 export * from "./zcode-session-task-status.js";
 export * from "./zcode-tool-projection-memory.js";
