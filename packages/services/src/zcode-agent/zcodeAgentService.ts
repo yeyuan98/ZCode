@@ -1107,7 +1107,7 @@ export function createZCodeAgentService(
 
   // P3 C4 供应商账号删除：runtime-headers 的 accountAccess 自动应答链
   // （resolveAccountRequestAuth / respondAccountRequestAuthWithoutInteraction）已随
-  // zhipu-account 请求期鉴权概念移除；协议方法保留通用请求定位字段，当前无本地
+  // 供应商账号请求期鉴权概念移除；协议方法保留通用请求定位字段，当前无本地
   // 解析器，请求统一走下方快速失败分支。
 
   function takePendingSessionRuntimePreferences(

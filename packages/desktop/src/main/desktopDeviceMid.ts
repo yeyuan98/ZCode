@@ -11,8 +11,8 @@ let cachedDeviceMid: string | null = null;
  * 本地 onboarding 记录（onboarding-record.json，文件内已有 deviceMid 为权威，
  * 每次启动的新随机值只影响文件创建那一次）等本地功能使用。
  *
- * 约束：任何厂商端点（zcode.z.ai 等）不得再收到该值；也不再读写
- * telemetry-state.json。onboarding 重构（P2）后本模块可整体删除。
+ * 约束：该值只用于上述本地功能，不发送到任何远端端点；也不再读写
+ * telemetry-state.json（P0 遥测删除）。
  */
 export function ensureDesktopDeviceMidSync(): string {
   cachedDeviceMid ??= createUuid();

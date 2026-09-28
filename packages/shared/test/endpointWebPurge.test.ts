@@ -73,6 +73,8 @@ async function walkSourceFiles(dir: string): Promise<string[]> {
 test("仓库源码不再出现 com.zhipu 厂商命名（除历史记录外）", async () => {
   const offenders: string[] = [];
   const roots = ["packages", "apps", "scripts", "e2e"].map((root) => join(REPO_ROOT, root));
+  // P6：vendor-free 门禁脚本必须列出它所禁止的模式字面量（负向守卫同类豁免）。
+  const allowedGuardFiles = new Set(["scripts/check-vendor-free.mjs"]);
   for (const root of roots) {
     if (
       !(await stat(root)
@@ -81,6 +83,7 @@ test("仓库源码不再出现 com.zhipu 厂商命名（除历史记录外）", 
     )
       continue;
     for (const file of await walkSourceFiles(root)) {
+      if (allowedGuardFiles.has(relative(REPO_ROOT, file))) continue;
       const source = await readFile(file, "utf8");
       if (source.includes("com.zhipu")) {
         offenders.push(relative(REPO_ROOT, file));

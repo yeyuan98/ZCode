@@ -805,7 +805,7 @@ export const zcodeModelOptionSchema = z
 export type ZCodeModelOption = z.infer<typeof zcodeModelOptionSchema>;
 
 // P3 C4 供应商账号删除：zcodeAccountAccessSchema / ZCodeAccountAccess 与
-// zcodeProviderAccountAccessSchema / ZCodeProviderAccountAccess（zhipu-account
+// zcodeProviderAccountAccessSchema / ZCodeProviderAccountAccess（历史供应商账号
 // 套餐/团队访问契约）已随账号套餐概念整体移除。
 
 export type ZCodeSessionMode = z.infer<typeof zcodeSessionModeSchema>;
