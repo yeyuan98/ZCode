@@ -25,7 +25,21 @@ export {
 // Accessor
 export type { IServiceAccessor } from "./accessor.js";
 // P5 W4：会话分享服务（发布/导入/能力面）已删除；错误信封、进度事件、选择与
-// preflight 类型随选择 UI 一并移除。本地导出种子见 src/conversation-export/（W4b 收口）。
+// preflight 类型随选择 UI 一并移除。本地导出见下方 conversation-export。
+export {
+  IConversationExportService,
+  conversationExportConnectionScopeFactory,
+  isConnectionScopableConversationExportService,
+  scopeConversationExportServiceForConnection,
+  type ConnectionScopableConversationExportService,
+  type ConversationExportAgentService,
+  type ConversationExportInput,
+  type ConversationExportResult,
+} from "./conversation-export/conversationExport.js";
+export {
+  readConversationExportErrorKind,
+  type ConversationExportErrorKind,
+} from "./conversation-export/conversationExportError.js";
 
 // File service — IFileService is both a type (interface) and value (descriptor)
 export { IFileService } from "./file/file.js";

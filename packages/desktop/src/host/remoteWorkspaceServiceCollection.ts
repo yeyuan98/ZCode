@@ -12,6 +12,7 @@ import {
   IZCodeTaskService,
   IZCodeAgentService,
   IZCodeSessionService,
+  IConversationExportService,
   IBotsService,
   IFileWatcherService,
   IModelSelectionService,
@@ -44,6 +45,7 @@ import {
   createBotsService,
   createUsageStatsService,
   createClientScenesService,
+  createConversationExportService,
   createServiceLogger,
   createSubagentsService,
   createMemoryService,
@@ -108,6 +110,12 @@ export function createRemoteWorkspaceServiceCollection(params: {
   const remoteZCodeSessionService = params.createRemotePromptAttachmentSessionService(
     params.connectionServices.zcodeSessionService,
   );
+  // P5 W4b：本地导出在远端 workspace 同样可用——只读远端 Agent rows + 远端 session 标题，
+  // 无任何 auth/http 依赖；标题读取复用本集合注册的远端 session 服务。
+  const conversationExportService = createConversationExportService({
+    zcodeAgentService: params.connectionServices.zcodeAgentService,
+    zcodeSessionService: remoteZCodeSessionService,
+  });
   const remoteProviderProvisioningService =
     createRemoteProviderProvisioningExecutorFromWorkspace(params);
 
@@ -227,6 +235,7 @@ export function createRemoteWorkspaceServiceCollection(params: {
     .register(IZCodeTaskService, remoteZCodeTaskService)
     .register(IZCodeAgentService, params.connectionServices.zcodeAgentService)
     .register(IZCodeSessionService, remoteZCodeSessionService)
+    .register(IConversationExportService, conversationExportService)
     .register(
       IBotsService,
       createBotsService({

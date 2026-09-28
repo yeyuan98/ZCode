@@ -168,6 +168,12 @@ const enUS: Record<string, string> = {
   "common.save": "Save",
   "common.saving": "Saving...",
   "common.delete": "Delete",
+  "conversationExport.action": "Export conversation",
+  "conversationExport.toast.started": "Exporting conversation...",
+  "conversationExport.toast.saved": "Saved {fileName}",
+  "conversationExport.toast.failed": "Failed to export the conversation",
+  "conversationExport.error.running":
+    "The conversation is still running. Wait for it to finish, then export.",
   "settings.resourceGroup.item.one": "{count} item",
   "settings.resourceGroup.item.other": "{count} items",
   "pluginCreator.add": "Add",

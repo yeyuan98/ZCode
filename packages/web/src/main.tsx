@@ -83,6 +83,29 @@ function createWebPlatform(): IPlatformService {
     selectFile: () => Promise.resolve(null),
     selectFiles: () => Promise.resolve([]),
     getPathForFile: () => null,
+    // P5 W4b：Web 端保存文件 = Blob 下载（URL.createObjectURL + anchor click）。
+    // 桌面 saveFile 的 50MB 上限针对 IPC 载荷；浏览器下载无需设限。octet-stream
+    // 保证任何扩展名都触发「保存」而不是浏览器内联打开。
+    saveFile: async (payload) => {
+      if ("sourceUrl" in payload && payload.sourceUrl) {
+        window.open(payload.sourceUrl, "_blank", "noopener,noreferrer");
+        return { success: true };
+      }
+      const data = "data" in payload ? payload.data : undefined;
+      if (!data || data.byteLength === 0) {
+        return { success: false, error: "invalid_file_payload" };
+      }
+      const blob = new Blob([data], { type: "application/octet-stream" });
+      const objectUrl = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = objectUrl;
+      link.download = payload.suggestedName;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(objectUrl);
+      return { success: true };
+    },
     createTempTextAttachment: () =>
       Promise.reject(new Error("Temporary text attachments require a desktop host")),
     onRemoteConnectionLog: () => () => {},

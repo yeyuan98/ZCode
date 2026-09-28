@@ -37,6 +37,8 @@ import {
   IZCodeTaskService,
   IZCodeSessionService,
   ICuaPipSessionService,
+  IConversationExportService,
+  scopeConversationExportServiceForConnection,
   createZCodeAgentConnectionScope,
   createOffPeakInteractionPolicy,
   type ZCodeAgentV4ClientMode,
@@ -1928,6 +1930,18 @@ function exposeServicesOnMessagePort(
   }
   if (connectionScope) {
     overrides.set(IZCodeAgentService.channelName, connectionScope.service);
+  }
+  const conversationExportService = services.getOptional(IConversationExportService);
+  if (conversationExportService) {
+    // 导出服务若继续持有 raw Agent，会绕过当前 MessagePort 已握手的 trusted carrier，
+    // rowsRange 会以 connection untrusted 拒绝。必须复用同一 attachment connection scope。
+    overrides.set(
+      IConversationExportService.channelName,
+      scopeConversationExportServiceForConnection(
+        conversationExportService,
+        connectionScope?.service,
+      ),
+    );
   }
   // P5 W4：会话分享 attachment connection-scope 覆盖（scopeConversationShareServiceForAttachment）
   // 已随分享服务删除；Agent 的 trusted-carrier 约束仍由上方 connectionScope 统一持有。

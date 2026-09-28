@@ -12,21 +12,21 @@ import type { IZCodeAgentService } from "../zcode-agent/zcodeAgent.js";
 import { throwConversationExportError } from "./conversationExportError.js";
 
 /** 目标会话定位：与 workspaceIdentity 优先的身份口径保持一致。 */
-export interface ConversationRowsTarget {
+interface ConversationRowsTarget {
   workspacePath: string;
   workspaceIdentity?: string;
   remoteSessionId?: string;
   sessionId: string;
 }
 
-export interface ConversationRowsRead {
+interface ConversationRowsRead {
   rows: ConversationRow[];
   revision: number;
   logEpoch: string;
 }
 
 /** loadAllRows 只读 rowsRange；附件/文件能力属于已删除的分享预检面，不进入导出。 */
-export type ConversationRowsAgentService = Pick<IZCodeAgentService, "conversationRowsRangeV4">;
+type ConversationRowsAgentService = Pick<IZCodeAgentService, "conversationRowsRangeV4">;
 
 export async function loadAllRows(
   input: ConversationRowsTarget,
