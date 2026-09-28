@@ -559,7 +559,6 @@ export class PermissionService {
       "Read",
       "Glob",
       "Grep",
-      "WebSearch",
       "WebFetch",
       "TodoRead",
       "TodoWrite",

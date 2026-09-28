@@ -25,7 +25,7 @@ for (const clientMode of ["desktop-continuous", "web-remote-replayable"] as cons
       workspaceIdentity: "example-remote-workspace",
       title: "Imported example",
       mode: "build" as const,
-      provider: "glm" as const,
+      provider: "zcode" as const,
       migrationSource: "claudeCode" as const,
       createdAt: 1,
       updatedAt: 2,

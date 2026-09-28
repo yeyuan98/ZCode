@@ -236,7 +236,6 @@ export const READ_ONLY_TOOLS = new Set([
   "Read",
   "Glob",
   "Grep",
-  "WebSearch",
   "WebFetch",
   "TodoRead",
   "TodoWrite",

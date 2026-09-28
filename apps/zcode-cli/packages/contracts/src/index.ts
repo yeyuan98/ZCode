@@ -90,7 +90,6 @@ export * from "./network/public-egress-ip.js";
 
 // Tools
 export * from "./tools/index.js";
-export * from "./tools/websearch.js";
 
 // 媒体预算上限由 App/Agent 共用策略定义；Contracts 统一转出，避免 Core 各处跨层取值。
 export {

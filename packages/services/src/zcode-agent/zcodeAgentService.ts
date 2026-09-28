@@ -57,7 +57,6 @@ import {
   zcodeOffPeakCreateParamsSchema,
   zcodeOffPeakListParamsSchema,
   zcodeComputerUseOperationEventSchema,
-  zcodeProviderRuntimeHeadersRequestParamsSchema,
   zcodeProviderTestModelConnectivityResultSchema,
   zcodeProtocolEmptyResultSchema,
   zcodeProtocolMethods,
@@ -310,9 +309,8 @@ interface PendingPermissionRequest {
   protocolRequestId: ZCodeProtocolRequestId;
 }
 
-// P3 C4 供应商账号删除：PendingProviderRuntimeHeadersRequest 及 pending 登记表只服务
-// accountAccess 自动应答链，已随之移除；runtime-headers 请求现在同步快速失败，
-// 不再保留挂起簿记。
+// P4：provider runtime headers 请求协议方法与 Host 侧快速失败 handler 已整体删除
+// （两端链路自 alpha.2 起均不再使用），此处不再保留任何挂起簿记或转发。
 
 interface PendingSessionRuntimePreferencesRequest extends PendingPermissionRequest {
   request: ZCodeAgentSessionRuntimePreferencesRequest;
@@ -1576,9 +1574,8 @@ export function createZCodeAgentService(
     wiredClients.add(client);
     const disposables = [
       client.onNotification((message) => {
-        // P3 C4 供应商账号删除：providerRuntimeHeadersCancelled 取消转发只服务
-        // accountAccess 自动应答链的挂起簿记，已随之移除；CLI 侧取消通知不再需要
-        // Host 侧处理（请求本身已同步快速失败）。
+        // P4：providerRuntimeHeadersCancelled 取消通知的协议方法已删除，
+        // Host 侧不再存在对应的转发处理。
         // 已移除厂商资源/MCP 遥测转发：CLI 仍可能推送 processResourceSample /
         // toolExecResource / mcpResourceSamples / mcpTelemetry 通知，这里不再解析。
         if (message.method === zcodeProtocolNotifications.pluginOperationProgress) {
@@ -1934,34 +1931,6 @@ export function createZCodeAgentService(
               request: parsed.data,
             });
           }
-          return;
-        }
-
-        if (request.method === zcodeProtocolMethods.interactionRequestProviderRuntimeHeaders) {
-          const parsed = zcodeProviderRuntimeHeadersRequestParamsSchema.safeParse(request.params);
-          if (!parsed.success) {
-            void client.respondError(request.id, {
-              code: -32602,
-              message: "Invalid provider runtime headers request params",
-              data: parsed.error.flatten(),
-            });
-            return;
-          }
-          // P3 C4 供应商账号删除：accountAccess 自动应答分支已移除；本地无请求期
-          // 鉴权解析器，请求统一快速失败，避免滞留到 CLI 侧 180s 超时。
-          logger.info(request.trace?.traceId, "收到 ZCode provider runtime headers 请求", {
-            modelId: parsed.data.modelSelection.modelId,
-            providerId: parsed.data.providerId,
-            requestId: parsed.data.requestId,
-            sessionId: parsed.data.sessionId,
-            turnId: parsed.data.turnId ?? null,
-            workspaceKey: resolveWorkspaceKey(workspace),
-            workspacePath: workspace.workspacePath,
-          });
-          void client.respond(request.id, {
-            headersApplied: false,
-            errorMessage: "Provider request auth is unavailable",
-          });
           return;
         }
 
@@ -4977,7 +4946,9 @@ export function createZCodeAgentService(
             await automationTaskIndexRepo.listTaskMetas({
               workspacePath: params.workspacePath,
               workspaceIdentity: params.workspaceIdentity,
-              provider: "glm",
+              // P4 身份重命名（glm→zcode）后按新值查询；旧持久化行的 glm provider
+              // 按 Ruling 1 hard-cut 有意孤儿化，不做双读迁移。
+              provider: "zcode",
             })
           )
             .slice(0, MAX_LEGACY_TASK_IDS_PER_SUBSCRIBE)

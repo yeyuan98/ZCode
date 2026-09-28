@@ -137,13 +137,13 @@ export function getTools(this: AgentRuntimeInternal, model?: Model): ModelToolCo
   if (this.cachedTools === null) {
     this.cachedTools = filterRuntimeVisibleTools.call(this, this.registry.toContracts());
   }
-  return this.cachedTools
-    .filter((tool) => tool.name !== "WebSearch" || shouldExposeWebSearch.call(this, model))
-    .map((tool) =>
-      projectToolModelContract(tool, this.registry.get(tool.name), {
-        model,
-      }),
-    );
+  // P4 WebSearch 工具删除后不再有按模型能力过滤的工具，model 参数仅保留给
+  // projectToolModelContract 的模型同源投影。
+  return this.cachedTools.map((tool) =>
+    projectToolModelContract(tool, this.registry.get(tool.name), {
+      model,
+    }),
+  );
 }
 
 export function invalidateToolCache(this: AgentRuntimeInternal): void {
@@ -204,7 +204,7 @@ export async function notifyExternalChildSessionEvent(
  * 外部子 runtime 的接缝（三）：铸造子 runtime 的**对外交互**端口。
  *
  * 子 runtime 的账本身份（子 sessionId）不是协议客户端能应答的身份。dwf actor 与 legacy
- * workflow child 过去直接从 `appOptions` 取 `providerRuntimeHeadersPort` / `permissionBroker`，
+ * workflow child 过去直接从 `appOptions` 取对外交互端口（permissionBroker 等），
  * 于是带着 `sess_dwf-…`去问桌面；桌面回包路径上的 `requireSession` 抛错、response 永不发出，
  * 子代理在首个模型请求前永久挂起（8 个子代理、80 分钟无任何事件）。core 内建 subagent 当时靠
  * 两个私有 wrapper 绕开，三处装配两错一对——说明规则散落在调用点就一定会漂。
@@ -217,13 +217,9 @@ export function createChildClientPorts(
   this: AgentRuntimeInternal,
   context: ChildClientPortsContext,
 ): ClientFacingPorts {
+  if (this.permissionBroker === undefined) return {};
   return deriveChildClientPorts(
-    {
-      ...(this.permissionBroker === undefined ? {} : { permissionBroker: this.permissionBroker }),
-      ...(this.providerRuntimeHeadersPort === undefined
-        ? {}
-        : { providerRuntimeHeadersPort: this.providerRuntimeHeadersPort }),
-    },
+    { permissionBroker: this.permissionBroker },
     { ...context, parentSessionId: this.sessionId },
   );
 }
@@ -265,10 +261,4 @@ function filterRuntimeVisibleTools(
   return orderProviderVisibleToolContracts(visibleTools);
 }
 
-function shouldExposeWebSearch(this: AgentRuntimeInternal, model?: Model): boolean {
-  // 无 Model 的调用只枚举完整注册表，供持久化和 UI 元数据使用；真实执行始终传入
-  // 当前 Active Model，并只读取其冻结的完整能力事实。
-  if (!model) return true;
-  return model.properties.supportsNativeWebSearch;
-}
 import { resolveExecutionState } from "@zcode/shared";

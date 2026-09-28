@@ -29,7 +29,7 @@ const meta = {
   createdAt: 1,
   updatedAt: 2,
   mode: "build" as const,
-  provider: "glm" as const,
+  provider: "zcode" as const,
 };
 
 test("current Project Memory catalog and files remain readable", async () => {
@@ -211,7 +211,7 @@ test("current session recovery preserves Desktop and replayable projections", as
     const desktop = await service.getTaskSnapshot({ ...meta, clientMode: "desktop-continuous" });
     const mobile = await service.getTaskSnapshot({ ...meta, clientMode: "web-remote-replayable" });
     assert.equal(desktop?.meta.taskId, meta.taskId);
-    assert.equal(desktop?.meta.provider, "glm");
+    assert.equal(desktop?.meta.provider, "zcode");
     assert.deepEqual(desktop?.slashCommands, snapshot.slashCommands);
     assert.equal(desktop?.runtime?.pendingElicitations, undefined);
     assert.deepEqual(mobile?.runtime?.pendingElicitations, []);

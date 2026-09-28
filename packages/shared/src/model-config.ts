@@ -73,7 +73,6 @@ export const completeModelPropertiesDataSchema = z
     outputFormat: completeModelOutputFormatDataSchema,
     supportsToolCall: z.boolean(),
     supportsJsonSchemaOutput: z.boolean(),
-    supportsNativeWebSearch: z.boolean(),
     supportsMidConversationSystem: z.boolean(),
   })
   .strict();

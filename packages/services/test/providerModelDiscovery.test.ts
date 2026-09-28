@@ -17,6 +17,42 @@ import {
 } from "../src/model-provider/providerModelDiscovery.js";
 import { createProviderConfigRuntime } from "../src/model-provider/providerConfigRuntime.js";
 import { getAppConfigDir, setDataBaseDir } from "../src/paths.js";
+import {
+  completeModelPropertiesDataSchema,
+  modelPropertiesDataSchema,
+} from "@zcode/shared/model-config";
+
+// P4 硬切（specs/agent-identity-and-tooling-purge.md Ruling 2）：联网搜索能力字段已从
+// 数据模型删除，且不做配置归一化/迁移——携带该字段的旧个人配置按既有 corrupt-config
+// 路径失败。这里锁定 schema 侧的拒绝语义（strict 对未知键报错）。
+test("model properties schema rejects the removed supportsNativeWebSearch field (P4 hard cut)", () => {
+  const completeFixture = {
+    requiresMfjsToolSchema: false,
+    contextWindow: 200_000,
+    inputFormat: {
+      supportsText: true,
+      supportsImage: false,
+      supportsVideo: false,
+      supportsAudio: false,
+      supportsPdf: false,
+    },
+    outputFormat: { supportsText: true },
+    supportsToolCall: true,
+    supportsJsonSchemaOutput: false,
+    supportsNativeWebSearch: false,
+    supportsMidConversationSystem: false,
+  };
+  assert.equal(
+    completeModelPropertiesDataSchema.safeParse(completeFixture).success,
+    false,
+    "完整 schema 必须拒绝已删除的 supportsNativeWebSearch 键（strict）",
+  );
+  assert.equal(
+    modelPropertiesDataSchema.safeParse({ supportsNativeWebSearch: true }).success,
+    false,
+    "稀疏 schema 同样不得接受已删除的字段",
+  );
+});
 
 function templateView(config: ProviderConfigObject): ProviderSettingsTemplateView {
   return Object.freeze({ templateId: "test-template", templateNameMap: {}, config });
@@ -555,8 +591,8 @@ test("createPersonalProvider seeds discovered ids and the resolver publishes exe
 
     // 启动门禁等价断言：发现到的 id 必须并入 Resolver 的候选模型列表且默认启用
     // （.* 默认 modelRule 提供 enabled=true）。executable 还依赖完整模型 schema 的
-    // 必填项收敛（supportsNativeWebSearch 的必填约束正被 P1 目录清理任务移除），
-    // 此处不锁定该位，避免与并发 schema 改动互相卡死。
+    // 必填项收敛（P4 已删除联网搜索能力字段），此处不锁定完整 schema 位，
+    // 避免与并发 schema 改动互相卡死。
     const resolution = new ProviderConfigResolver().resolve({
       zcodeBuiltinProviders: next.zcodeBuiltinProviders,
       zcodeBuiltinProviderTemplates: next.zcodeBuiltinProviderTemplates,
@@ -732,8 +768,8 @@ test("hint-persisted manual rule shadows a later catalog rule for the same model
   async function startRuntime(
     catalog: object,
     personalFilePath: string,
+    dir: string,
   ): Promise<{ dir: string; runtime: ReturnType<typeof createProviderConfigRuntime> }> {
-    const dir = await mkdtemp(join(tmpdir(), "zcode-hint-shadow-"));
     setDataBaseDir(dir);
     const configDir = getAppConfigDir();
     await mkdir(configDir, { recursive: true });
@@ -750,8 +786,12 @@ test("hint-persisted manual rule shadows a later catalog rule for the same model
   }
 
   // 阶段一：目录无 future-model 特定规则，带 hint 创建（ctx 500_000）。
+  // personal 路径必须在 setDataBaseDir 之后解析：否则它会落在真实用户目录上，
+  // 本机存在携带已删除字段的旧个人配置时（P4 硬切，无迁移），外部状态会被引入测试。
+  const phaseOneDir = await mkdtemp(join(tmpdir(), "zcode-hint-shadow-"));
+  setDataBaseDir(phaseOneDir);
   const phaseOnePersonalPath = join(getAppConfigDir(), "personal.json");
-  const phaseOne = await startRuntime(baseCatalog, phaseOnePersonalPath);
+  const phaseOne = await startRuntime(baseCatalog, phaseOnePersonalPath, phaseOneDir);
   try {
     const creation = await phaseOne.runtime.configService.createPersonalProvider({
       templateId: "moonshot-kimi",

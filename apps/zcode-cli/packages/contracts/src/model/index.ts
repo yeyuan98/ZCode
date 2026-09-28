@@ -3,12 +3,7 @@
 // ============================================================
 
 import type { QueryId, SessionId, TraceId, TurnId } from "../interfaces/shared.js";
-import type {
-  ProviderNativeToolSpec,
-  ToolExecutionMode,
-  ToolPermissionSpec,
-  ToolResultBudget,
-} from "../tools/contract.js";
+import type { ToolPermissionSpec, ToolResultBudget } from "../tools/contract.js";
 import type { TraceContext } from "../tracing/tracer.js";
 import type {
   ModelApiCallObservation,
@@ -101,7 +96,6 @@ export const ModelErrorCode = {
   InvalidModelRequest: "invalid_model_request",
   InvalidModelResponse: "invalid_model_response",
   ModelRequestFailed: "model_request_failed",
-  ModelRequestAuthMissing: "model_request_auth_missing",
   ModelRequestCancelled: "model_request_cancelled",
   ModelRequestTimeout: "model_request_timeout",
   ModelRateLimited: "model_rate_limited",
@@ -129,8 +123,6 @@ export const ModelRetryReason = {
   AuthRefresh: "auth_refresh",
   /** Anthropic 明确拒绝历史 thinking signature 后，对请求副本清理并立即重试一次。 */
   ReasoningSignatureRepair: "reasoning_signature_repair",
-  /** off-peak 闲时排队（429/3105+Retry-After）：豁免重试预算、无限探测（仅 idle plan provider）。 */
-  OffpeakQueued: "offpeak_queued",
 } as const;
 
 export type ModelRetryReason = (typeof ModelRetryReason)[keyof typeof ModelRetryReason];
@@ -463,8 +455,6 @@ export interface ModelToolContract {
   name: string;
   description?: string;
   capability?: string;
-  executionMode?: ToolExecutionMode;
-  providerNative?: ProviderNativeToolSpec;
   inputSchema: JsonSchema;
   outputSchema?: JsonSchema;
   /** 见 ToolContractDeclaration.strict：严格模式的资格声明，adapter 按 provider/model 落地。 */

@@ -1434,7 +1434,7 @@ export function createBotsService(
     }
     const isEnglish = locale === "en-US";
     const labels: Partial<Record<ZCodeProvider, Record<string, string>>> = {
-      glm: {
+      zcode: {
         default: isEnglish ? "Default" : "默认",
         yolo: "Yolo",
         plan: isEnglish ? "Plan" : "计划",
@@ -5767,7 +5767,7 @@ export function createBotsService(
             const targetIdentity = customModel?.modelName
               ? {
                   // Bugfix: bot /model 选择 custom provider 时，targetModel 会被降成纯模型名。
-                  // legacy task facade 必须额外拿到原始 provider 身份，否则同名模型会退回 glm/native。
+                  // legacy task facade 必须额外拿到原始 provider 身份，否则同名模型会退回 zcode/native。
                   providerId: customModel.providerId,
                   modelId: customModel.modelName,
                 }

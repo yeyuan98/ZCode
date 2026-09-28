@@ -263,7 +263,7 @@ export async function deployZCodeAgentRuntime(
   } else {
     // 1) chmod 失败时先验证 packages 可替换，避免 bundle 已更新但旧 packages 删除失败。
     await installOfficialPluginPackages();
-    // 2) packages 替换成功后再安装编译产物 zcode.cjs（跨平台同一份，glm 组件里就是它）。
+    // 2) packages 替换成功后再安装编译产物 zcode.cjs（跨平台同一份，zcode 组件里就是它）。
     await installBundle();
   }
   // 3) 写入 wrapper（即 resolver 期望的 zcode-agent），用远端已部署的 node 执行 zcode.cjs。
@@ -278,7 +278,7 @@ export async function deployZCodeAgentRuntime(
   );
   await waitForClose(versionStream);
   if (expectedArtifactSha256) {
-    // GLM 的语义版本可能不变但制品内容已更新，必须把 manifest SHA
+    // zcode-agent 组件的语义版本可能不变但制品内容已更新，必须把 manifest SHA
     // 写入远端 live marker，下一次连接才能按真实制品身份决定是否重部署。
     await writeRemoteAssetComponentMeta(backend, {
       id: componentId,

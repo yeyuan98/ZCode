@@ -1688,7 +1688,7 @@ const windowRemoteConnectionRegistry = createWindowRemoteConnectionRegistry<
     await services.get(IZCodeTaskService).releaseWorkspacePreparation({
       workspacePath: context.workspacePath,
       ...(context.workspaceIdentity ? { workspaceIdentity: context.workspaceIdentity } : {}),
-      provider: "glm",
+      provider: "zcode",
     });
     logger.info(
       `released WSL workspace runtime, workspaceKey=${context.workspaceIdentity?.trim() || context.workspacePath}`,

@@ -179,7 +179,7 @@ function ShareThemeToggle({
   onThemeChange?: (theme: Theme) => void;
 }) {
   const resolvedTheme = resolveTheme(theme);
-  const nextTheme = resolvedTheme === "dark" ? "zai-light" : "zai-dark";
+  const nextTheme = resolvedTheme === "dark" ? "zcode-light" : "zcode-dark";
   const label = resolvedTheme === "dark" ? copy.switchToLightTheme : copy.switchToDarkTheme;
   const Icon = resolvedTheme === "dark" ? SunIcon : MoonIcon;
 
@@ -249,7 +249,7 @@ export function ConversationShareLandingPage({
 }) {
   const resolvedLocale = localeOf(locale);
   const copy = COPY[resolvedLocale];
-  const activeTheme = theme ?? "zai-light";
+  const activeTheme = theme ?? "zcode-light";
   // preview 到手后把会话标题写进浏览器标签；main.tsx 只能先给一个语言正确的兜底标题。
   const shareTitle = preview.share.title;
   useEffect(() => {
@@ -652,7 +652,7 @@ export function ConversationShareLandingLoader({
   theme?: Theme;
 }) {
   const [state, setState] = useState<ConversationShareLandingState>({ kind: "loading" });
-  const [activeTheme, setActiveTheme] = useState<Theme>(theme ?? "zai-light");
+  const [activeTheme, setActiveTheme] = useState<Theme>(theme ?? "zcode-light");
   const handleThemeChange = useCallback((nextTheme: Theme) => {
     localStorage.setItem("zcode-theme", nextTheme);
     setActiveTheme(nextTheme);

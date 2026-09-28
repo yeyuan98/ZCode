@@ -17,7 +17,7 @@
       (() => {
         // JS bundle 执行前先按本地主题偏好决定首屏底色，避免 dark 用户在这一帧看到白底闪烁。
         const STORAGE_KEY = "zcode-theme";
-        const DEFAULT_THEME = "zai-dark";
+        const DEFAULT_THEME = "zcode-dark";
         const BROWSER_THEME_COLORS = {
           dark: "#161616",
           light: "#f8f8f8",
@@ -26,8 +26,8 @@
         const normalizeResolvedTheme = (theme) => {
           if (theme === "dark") return "dark";
           if (theme === "light") return "light";
-          if (theme === "zai-dark") return "dark";
-          if (theme === "zai-light") return "light";
+          if (theme === "zcode-dark") return "dark";
+          if (theme === "zcode-light") return "light";
           return theme;
         };
 
@@ -41,7 +41,14 @@
         };
 
         try {
-          const saved = localStorage.getItem(STORAGE_KEY) || DEFAULT_THEME;
+          // P4 review fix：主题标识重命名后，旧 zai-* 存量值按未知值处理并回写默认，
+          // 保证首屏底色与 bundle 内的解析一致，重置只发生一次。
+          const knownThemes = new Set(["light", "dark", "zcode-light", "zcode-dark", "system"]);
+          const rawSaved = localStorage.getItem(STORAGE_KEY);
+          const saved = knownThemes.has(rawSaved) ? rawSaved : DEFAULT_THEME;
+          if (!knownThemes.has(rawSaved)) {
+            localStorage.setItem(STORAGE_KEY, DEFAULT_THEME);
+          }
           const resolved =
             saved === "system"
               ? window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches

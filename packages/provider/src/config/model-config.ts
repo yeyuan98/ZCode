@@ -181,16 +181,12 @@ export class ModelPropertiesConfig extends ConfigOverlay<ModelPropertiesConfig> 
   readonly outputFormat?: ModelOutputFormatConfig | null;
   readonly supportsToolCall?: ModelPropertiesConfigInput["supportsToolCall"];
   readonly supportsJsonSchemaOutput?: ModelPropertiesConfigInput["supportsJsonSchemaOutput"];
-  readonly supportsNativeWebSearch?: ModelPropertiesConfigInput["supportsNativeWebSearch"];
   readonly supportsMidConversationSystem?: ModelPropertiesConfigInput["supportsMidConversationSystem"];
 
   constructor(input: ModelPropertiesConfigInput = {}) {
     super();
-    // P1 vendor purge：目录规则不再携带 supportsNativeWebSearch（P4 将删除该字段本身）。
-    // 完整 schema 仍要求该字段，因此此处统一默认为 false，保证模型装配与注册表序列化始终产出合法值。
     Object.assign(this, {
       ...input,
-      supportsNativeWebSearch: input.supportsNativeWebSearch ?? false,
       inputFormat:
         input.inputFormat instanceof ModelInputFormatConfig || input.inputFormat == null
           ? input.inputFormat
@@ -217,10 +213,6 @@ export class ModelPropertiesConfig extends ConfigOverlay<ModelPropertiesConfig> 
         this.supportsJsonSchemaOutput,
         next.supportsJsonSchemaOutput,
       ),
-      supportsNativeWebSearch: this.overlayValue(
-        this.supportsNativeWebSearch,
-        next.supportsNativeWebSearch,
-      ),
       supportsMidConversationSystem: this.overlayValue(
         this.supportsMidConversationSystem,
         next.supportsMidConversationSystem,
@@ -240,7 +232,6 @@ export class ModelPropertiesConfig extends ConfigOverlay<ModelPropertiesConfig> 
       outputFormat: this.outputFormat?.toJSON() ?? this.outputFormat,
       supportsToolCall: this.supportsToolCall,
       supportsJsonSchemaOutput: this.supportsJsonSchemaOutput,
-      supportsNativeWebSearch: this.supportsNativeWebSearch,
       supportsMidConversationSystem: this.supportsMidConversationSystem,
     });
   }
