@@ -819,7 +819,6 @@ function PluginList({
                 </Button>
                 <PluginAddMenu
                   testId="plugin-settings-add"
-                  onCreateTask={onCreateTask}
                   onAddMarketplace={() => onOpenPluginStore(undefined, "add-marketplace")}
                 />
               </>

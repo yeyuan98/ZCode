@@ -20,6 +20,19 @@ export async function unregisterInstalledService(layout: ServerLayout): Promise<
   await unregisterLegacyServiceForRoot(layout);
 }
 
+// [ulw] RB：P5 服务改名（D7，旧厂商前缀 -> app.zcode.server）后，升级安装
+// 需要在注册时顺带清掉同 root 的旧命名守护（其 DataRootLock 会阻塞新服务启动）。
+// 与卸载路径同用 root 别名扫描，保证新旧名字只留一个 descriptor。
+export async function sweepStaleRootScopedServicesBeforeRegister(
+  layout: ServerLayout,
+): Promise<void> {
+  const platform = currentServicePlatform();
+  const descriptor = createDaemonServiceDescriptor({ platform, layout });
+  const descriptorPath = serviceDescriptorPath(layout, descriptor);
+  await unregisterRootScopedAliasServices(layout, platform, descriptorPath);
+  await unregisterLegacyServiceForRoot(layout);
+}
+
 export async function hasLegacyServiceRegistration(layout: ServerLayout): Promise<boolean> {
   return (await resolveLegacyServiceRegistration(layout)) !== null;
 }

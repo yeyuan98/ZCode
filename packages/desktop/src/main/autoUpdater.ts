@@ -1246,6 +1246,12 @@ export function refreshAutoUpdaterReleaseChannel(
   receivePreviewUpdates: boolean,
   reason = "settings receivePreviewUpdates changed",
 ) {
+  // [ulw] RA：非生产 flavor 的打包构建没有配置 feed，这里必须同样受禁用闩锁约束，
+  // 否则切 preview 偏好会落到 app-update.yml 的真实 feed 上（I1）。
+  if (autoUpdaterDisabledForProductFlavor) {
+    logger.info(`[auto-update] skip ${reason}: updater disabled for this desktop product flavor`);
+    return;
+  }
   if (!canUseAutoUpdaterInCurrentRuntime()) {
     logger.info(`[auto-update] skip ${reason}: not packaged`);
     return;

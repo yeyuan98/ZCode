@@ -74,4 +74,4 @@ code (alpha policy).
 4. Connection-scope factory re-implemented in slim form (Symbol + `scopeConversationExportServiceForConnection` + overrides at the 4 host exposure sites) — `conversationRowsRangeV4` trusted-carrier check requires it (the reason the old share service had one).
 5. Export is not gated on desktop-attached remote hosts (old share needed vendor auth there; export is local-only, all host modes share one construction).
 6. e2e export smoke descoped to manual QA (harness mock provider cannot produce a completed agent turn without heavy scaffolding); services-level tests cover formatter/guard/happy-path.
-7. `conversationRowSelection.ts` (selectRows) retained as deliberate v2 seed (knip-accepted).
+7. `conversationRowSelection.ts` (selectRows) dropped entirely at [ulw] review (knip-unfriendly dead seed; git history preserves it for a possible v2).

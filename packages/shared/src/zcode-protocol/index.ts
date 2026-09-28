@@ -2884,8 +2884,7 @@ export const zcodePluginMarketplaceSummarySchema = z
     lastUpdated: z.string().optional(),
     pluginCount: z.number().int().nonnegative(),
     isOfficial: z.boolean().optional(),
-    // 目录顶层 featured 策展名单（商店「公开」分段 Featured 区）。
-    featured: z.array(z.string()).optional(),
+    // P5：featured 策展名单字段已随官方 CDN 目录删除（无任何写入方）。
     refreshFailure: z
       .object({
         code: z.string(),

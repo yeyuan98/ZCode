@@ -171,10 +171,7 @@ const zhCN: Record<string, string> = {
   "settings.resourceGroup.item.one": "{count} 项",
   "settings.resourceGroup.item.other": "{count} 项",
   "pluginCreator.add": "添加",
-  "pluginCreator.create": "创建插件",
   "pluginCreator.addMarketplace": "添加插件市场",
-  "pluginCreator.unavailable":
-    "插件创建器暂不可用。请检查连接，并在插件市场启用或恢复“插件创建器”后重试。",
   "settings.create.action": "新建",
   "settings.resourceActions.import": "导入",
   "settings.resourceActions.export": "导出",
