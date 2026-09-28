@@ -10,20 +10,20 @@ Status: implemented-by P0. Owner: desktop main process (`packages/desktop/src/ma
 2. **No vendor telemetry.** Alibaba ARMS RUM (`@arms/rum-electron`) and the 数仓 event pipeline
    (`ZCODE_TELEMETRY_REPORT_ENDPOINT`) are removed, along with every sender, bridge, patch,
    dependency, notice entry, and the desktop `device_mid` persistent identifier.
-3. **Update feed disabled while vendor-manifest-wired.** Until the GitHub provider replaces it
-   (P5), all three update paths are disabled at the single policy flag
-   (`packages/shared/src/updateFeedPolicy.ts`):
-   - startup + hourly poll (`initAutoUpdater({enabled})` call site);
-   - manual "check for updates" (fail-closed through the same flag, dev-skipped-style result);
-   - startup force-update gate (`maybeBlockStartupForForceUpdate` skip).
-     Rationale: semver `3.14.3 > 3.14.3-alpha.N`, so the vendor feed would treat every alpha as
-     outdated and auto-migrate/hard-block testers onto vendor builds.
+3. **Update feed: vendor-manifest guard superseded by P5.** The P0 three-path disable (flag
+   `packages/shared/src/updateFeedPolicy.ts`) was a transitional guard for the vendor manifest
+   feed: semver `3.14.3 > 3.14.3-alpha.N`, so the vendor feed would treat every alpha as
+   outdated and auto-migrate/hard-block testers onto vendor builds. P5 deletes the vendor
+   provider, the force-update gate, AND the flag (see `specs/distribution-and-updates.md` §A
+   for the replacement design: GitHub provider, single `latest.yml` channel, allowPrerelease
+   floor rule). This section is retained as history; the live update policy lives in
+   `specs/distribution-and-updates.md`.
 
 ## Ownership & invariants
 
-- Single policy owner: `isVendorManifestUpdateFeedWired()` in `updateFeedPolicy.ts` (shared,
-  pure, no IO). Desktop main is the only consumer. P5 flips it to `false` by deleting the
-  vendor provider and the flag, which re-enables updates via the GitHub provider.
+- ~~Single policy owner: `isVendorManifestUpdateFeedWired()`~~ — deleted in P5 together with
+  the vendor provider and its test; update policy ownership moved to
+  `specs/distribution-and-updates.md`.
 - No telemetry module may write a persistent machine identifier; CLI OTel's anonymous in-memory
   identity is exempt (per-plan decision, kept).
 - Failure semantics: disabled update paths return a benign "disabled" result — never an error
