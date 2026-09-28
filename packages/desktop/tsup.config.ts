@@ -96,8 +96,8 @@ function createSharedDefines() {
     __ZCODE_CUA_HELPER_BUILD_ID__: JSON.stringify(
       process.env.ZCODE_CUA_HELPER_BUILD_ID?.trim() ?? "",
     ),
-    // 客户端只有一个 CDN 配置，与发布端 OSS 目标列表分离。
-    __ZCODE_CDN_BASE_URL__: JSON.stringify(env.ZCODE_CDN_BASE_URL?.trim() || ""),
+    // P5 W2（D-P5.5）：__ZCODE_CDN_BASE_URL__ 构建期 define 已删除；
+    // remote 资产基址默认 GitHub Releases，运行时 ZCODE_CDN_BASE_URL 覆盖。
   };
 }
 

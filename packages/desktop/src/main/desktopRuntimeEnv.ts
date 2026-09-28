@@ -227,9 +227,9 @@ function resolveRemoteCdnBaseUrls(
   localEnv: LocalRuntimeEnv = {},
 ): string[] {
   const raw = resolveEnvValue("ZCODE_REMOTE_ASSET_CDN_BASE_URL", localEnv);
+  // P5 W2：remoteCdn 默认源已是 GitHub Releases tag 目录；镜像覆盖语义不变（完整基址透传）。
   return resolveOrderedRemoteCdnBaseUrls({
     ...options,
-    env: ZCODE_ENV,
     overrideBaseUrl: raw,
     version: ZCODE_VERSION,
   });
