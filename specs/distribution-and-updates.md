@@ -20,7 +20,7 @@ Covers: (A) app auto-update, (B) remote-asset downloads, (C) plugin marketplace 
 3. Single channel file `latest.yml` (`detectUpdateChannel:false` unchanged). No beta/alpha
    channel files (D-P5.1).
 4. `allowPrerelease` floor rule (D-P5.1): `allowPrerelease = receivePreviewUpdates === true ||
-   currentVersion has prerelease components`. Never below the electron-updater ctor default —
+currentVersion has prerelease components`. Never below the electron-updater ctor default —
    while no stable release exists, `/releases/latest` 404s and every check would error.
    `autoUpdater.channel` must NEVER be written (leftover channel values stall GitHubProvider's
    atom walk; guarded by test).
