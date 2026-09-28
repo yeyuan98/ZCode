@@ -9,6 +9,8 @@
         "scripts/check-workspace-freshness.mjs",
         "scripts/mise-run.mjs",
         "scripts/flat-asset-names.test.mjs",
+        "scripts/check-vendor-free.mjs",
+        "scripts/check-vendor-free.test.mjs",
         "e2e/serverBootstrap.ts"
       ]
     },
