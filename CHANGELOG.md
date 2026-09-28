@@ -1,5 +1,107 @@
 # Changelog
 
+## [3.14.3-alpha.9](https://github.com/yeyuan98/ZCode/compare/v3.14.3-alpha.8...v3.14.3-alpha.9) (2026-09-28)
+
+### Features
+
+* **desktop:** switch auto-update to GitHub Releases provider; delete vendor manifest feed + force-update gate ([6c040c4](https://github.com/yeyuan98/ZCode/commit/6c040c4d858d2075dd708f1392162061a16b9ae4))
+  * electron-updater feed = github provider (yeyuan98/ZCode); single latest.yml
+  * bundle.mjs passes --publish never (CI tag builds would otherwise trigger
+  * release workflow uploads latest.yml + *.exe.blockmap beside the installer
+  * deleted: manifestUpdateProvider, forceUpdateGuard, forceUpdatePrompt,
+  * re-enabled all three P0-guarded update paths (production-flavor gate kept);
+  * new updateFeedRuntime.ts: allowPrerelease floor rule (previews-on OR
+  * refreshAutoUpdaterReleaseChannel flips allowPrerelease + re-checks; dev
+  * desktopSecondInstanceDeepLink drops forceUpdate params (signature chain in
+  * tests: updateFeedRuntime units (8) + source-scan guards (4: no channel
+
+* **remote-assets:** GitHub Releases flat asset naming; single-candidate default; mirror layout rules ([151fa22](https://github.com/yeyuan98/ZCode/commit/151fa22d896863c62dda1aefbaf20ef6542bdc2a))
+  * desktop remoteCdn default base = github.com/yeyuan98/ZCode/releases/download/v<version>
+  * server remoteAssetCdn: v<version>-tailed base = flat layout — exactly ONE url per
+  * prepare-prebuilds flat staging mode (ZCODE_REMOTE_ASSET_FLAT_STAGING_DIR): emits
+  * scripts/lib/flat-asset-names.mjs pure name build/parse module + unit tests
+  * new packages/server test harness (registerTsLoader pattern) + remoteAssetCdn
+  * .env.example CDN rows re-documented (GitHub default flat; mirror overrides nested)
+  * knip.json registers the flat-name module entry (root-workspace precedent)
+
+* **share:** delete vendor conversation-share chain; preserve export seed modules ([c694aad](https://github.com/yeyuan98/ZCode/commit/c694aadabe5ac9d04a3f0bd395e5c537707efc75))
+  * deleted services/src/conversation-share/** (8 files, ~5.5k ln): publish/import
+  * deleted shared/src/conversation-share.ts (incl. decodeConversationShareRows,
+  * deleted web/src/share/** (landing page) + main.tsx share wiring + VITE share
+  * deleted UI surface: share menu/picker/readonly-timeline (D-P5.2 hard-cut of
+  * remoteWorkspaceServiceCollection: share client + ZCODE_JWT_TOKEN_KEY dead
+  * preserved decode-only protocol schemas (old snapshots still parse)
+  * NEW services/src/conversation-export/ seed modules (loadAllRows, structure
+  * locale cleanup: 165 conversationShare.* keys x2 locales + 3 plugin-store
+  * desktop renderer-only tsconfig build errors: 0 new vs HEAD
+
+* **share:** local conversation markdown export (replaces vendor share) ([1e83791](https://github.com/yeyuan98/ZCode/commit/1e837912a9213d22d2ed5916793cbecf0076a0bb))
+  * new IConversationExportService (conversation-export channel): whole-session
+  * formatter extends the seed: subagent rows render (summary + child-session
+  * registration chain: ServiceChannels.ConversationExport + accessor + node.ts
+  * UI: WorkspaceExportConversationButton in the old share header slot (icon-md
+  * i18n: conversationExport.* 5 keys x2 locales
+  * services tests 87 (+12: formatter matrix, guard, happy path w/ fake agent,
+
+
+### Bug Fixes
+
+* **p5:** [ulw] review round fixes (RA/RB/RC applied once) ([872499b](https://github.com/yeyuan98/ZCode/commit/872499b7d7308d0f583ffd6d390b5a2a28e24456))
+  * RA1: refreshAutoUpdaterReleaseChannel now honors the product-flavor disable
+  * RA2: web saveFile defers revokeObjectURL by 10s (WebKit blob-fetch abort)
+  * RB1: remove permanently-unavailable 'Create plugin' menu entry +
+  * RB2: CLI README plugin section rewritten to P5 reality (bundled-only
+  * RB3: delete knip-dead conversationRowSelection v2 seed (spec amendment 7
+  * RB4: drop dead featured field from marketplace summary schema
+  * RB5: sweep stale root-scoped services on daemon register (old-named
+  * RC1: remove stray committed schedulerProtocol.d.ts.map build artifact
+  * re-ran ALL gates post-fix: typecheck/lint/fmt/architecture 0/0, suites
+
+
+### Chores
+
+* **fmt:** apply oxfmt to plan + P5 spec (pre-existing fmt debt) ([a5b1535](https://github.com/yeyuan98/ZCode/commit/a5b1535821f55b429c18fe1ac5f5d02dde7e19f3))
+
+* **identity:** neutral installer identity; rename background services; cut endpoint-origin web + clientScenes chain ([cd68320](https://github.com/yeyuan98/ZCode/commit/cd68320a9e17eacd675c50a31ca0c39980398d49))
+  * electron-builder homepage/author/maintainer -> repo values
+  * serviceManager names com.zhipu.zcode.server -> app.zcode.server (D7, no
+  * Help-menu ZCode Endpoint selector, zcodeEndpointOrigin setting (both zod
+  * zcodeEndpoint.ts DELETED (zero surviving importors; resolveRuntimeZCodeEnv
+  * clientScenes chain deleted (nodeApiClient/apiEndpoints/apiJson/requestIdHeaders/
+  * connect.ts drops ZCODE_BASE_URL/ENDPOINT_ORIGIN remote env passthrough;
+  * tests: endpointWebPurge (4) — schema absence + legacy-file parse,
+
+* **p5:** sweep P5-introduced unused exports + swr dep ([c59d753](https://github.com/yeyuan98/ZCode/commit/c59d753af5872e99a379e28cc3dedcd01230ce3f))
+  * de-export AssistantTextRange / ConversationTurnNavigator types /
+  * delete unused useOptionalBaseWorkspaceServices (clientScenes hooks were its
+  * drop swr from packages/ui deps (last SWR consumer was useClientScenesResource)
+  * knip set-diff vs branch point: zero P5-introduced unused entries
+
+
+### Documentation
+
+* **p5:** NOTICE rows track P5 behavior; README mirror guidance ([2a1a67f](https://github.com/yeyuan98/ZCode/commit/2a1a67f24ea4d65e8c2e6d0d9c40da422a89e1c9))
+  * NOTICE: share/import row replaced by local-export disclosure (no upload);
+  * README: release section mentions updater metadata + remote-asset CI job;
+
+* **plan:** record P4 delivered state — alpha.8 merge/release, amendments A-P4.1-3, A8 matrix row ([0faef49](https://github.com/yeyuan98/ZCode/commit/0faef4968fb775b07a824054e97d5e5a6644f251))
+
+* **spec:** record conversation-export W4b amendments (input shape, scope factory, e2e descope) ([5e6d066](https://github.com/yeyuan98/ZCode/commit/5e6d06616de570e5100c11b68e50751cbc80186a))
+
+
+### Refactorings
+
+* **plugins:** de-vendor marketplace — bundled-only official + libre default; kill paid-plan/featured/phantom listings ([252026e](https://github.com/yeyuan98/ZCode/commit/252026e4e6278e40acfadfec6558eefa2d07c62a))
+  * DEFAULT_PLUGIN_MARKETPLACES = 2: official (source-less, bundled-only:
+  * DEFAULT_ENABLED_OFFICIAL_PLUGIN_IDS shrunk to in-tree pair; phantom
+  * ZAI_AUTHOR + OFFICIAL_PLUGIN_ASSETS_BASE_URL deleted; browser-use author/icon
+  * reserved-id set {official, libre} backs addMarketplace + bootstrap guards
+  * requiresPaidPlan purged end-to-end (protocol schema, contracts type, parser,
+  * Featured shelf deleted (no writer anywhere); auto-refresh retargeted to
+  * featureSuggestedPrompts: vendor CDN icon base deleted; 13 dead-plugin entries
+  * tests: parity (shared pinned set === bootstrap-derived, previously-fictional),
+  * 3 store i18n keys x2 locales dropped in the following commit (shared locale file)
+
 ## [3.14.3-alpha.8](https://github.com/yeyuan98/ZCode/compare/v3.14.3-alpha.7...v3.14.3-alpha.8) (2026-09-28)
 
 ### Features
