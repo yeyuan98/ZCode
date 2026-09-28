@@ -17,7 +17,7 @@ test("source 形状校验：各判别式的合法形态通过", () => {
   const valid: unknown[] = [
     { source: "url", url: "https://example.com/marketplace.json" },
     { source: "url", url: "https://example.com/marketplace.json", headers: { a: "b" } },
-    { source: "github", repo: "yeyuan98/zcode-plugins" },
+    { source: "github", repo: "yeyuan98/zodex-plugins" },
     { source: "git", url: "https://example.com/repo.git" },
     { source: "npm", package: "@scope/pkg" },
     { source: "file", path: "/tmp/marketplace.json" },
@@ -98,22 +98,22 @@ test("个人市场（非保留 id）接受一切合法形状；形状非法仍�
   assert.equal(
     isAllowedPersistedMarketplaceSource("my-market", {
       source: "github",
-      repo: "yeyuan98/zcode-plugins",
+      repo: "yeyuan98/zodex-plugins",
     }),
     true,
   );
   assert.equal(isAllowedPersistedMarketplaceSource("my-market", { source: "cdn" }), false);
 });
 
-test("外部契约钉死：libre 目录指向 yeyuan98/zcode-plugins 仓库 raw catalog", () => {
+test("外部契约钉死：libre 目录指向 yeyuan98/zodex-plugins 仓库 raw catalog", () => {
   const libre = DEFAULT_PLUGIN_MARKETPLACES.find(
     (marketplace) => marketplace.id === "zcode-plugins-libre",
   );
   assert.ok(libre);
-  // 外部 repo（github.com/yeyuan98/zcode-plugins）的 catalog-id 契约：id 与 raw url
+  // 外部 repo（github.com/yeyuan98/zodex-plugins）的 catalog-id 契约：id 与 raw url
   // 变更会同时破坏保留 id 守卫与已落盘记录的重播种。
   assert.equal(
     libre.source,
-    "https://raw.githubusercontent.com/yeyuan98/zcode-plugins/main/marketplace.json",
+    "https://raw.githubusercontent.com/yeyuan98/zodex-plugins/main/marketplace.json",
   );
 });

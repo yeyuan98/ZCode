@@ -10,7 +10,7 @@ test("scanText：五个模式全部命中且大小写不敏感", () => {
     "const c = 'chat.z.ai/oauth';",
     "const d = 'zhipu-account scope';",
     "const e = 'Com.Zhipu.Api';",
-    "const safe = 'https://github.com/yeyuan98/ZCode';",
+    "const safe = 'https://github.com/yeyuan98/zodex';",
   ].join("\n");
   const patterns = scanText(text).map((hit) => hit.pattern);
   assert.deepEqual(patterns, [

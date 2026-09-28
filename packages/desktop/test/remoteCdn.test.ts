@@ -8,7 +8,7 @@ import { resolveRemoteCdnBaseUrls } from "../src/main/remoteCdn.js";
 // __ZCODE_CDN_BASE_URL__ 构建期 define 已删除，运行时按
 // overrideBaseUrl > env ZCODE_CDN_BASE_URL > GitHub 默认 的优先级解析。
 
-const GITHUB_RELEASES_DOWNLOAD_BASE = "https://github.com/yeyuan98/ZCode/releases/download";
+const GITHUB_RELEASES_DOWNLOAD_BASE = "https://github.com/yeyuan98/zodex/releases/download";
 
 test("默认基址：GitHub Releases download + `v` 前缀版本段", () => {
   assert.deepEqual(resolveRemoteCdnBaseUrls(), [

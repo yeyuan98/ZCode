@@ -50,7 +50,7 @@ function buildCliZCodeSourceHeaders(
   const timezone = normalizePrintableHeaderValue(Intl.DateTimeFormat().resolvedOptions().timeZone);
   return {
     // Referer 固定为仓库地址：出站请求不应继续向第三方供应商广告厂商平台来源。
-    "HTTP-Referer": "https://github.com/yeyuan98/ZCode",
+    "HTTP-Referer": "https://github.com/yeyuan98/zodex",
     "User-Agent": `ZCode/${appVersion ?? "unknown"}`,
     ...(appVersion ? { "X-ZCode-App-Version": appVersion } : {}),
     "X-Title": `Z Code@${sourceTitle}`,

@@ -8,5 +8,5 @@ import { ZCODE_PRODUCT_DOCS_URL } from "../src/lib/productDocs.ts";
  * 入口不得回流厂商域名。
  */
 test("产品文档入口指向本仓库文档", () => {
-  assert.equal(ZCODE_PRODUCT_DOCS_URL, "https://github.com/yeyuan98/ZCode#readme");
+  assert.equal(ZCODE_PRODUCT_DOCS_URL, "https://github.com/yeyuan98/zodex#readme");
 });

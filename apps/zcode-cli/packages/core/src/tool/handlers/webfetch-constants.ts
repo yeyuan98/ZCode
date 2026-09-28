@@ -9,4 +9,4 @@ export const CACHE_MAX_BYTES = 50 * 1024 * 1024;
 export const MAX_REDIRECTS = 10;
 
 export const WEBFETCH_USER_AGENT =
-  "ZCode-WebFetch/0.1 (+https://github.com/yeyuan98/ZCode; coding-agent-cli)";
+  "Zodex-WebFetch/0.1 (+https://github.com/yeyuan98/zodex; coding-agent-cli)";
