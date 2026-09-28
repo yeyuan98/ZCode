@@ -84,7 +84,12 @@ export function useTheme() {
     const saved = localStorage.getItem(STORAGE_KEY);
     // 默认主题统一收敛到 zcode-dark，避免旧 hook 兜底值和 Zustand store 默认值分叉。
     // P4 主题标识由 zai-* 重命名为 zcode-*：旧持久化值通不过 isTheme，会落到此处兜底并重置为默认主题。
-    return isTheme(saved) ? normalizeThemePreference(saved) : "zcode-dark";
+    // review fix：兜底时同步回写存储，保证重置只发生一次，不会每次启动重复回退/闪屏。
+    if (!isTheme(saved)) {
+      localStorage.setItem(STORAGE_KEY, "zcode-dark");
+      return "zcode-dark";
+    }
+    return normalizeThemePreference(saved);
   });
 
   const setTheme = useCallback((t: Theme) => {

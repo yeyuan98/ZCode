@@ -29,7 +29,20 @@ function resolveTheme(theme: Theme): "light" | "dark" {
 }
 
 function applyResourceManagerTheme(): void {
-  const savedTheme = (localStorage.getItem("zcode-theme") as Theme | null) ?? "zcode-dark";
+  // P4 review fix：主题标识重命名后，旧 zai-* 存量值必须经过校验再使用，否则该窗口
+  // （不挂载 useTheme hook）会把未知值当成 light 渲染且永远无法自愈；兜底时回写存储，
+  // 让重置一次到位。
+  const rawTheme = localStorage.getItem("zcode-theme");
+  const isKnownTheme = (value: string | null): value is Theme =>
+    value === "light" ||
+    value === "dark" ||
+    value === "zcode-light" ||
+    value === "zcode-dark" ||
+    value === "system";
+  const savedTheme: Theme = isKnownTheme(rawTheme) ? rawTheme : "zcode-dark";
+  if (!isKnownTheme(rawTheme)) {
+    localStorage.setItem("zcode-theme", "zcode-dark");
+  }
   const resolvedTheme = resolveTheme(savedTheme);
   const appliedTheme =
     savedTheme === "system"

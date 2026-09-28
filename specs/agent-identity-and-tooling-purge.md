@@ -127,6 +127,29 @@ domain travel in one commit):
   vendor-plan semantics remain anywhere.
 - zai/bigmodel template traffic connects directly to configured base URLs; no silent rewrite.
 
+## Amendments (P4, in-phase)
+
+- **A-P4.1 (test descope, review-driven):** four spec test-matrix units require a CLI-side
+  test runner that does not exist in this repo (fake-3008 → generic-rate-limit classification;
+  zai/bigmodel base-URL passthrough; session-title scheduling; binary-resolution path
+  extraction). Descoped to compensating coverage: source-scan guards
+  (`zcodeProtocolP4Purge.test.ts`), descriptor/identity invariants
+  (`agentIdentityInvariants.test.ts` — env var + resource dir + provider literal + event name),
+  skill-prefix cross-package contract test, plus the alpha.8 manual pass. No CLI test
+  infrastructure was invented for P4.
+- **A-P4.2 (accepted degradations, review-confirmed):** (a) an HTTP-200 SSE frame carrying a
+  numeric 3008–3010 code (gateway-era shape, unreachable after gateway deletion) classifies as
+  terminal unknown instead of rate-limit — no vendor-plan semantics restored for it;
+  (b) Ruling 2's blast radius is the whole personal model-config file: the removed field was
+  REQUIRED pre-P4, so every stored personal model rule fails strict parse and the file
+  degrades to an empty in-memory overlay (original preserved on disk, no crash loop);
+  (c) old persisted `offpeak_queued` replays render unattributed reason codes.
+- **A-P4.3 (review fixes):** theme hard-cut made durable (pre-hydration readers in desktop
+  renderer main, resource-manager window, and web index.html now validate stored values and
+  write back the default once; useTheme fallback persists); model-execution regained an
+  instance-level proxy/CA fetch memo after the gateway transport cache deletion (CA file was
+  being re-read per model binding); two stale "Zai dark" comments neutralized.
+
 ## Test matrix
 
 Units: tool registry/getTools excludes WebSearch and rejects its schemas; provider enum/
