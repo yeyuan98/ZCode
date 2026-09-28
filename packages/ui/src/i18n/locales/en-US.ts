@@ -1870,7 +1870,6 @@ const enUS: Record<string, string> = {
   "settings.memory.workspaceMemory": "Workspace Memory",
   "settings.memoryDescription":
     "Save and reuse long-term context in workspaces. Applies to new sessions and may increase model requests and token costs.",
-  "settings.memory.viewer.disabled": "Enable Workspace Memory to view saved memories.",
   "settings.memory.viewer.localOnly":
     "Memory details are available only in the local desktop app. Open Memory settings there to view them.",
   "settings.memory.viewer.title": "Saved workspace memories",
@@ -2658,9 +2657,7 @@ const enUS: Record<string, string> = {
   "settings.usage.duration.day": "d",
   "settings.usage.duration.hour": "h",
   "settings.usage.duration.minute": "m",
-  "settings.modelProvider.presetDescription":
-    "Built-in Z.ai and BigModel providers with OAuth-assisted configuration.",
-  "settings.modelProvider.presetEmpty": "Not synced yet. Complete OAuth login first.",
+  "settings.modelProvider.presetEmpty": "Not synced yet. Try again in a moment.",
   "settings.modelProvider.customTitle": "Custom providers",
   "settings.modelProvider.refresh": "Refresh",
   "settings.modelProvider.reorderProvider": "Drag to reorder provider",

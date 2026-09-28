@@ -4,7 +4,7 @@ import terminalIcon from "@/onboarding/assets/terminal.png";
 import feishuIcon from "@/onboarding/assets/feishu.png";
 import type { DraftSuggestedPromptItem } from "@/v4/draftSuggestedPromptItems.js";
 
-// P5 去供应商化：vendor CDN 图标基址（cdn-zcode.z.ai/zcode/official-plugin/assets）删除。
+// P5 去供应商化：官方插件的 vendor CDN 图标基址（历史供应商 CDN）已删除。
 // 保留条目的图标只允许客户端打包资源（terminal/finder/feishu）；browser-use/gitlab/github
 // 等无打包图标的条目不再携带 iconUrl，chips 布局回退通用图标、list 布局留空图标位。
 // 目标插件已从官方目录消失且不在 libre 集合内的推荐（presentations/pdf/documents/

@@ -1,5 +1,3 @@
-import type { ZCodeProvider } from "@zcode/shared";
-
 type SkillSourceType = "zcode" | "unknown";
 
 function resolveSkillSourceType(skillPath: string): SkillSourceType {
@@ -25,9 +23,9 @@ function isZcodeSkill(skill: { id?: string; path: string; scope?: string }): boo
   );
 }
 
+// P6 2c：删除从未被读取的 _legacyProvider 形参（P4 供应商过滤死参数）。
 export function filterSkillsForProvider<T extends { path: string; id?: string; scope?: string }>(
   skills: T[],
-  _legacyProvider: ZCodeProvider,
 ): T[] {
   return skills.filter(isZcodeSkill);
 }

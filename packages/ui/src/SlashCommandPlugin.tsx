@@ -109,7 +109,7 @@ export function SlashCommandPlugin({
   const skillSuggestions = useMemo(
     () =>
       buildSkillSuggestions(
-        filterSkillsForProvider(skills, provider).filter((skill) => skill.enabled),
+        filterSkillsForProvider(skills).filter((skill) => skill.enabled),
         locale,
       ),
     [locale, provider, skills],

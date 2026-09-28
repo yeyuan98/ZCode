@@ -78,7 +78,7 @@ export function useSkillsMentionProvider(
   const allItems = useMemo(
     () =>
       mapSkillsToMentionItemsForTest(
-        filterSkillsForProvider(skills, provider).filter((skill) => skill.enabled),
+        filterSkillsForProvider(skills).filter((skill) => skill.enabled),
         locale,
       ),
     [locale, provider, skills],
