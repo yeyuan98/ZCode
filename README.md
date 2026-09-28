@@ -218,7 +218,15 @@ node dist/zcode/debug/zcode/bin/zcode.mjs --web \
 
 ## 发布
 
-发版唯一入口是 `pnpm release`（release-it）：自动升版本、按 conventional commit 生成/更新 [CHANGELOG.md](CHANGELOG.md)、提交 `chore: release vX`、打 `vX` 注解标签并推送。标签推送触发 [Release Desktop](.github/workflows/release-desktop.yml) 工作流，在 windows-latest 上构建 `ZCode-<version>-win-x64.exe` 并挂到 GitHub Release。
+发版唯一入口是 `pnpm release`（release-it）：自动升版本、按 conventional commit 生成/更新 [CHANGELOG.md](CHANGELOG.md)、提交 `chore: release vX`、打 `vX` 注解标签并推送。标签推送触发 [Release Desktop](.github/workflows/release-desktop.yml) 工作流，在 windows-latest 上构建 `ZCode-<version>-win-x64.exe`、更新元数据（`latest.yml` + `.blockmap`），并在 ubuntu-latest 上构建远程资产扁平上传集（各平台 manifest 与组件包），全部挂到 GitHub Release。
+
+## 镜像与网络受限环境（P5 起）
+
+更新、远程资产与插件市场默认托管在本仓库 GitHub Releases 与 `yeyuan98/zcode-plugins`。GitHub 访问受限时可用以下覆盖：
+
+- **应用更新镜像**：设置 `ZCODE_UPDATE_FEED_URL`（或启动参数 `--zcode-update-feed-url`）为一个 HTTP(S) 基址，镜像需在**同一基址下平铺**存放 `latest.yml`、安装包与 `.exe.blockmap`。注意：generic 镜像不区分预发布版本——镜像上的 `latest.yml` 提供什么版本，客户端就会提示什么版本。
+- **远程资产镜像**：设置 `ZCODE_REMOTE_ASSET_CDN_BASE_URL` 为完整基址（嵌套布局：不带版本的根目录或固定版本的目录均可）。远程主机（SSH 目标机）直接经 curl/wget 下载，桌面代理不作用于该链路。
+- **插件市场镜像**：市场目录可经 jsDelivr 类 CDN 访问（`https://cdn.jsdelivr.net/gh/yeyuan98/zcode-plugins@main/marketplace.json`），插件 zip 始终来自 GitHub Releases。
 
 - 详细变更写在 commit 消息体的 bullet 列表中，release-it 会把它们渲染为 changelog 条目的子项。
 - 禁止手工 `git tag` 发版，会绕过 CHANGELOG 生成。
