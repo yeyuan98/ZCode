@@ -5,7 +5,6 @@ import type {
   AgentRuntimeConfig,
   ExecuteTurnOptions,
   ExpertWorkflowCommandResult,
-  ProviderRuntimeHeadersPort,
   PresentationSurface,
   ResumeSessionResult,
   StartSavedWorkflowRunResult,
@@ -144,11 +143,6 @@ export interface ZCodeAppOptions {
   modelIoFullRetentionEnabled?: boolean;
   /** 同进程嵌入宿主可注入完整的 borrowed 进程级 Owner；Endpoint 配置不得覆盖它。 */
   telemetryOwner?: AgentTelemetryRuntimeOwner;
-  /**
-   * provider runtime headers 端口：主 runtime 每次调用报自己的会话；child runtime 一律向父
-   * runtime 取派生实例。
-   */
-  providerRuntimeHeadersPort?: ProviderRuntimeHeadersPort;
   loggerFactory?: LoggerFactory;
   officialPluginRoots?: string[];
   pluginStorageRoot?: string;

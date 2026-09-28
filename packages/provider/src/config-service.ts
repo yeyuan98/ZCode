@@ -813,7 +813,6 @@ function buildInitialModelManualConfig(
       inputFormat: new ModelInputFormatConfig(manualInputFormat),
       // 手动模式冻结的其余叶子沿用创建时刻的目录有效值；新增系统字段不属于个人手动配置。
       supportsJsonSchemaOutput: effectiveProperties.supportsJsonSchemaOutput ?? false,
-      supportsNativeWebSearch: effectiveProperties.supportsNativeWebSearch ?? false,
       supportsMidConversationSystem: effectiveProperties.supportsMidConversationSystem ?? false,
     }),
     // 手动 schema 同样冻结 optionSpecs 两个手动叶子（maxOutputTokens.map 不是手动叶子，

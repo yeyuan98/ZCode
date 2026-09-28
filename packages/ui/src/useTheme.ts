@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from "react";
 
-export type Theme = "light" | "dark" | "zai-light" | "zai-dark" | "system";
+export type Theme = "light" | "dark" | "zcode-light" | "zcode-dark" | "system";
 export type ResolvedTheme = "light" | "dark";
 
 const STORAGE_KEY = "zcode-theme";
@@ -15,12 +15,12 @@ export function resolveTheme(theme: Theme): ResolvedTheme {
     return getSystemTheme();
   }
 
-  return theme === "dark" || theme === "zai-dark" ? "dark" : "light";
+  return theme === "dark" || theme === "zcode-dark" ? "dark" : "light";
 }
 
 export function normalizeThemePreference(theme: Theme): Theme {
-  if (theme === "dark") return "zai-dark";
-  if (theme === "light") return "zai-light";
+  if (theme === "dark") return "zcode-dark";
+  if (theme === "light") return "zcode-light";
   return theme;
 }
 
@@ -60,12 +60,12 @@ export function applyTheme(theme: Theme) {
   const appliedTheme =
     theme === "system"
       ? resolved === "dark"
-        ? "zai-dark"
-        : "zai-light"
+        ? "zcode-dark"
+        : "zcode-light"
       : normalizeThemePreference(theme);
   document.documentElement.classList.toggle("dark", resolved === "dark");
-  document.documentElement.classList.toggle("theme-zai-light", appliedTheme === "zai-light");
-  document.documentElement.classList.toggle("theme-zai-dark", appliedTheme === "zai-dark");
+  document.documentElement.classList.toggle("theme-zcode-light", appliedTheme === "zcode-light");
+  document.documentElement.classList.toggle("theme-zcode-dark", appliedTheme === "zcode-dark");
   syncBrowserThemeSurface(resolved);
 }
 
@@ -73,8 +73,8 @@ function isTheme(value: string | null): value is Theme {
   return (
     value === "light" ||
     value === "dark" ||
-    value === "zai-light" ||
-    value === "zai-dark" ||
+    value === "zcode-light" ||
+    value === "zcode-dark" ||
     value === "system"
   );
 }
@@ -82,8 +82,14 @@ function isTheme(value: string | null): value is Theme {
 export function useTheme() {
   const [theme, setThemeState] = useState<Theme>(() => {
     const saved = localStorage.getItem(STORAGE_KEY);
-    // 默认主题统一收敛到 Zai dark，避免旧 hook 兜底值和 Zustand store 默认值分叉。
-    return isTheme(saved) ? normalizeThemePreference(saved) : "zai-dark";
+    // 默认主题统一收敛到 zcode-dark，避免旧 hook 兜底值和 Zustand store 默认值分叉。
+    // P4 主题标识由 zai-* 重命名为 zcode-*：旧持久化值通不过 isTheme，会落到此处兜底并重置为默认主题。
+    // review fix：兜底时同步回写存储，保证重置只发生一次，不会每次启动重复回退/闪屏。
+    if (!isTheme(saved)) {
+      localStorage.setItem(STORAGE_KEY, "zcode-dark");
+      return "zcode-dark";
+    }
+    return normalizeThemePreference(saved);
   });
 
   const setTheme = useCallback((t: Theme) => {

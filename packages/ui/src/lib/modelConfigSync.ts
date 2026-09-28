@@ -50,7 +50,7 @@ function parseCustomProviderIdFromSupplierKey(supplierKey: string): string | nul
   }
 
   // custom provider 配置被修改后，当前模型可能处在 ghost
-  // supplier 状态，key 形如 ghost:glm:no-preference:provider=provider-demo...
+  // supplier 状态，key 形如 ghost:zcode:no-preference:provider=provider-demo...
   // 只识别 custom:* 会导致后续 provider registry 刷新无法定位自定义 provider。
   // 这里从 ghost identity 中恢复 provider 元数据，确保保存配置后能刷新对应配置。
   const providerSegment = identity

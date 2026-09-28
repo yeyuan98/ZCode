@@ -58,7 +58,7 @@ export function handleSubmitAttempted(
  * 宽松归一化 submit payload：先按原值校验；仅当原值不过、且原值是 string 时，做一次 JSON.parse
  * 再校验，成功则以解析后的值为准（既回裁决也落 journal）。
  *
- * 实盘发现（GLM-5.3 经 Anthropic 兼容端点）：真实模型常把 submit_result 的 `result` 参数序列化成
+ * 实盘发现（经 Anthropic 兼容端点）：真实模型常把 submit_result 的 `result` 参数序列化成
  * JSON 字符串（如 `"{\"title\":...}"`）而非 JSON 对象，导致校验器正确报「expected object, got string」、
  * repair 3 次后 run 失败。legacy script-workflow 的 parseStructuredResponse 早以宽松 JSON 解析容忍此
  * 情形；此处补上同等容忍，但 schema-aware：

@@ -206,7 +206,7 @@ type ZCodeTerminalStreamEvent =
   | Extract<ZCodeStreamEvent, { type: "task_complete" }>
   | Extract<ZCodeStreamEvent, { type: "task_error" }>;
 
-const GLM_PROVIDER: ZCodeProvider = ZCODE_AGENT_PROVIDER;
+const ZCODE_PROVIDER: ZCodeProvider = ZCODE_AGENT_PROVIDER;
 const EMPTY_SLASH_COMMANDS: ZCodeSlashCommand[] = [];
 const logger = createServiceLogger("zcode-task-service");
 const ASK_USER_QUESTION_TOOL_NAME = "AskUserQuestion";
@@ -1297,7 +1297,7 @@ export function createZCodeTaskServiceAdapter(
         mode: fromZCodeMode(snapshot.session.mode),
         model: formatTaskMetaModelSelectionFromSnapshot(snapshot),
         thoughtLevel: snapshot.settings.thoughtLevel.current,
-        provider: GLM_PROVIDER,
+        provider: ZCODE_PROVIDER,
         status: deriveZCodeTaskStatusFromSessionSnapshot(snapshot),
         lastError: snapshot.projection.lastError
           ? {
@@ -2334,7 +2334,7 @@ export function createZCodeTaskServiceAdapter(
       const tasks = await taskIndexRepo.listTaskMetas({
         workspacePath: params.workspacePath,
         workspaceIdentity: params.workspaceIdentity,
-        provider: GLM_PROVIDER,
+        provider: ZCODE_PROVIDER,
         pinned: false,
         archived: false,
       });
@@ -2343,7 +2343,7 @@ export function createZCodeTaskServiceAdapter(
 
     async listPinnedTaskIds(): Promise<string[]> {
       const tasks = await taskIndexRepo.listTaskMetas({
-        provider: GLM_PROVIDER,
+        provider: ZCODE_PROVIDER,
         pinned: true,
         archived: false,
       });
@@ -2354,7 +2354,7 @@ export function createZCodeTaskServiceAdapter(
       const tasks = await taskIndexRepo.listTaskMetas({
         workspacePath: params.workspacePath,
         workspaceIdentity: params.workspaceIdentity,
-        provider: GLM_PROVIDER,
+        provider: ZCODE_PROVIDER,
         pinned: true,
         archived: false,
       });
@@ -2365,7 +2365,7 @@ export function createZCodeTaskServiceAdapter(
       return taskIndexRepo.listDeletedTaskIds({
         workspacePath: params.workspacePath,
         workspaceIdentity: params.workspaceIdentity,
-        provider: GLM_PROVIDER,
+        provider: ZCODE_PROVIDER,
       });
     },
 
@@ -2375,7 +2375,7 @@ export function createZCodeTaskServiceAdapter(
     async listTaskList(params: ZCodeTaskListQuery): Promise<ZCodeTaskListResult> {
       const result = await taskIndexRepo.queryTaskList({
         ...params,
-        provider: GLM_PROVIDER,
+        provider: ZCODE_PROVIDER,
       });
       return {
         ...result,
@@ -2425,9 +2425,9 @@ export function createZCodeTaskServiceAdapter(
     async applyGroupedTaskViewOrder(params) {
       const result = await taskIndexRepo.applyGroupedTaskViewOrder({
         ...params,
-        // grouped 保存排序后的回包也必须继承列表查询的 glm provider 边界，
+        // grouped 保存排序后的回包也必须继承列表查询的 zcode provider 边界，
         // 否则历史外部 provider 的 task 会通过未过滤的二次查询短暂回到 UI。
-        provider: GLM_PROVIDER,
+        provider: ZCODE_PROVIDER,
       });
       for (const scope of params.workspaceScopes) {
         emitWorkspaceTaskListChanged(scope, undefined, "task_meta_changed");
@@ -2448,7 +2448,7 @@ export function createZCodeTaskServiceAdapter(
       const tasks = await taskIndexRepo.listTaskMetas({
         workspacePath: params.workspacePath,
         workspaceIdentity: params.workspaceIdentity,
-        provider: GLM_PROVIDER,
+        provider: ZCODE_PROVIDER,
         archived: true,
       });
       return tasks.map(rememberIndexedTaskMeta);
@@ -2472,7 +2472,7 @@ export function createZCodeTaskServiceAdapter(
       const tasks = await taskIndexRepo.listTaskMetas({
         workspacePath: params.workspacePath,
         workspaceIdentity: params.workspaceIdentity,
-        provider: GLM_PROVIDER,
+        provider: ZCODE_PROVIDER,
         archived: false,
       });
       for (const task of tasks) {
@@ -2489,7 +2489,7 @@ export function createZCodeTaskServiceAdapter(
       return taskIndexRepo.listTaskMetas({
         workspacePath: params.workspacePath,
         workspaceIdentity: params.workspaceIdentity,
-        provider: GLM_PROVIDER,
+        provider: ZCODE_PROVIDER,
         archived: true,
       });
     },
@@ -2818,7 +2818,7 @@ export function createZCodeTaskServiceAdapter(
     async getTaskNativeSessionLogFile() {
       const path = resolveZCodeAgentCurrentLogFilePath();
       // 返回 ZCode Agent 的结构化日志 JSONL；日志行中的 sessionId 用于按当前任务排查。
-      return { provider: GLM_PROVIDER, path, exists: existsSync(path) };
+      return { provider: ZCODE_PROVIDER, path, exists: existsSync(path) };
     },
 
     async getModelTrajectory(params) {
@@ -3253,7 +3253,7 @@ function parseModelPickerValue(value: string): ModelSelection {
   const customModel = decodeCustomModelValue(value);
   if (customModel?.providerId && customModel.modelName) {
     // UI 下拉的 custom:provider:model 只是展示态，不能原样传给 zcode-cli。
-    // 旧解析会先按冒号截断成 custom，最终下发 glm/custom，触发 Unsupported model。
+    // 旧解析会先按冒号截断成 custom，最终下发 zcode/custom，触发 Unsupported model。
     return {
       providerId: customModel.providerId,
       modelId: customModel.modelName,
@@ -3885,7 +3885,7 @@ function mapStateUpdated(
       availableModes: getZCodeAgentAvailableModes(),
     },
     {
-      type: "glm_agent_model_state_update",
+      type: "zcode_agent_model_state_update",
       taskId: params.taskId,
       traceId,
       version: 1,

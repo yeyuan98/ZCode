@@ -2028,8 +2028,8 @@ const enUS: Record<string, string> = {
   "settings.themeModeDescription": "Choose light, dark, or follow the system theme.",
   "settings.themeMode.light": "Light",
   "settings.themeMode.dark": "Dark",
-  "settings.themeMode.zai-light": "Light",
-  "settings.themeMode.zai-dark": "Dark",
+  "settings.themeMode.zcode-light": "Light",
+  "settings.themeMode.zcode-dark": "Dark",
   "settings.themeMode.system": "System",
   "settings.appearanceTitle": "Appearance",
   "settings.shortcuts.title": "Keyboard Shortcuts",
@@ -2266,8 +2266,8 @@ const enUS: Record<string, string> = {
   "sidebar.settings.locale.zh-CN": "中文简体",
   "sidebar.settings.interfaceZoom": "Interface zoom",
   "sidebar.settings.theme.light": "Light theme",
-  "sidebar.settings.theme.zai-light": "Light theme",
-  "sidebar.settings.theme.zai-dark": "Dark theme",
+  "sidebar.settings.theme.zcode-light": "Light theme",
+  "sidebar.settings.theme.zcode-dark": "Dark theme",
   "sidebar.settings.theme.dark": "Dark theme",
   "settings.migration.title": "Migration",
   "settings.migration.sectionTitle": "Claude History Migration",
@@ -2781,7 +2781,7 @@ const enUS: Record<string, string> = {
   "settings.modelProvider.help.outputModalities":
     "The content type of the model's replies. Only text is currently supported.",
   "settings.modelProvider.help.capabilities":
-    "- **Structured output**: Supports JSON Schema constraints on output fields, types, and structure.\n- **Native web search**: Supports the model API's built-in web search capability.\n- **Mid-conversation system messages**: Supports inserting system instructions during a conversation.\n\nDo not enable capabilities the model does not support.",
+    "- **Structured output**: Supports JSON Schema constraints on output fields, types, and structure.\n- **Mid-conversation system messages**: Supports inserting system instructions during a conversation.\n\nDo not enable capabilities the model does not support.",
   "settings.modelProvider.help.reasoningLevelsOrdered":
     "Set the reasoning levels available in chat. **They must be ordered from lowest to highest reasoning effort**.\nDo not configure reasoning levels the model does not support.",
   "settings.modelProvider.help.reasoningLevelMapping":
@@ -2807,7 +2807,6 @@ const enUS: Record<string, string> = {
   "settings.modelProvider.capabilities": "Model capabilities",
   "settings.modelProvider.supportsToolCall": "Tool calls",
   "settings.modelProvider.supportsJsonSchemaOutput": "Structured output",
-  "settings.modelProvider.supportsNativeWebSearch": "Native web search",
   "settings.modelProvider.supportsMidConversationSystem": "Mid-conversation system messages",
   "settings.modelProvider.requiresMfjsToolSchema": "MFJS tool schema",
   "settings.modelProvider.otherSettings": "Other settings",
@@ -4806,7 +4805,6 @@ const enUS: Record<string, string> = {
   "chat.toolCall.workflow.run.event.runCapsChanged": "Concurrency limit {previous} → {next}",
   "chat.toolCall.workflow.run.throttle.reason.rateLimited": "rate limited",
   "chat.toolCall.workflow.run.throttle.reason.overloaded": "overloaded",
-  "chat.toolCall.workflow.run.throttle.reason.offpeak": "off-peak queue",
   "chat.toolCall.workflow.run.throttle.reason.transient": "transient error",
   "chat.toolCall.workflow.run.concurrency.label": "Concurrency {cap}",
   "chat.toolCall.workflow.run.concurrency.cooldown": "cooling down until {time}",
@@ -5104,14 +5102,14 @@ const enUS: Record<string, string> = {
 
   // Modes
   "mode.plan": "Plan",
-  "mode.label.glm.build": "Ask before changes",
-  "mode.label.glm.edit": "Edit automatically",
-  "mode.label.glm.plan": "Plan mode",
-  "mode.label.glm.yolo": "Full access",
-  "mode.description.glm.build": "Ask before file changes.",
-  "mode.description.glm.edit": "Edit files automatically.",
-  "mode.description.glm.plan": "Plan before editing.",
-  "mode.description.glm.yolo": "Run with fewer confirmations.",
+  "mode.label.zcode.build": "Ask before changes",
+  "mode.label.zcode.edit": "Edit automatically",
+  "mode.label.zcode.plan": "Plan mode",
+  "mode.label.zcode.yolo": "Full access",
+  "mode.description.zcode.build": "Ask before file changes.",
+  "mode.description.zcode.edit": "Edit files automatically.",
+  "mode.description.zcode.plan": "Plan before editing.",
+  "mode.description.zcode.yolo": "Run with fewer confirmations.",
   "todo.panel.title": "Todo",
   "todo.panel.currentTask": "Current task",
   "todo.panel.completed": "Todo completed",
@@ -5148,8 +5146,6 @@ const enUS: Record<string, string> = {
     "Current video attachments are too large. Remove or compress videos and try again.",
   "zcode.error.ZCODE_RUNTIME_MODEL_UNAVAILABLE":
     "The current model is no longer available. Select an available model from the current model list to continue.",
-  "zcode.error.ZCODE_BIGMODEL_TEAM_PLAN_MEMBER_REQUIRED":
-    "The current model is unavailable. Check whether the current account has been added to the project member list.",
   "zcode.error.providerBusiness.1006": "Your login session has expired. Please sign in again.",
   "zcode.error.providerBusiness.1005":
     "Today's free plan quota has been used up. Upgrade to continue now, or wait for the quota to reset.",
@@ -5161,14 +5157,6 @@ const enUS: Record<string, string> = {
     "The request parameters are invalid. Check the input and try again.",
   "zcode.error.providerBusiness.3007":
     "The request was rejected by the gateway security check. Please try again later or contact support.",
-  "zcode.error.providerBusiness.3008":
-    "The system is busy. Please switch models, upgrade your account, or try again later.",
-  "zcode.error.providerBusiness.3009":
-    "The system is busy. Please switch models, upgrade your account, or try again later.",
-  "zcode.error.providerBusiness.3010":
-    "The system is busy. Please switch models, upgrade your account, or try again later.",
-  "zcode.error.providerBusiness.3102":
-    "This run exceeded the maximum single-run time. Create a new off-peak task to continue.",
   "zcode.error.modelSuspiciousEmpty":
     "The model returned no content (often caused by an expired token or plan issues). Please send again.",
   "zcode.error.providerBusiness.2007":

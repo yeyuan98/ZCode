@@ -2,7 +2,7 @@
  * workflow 内的模型侧错误策略表。
  *
  * 分类器（failure-classifier.ts）回答的是「主对话要不要自动重试」；这张表回答的是
- * 「workflow 要不要停下来找人」。两张表在 3008/3009/3010（并发上限）上答案相反，这正是
+ * 「workflow 要不要停下来找人」。两张表在终态业务码（如配额耗尽）上答案相反，这正是
  * 本模块存在的理由：workflow 子代理与工具侧请求持有无上限重试预算（`modelRetryBudget`），
  * 在它们身上，只有**确定性的、需要人来解决的**错误才值得停下 run；其余一切（含分类器判
  * 不可重试的未知业务码、TLS、5xx）一律在内重试，靠 stall 通知做逃生口。
@@ -60,7 +60,6 @@ const NOT_CONFIGURED_ERROR_CODES: ReadonlySet<string> = new Set([
   ModelErrorCode.ProviderNotConfigured,
   ModelErrorCode.ModelConfigMissing,
   ModelErrorCode.InvalidModelSelection,
-  ModelErrorCode.ModelRequestAuthMissing,
 ]);
 
 export type WorkflowModelFailurePolicy =

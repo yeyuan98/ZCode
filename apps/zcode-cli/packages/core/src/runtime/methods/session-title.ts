@@ -32,12 +32,10 @@ export function maybeStartSessionTitleGeneration(
   messageID: MessageId,
   traceContext: TraceContext,
   options?: {
-    deferIfProviderRuntimeHeadersRefresh?: boolean;
     goalSummaryTargetID?: string;
   },
 ): boolean {
   return maybeStartSessionTitleGenerationFromSeed.call(this, input, {
-    deferIfProviderRuntimeHeadersRefresh: options?.deferIfProviderRuntimeHeadersRefresh,
     goalSummaryTargetID: options?.goalSummaryTargetID,
     messageID,
     traceContext,
@@ -74,7 +72,6 @@ function maybeStartSessionTitleGenerationFromSeed(
   this: AgentRuntimeInternal,
   input: string,
   options: {
-    deferIfProviderRuntimeHeadersRefresh?: boolean;
     goalSummaryTargetID?: string;
     messageID?: MessageId;
     traceContext: TraceContext;
@@ -88,14 +85,8 @@ function maybeStartSessionTitleGenerationFromSeed(
   ) {
     return false;
   }
-  if (
-    options.deferIfProviderRuntimeHeadersRefresh &&
-    shouldDeferSessionTitleForRuntimeHeaders(this)
-  ) {
-    // 首条消息的 title generation 和主消息会共享同一个 runtimeModel。
-    // 需要刷新 runtime headers 的 provider 先让主 turn 发出去，再异步补标题。
-    return false;
-  }
+  // P4：runtime headers 刷新链（providerRuntimeHeadersPort）已删除，原先
+  // 「等主 turn 先刷新鉴权再补标题」的延迟门不再存在，标题按正常调度即时生成。
   this.sessionTitleGenerationAttempted = true;
   // 标题任务会越过当前 Turn 的生命周期。入队时冻结 causation，避免后续 await、
   // 调度器或实现重构使后台 Trace 静默丢失指向触发 Span 的 Link。
@@ -154,20 +145,6 @@ function shouldAttemptSessionTitleGeneration(
   return (
     options.bypassShortInputGuard ||
     Array.from(normalizedInput).length >= MIN_GENERATED_TITLE_INPUT_CHARS
-  );
-}
-
-function shouldDeferSessionTitleForRuntimeHeaders(runtime: AgentRuntimeInternal): boolean {
-  const runtimeHeadersPort = runtime.providerRuntimeHeadersPort;
-  if (!runtimeHeadersPort) return false;
-  const selection =
-    runtime.config.titleGeneration?.modelSelection ?? runtime.getSessionModelSelection();
-  if (!selection) return true;
-  return (
-    runtimeHeadersPort.shouldRefreshBeforeModelRequest?.({
-      providerId: selection.providerId,
-      modelId: selection.modelId,
-    }) ?? true
   );
 }
 

@@ -32,7 +32,6 @@ type CompactSummaryModelRequest = {
   statusSink?: ModelInvocationContext["statusSink"];
   tools?: Parameters<Model["generateText"]>[0]["tools"];
   traceContext: TraceContext;
-  refreshRuntimeHeadersBeforeAttempt?: ModelInvocationContext["refreshRuntimeHeadersBeforeAttempt"];
 };
 
 interface CompactSummaryFinish {
@@ -327,7 +326,6 @@ function invocationContext(request: CompactSummaryModelRequest) {
     statusSink: request.statusSink,
     traceContext: request.traceContext,
     preserveProviderStreamBoundaries: request.preserveProviderStreamBoundaries,
-    refreshRuntimeHeadersBeforeAttempt: request.refreshRuntimeHeadersBeforeAttempt,
   };
 }
 

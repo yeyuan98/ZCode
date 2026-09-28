@@ -6,7 +6,7 @@ import {
   type ProviderRegistryView,
 } from "./registry.js";
 
-export type ModelSelectionProviderKind = "ordinary" | "account-plan";
+export type ModelSelectionProviderKind = "ordinary";
 export type ModelSelectionProviderClassifier = (providerId: string) => ModelSelectionProviderKind;
 
 /**
@@ -22,15 +22,8 @@ export function resolveEffectiveModelSelection(input: {
   const original = input.selection;
   if (!original)
     return Object.freeze({ effectiveSelection: null, selectionIssue: "selection-missing" });
-  const kind = input.classifyProvider(original.providerId);
-  let providerId = original.providerId;
-  if (kind === "account-plan") {
-    // P2：Account Overlay 与账号连接状态已删除；账号类 Provider 无法解析当前连接（P3 重建）。
-    return Object.freeze({
-      effectiveSelection: null,
-      selectionIssue: "account-connection-unavailable",
-    });
-  }
+  // P4：account-plan 分支（账号连接不可用）已随供应商账号体系删除，分类器只剩 ordinary。
+  const providerId = original.providerId;
   const provider = input.registry.providers.find(
     (candidate) => candidate.providerId === providerId,
   );

@@ -22,7 +22,6 @@ export const ModelApiOperation = {
   SessionTitle: "session_title_generation",
   ToolInternalModelCall: "tool_internal_model_call",
   WebFetch: "web_fetch_processing",
-  WebSearch: "web_search",
   WorkspaceGenerateText: "workspace_generate_text",
 } as const;
 
@@ -183,8 +182,6 @@ function mapQuerySourceToModelApiOperation(querySource: string | undefined): {
         operation: ModelApiOperation.GitCommitMessage,
         actorKind: ModelApiActorKind.System,
       };
-    case "web_search_tool":
-      return { operation: ModelApiOperation.WebSearch, actorKind: ModelApiActorKind.Tool };
     case "web_fetch_processing":
       return { operation: ModelApiOperation.WebFetch, actorKind: ModelApiActorKind.Tool };
     case "read_session_context":

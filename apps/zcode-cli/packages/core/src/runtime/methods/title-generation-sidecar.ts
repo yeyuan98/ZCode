@@ -13,7 +13,6 @@ import type {
 } from "../deps.js";
 import type { AgentTelemetryCausation } from "@zcode/contracts";
 import type { AgentRuntimeInternal } from "../internal.js";
-import { createRefreshRuntimeHeadersBeforeModelAttempt } from "./model-runtime-headers.js";
 import { recordModelUsageFact } from "./usage-observability.js";
 import { createRuntimeModel } from "./runtime-model.js";
 import { cloneModelSelection } from "../model-selection.js";
@@ -140,11 +139,6 @@ async function generateTitleCandidateImpl(
     },
     statusSink: this.createModelStatusSink(modelTraceContext, events),
     traceContext: modelTraceContext,
-    refreshRuntimeHeadersBeforeAttempt: createRefreshRuntimeHeadersBeforeModelAttempt(this, {
-      abortSignal: titleAbortSignal,
-      model,
-      traceContext: modelTraceContext,
-    }),
   };
 
   const resultPromise = runWithModelInvocationContext(invocationContext, () =>

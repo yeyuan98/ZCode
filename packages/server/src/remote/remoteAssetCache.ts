@@ -54,7 +54,7 @@ const REMOTE_ASSET_PROGRESS_INTERVAL_MS = 1_000;
 const REMOTE_ASSET_PROGRESS_PERCENT_STEP = 5;
 const CONTENT_ADDRESSED_COMPONENT_RELEASE_DIRS: Record<string, string> = {
   "server-bundle": "server-content",
-  glm: "glm-content",
+  zcode: "zcode-content",
 };
 const REMOTE_ASSET_DIRECTORY_COMMIT_RETRY_DELAYS_MS = [
   50, 100, 200, 400, 800, 1_600, 3_200,
@@ -100,9 +100,9 @@ const REMOTE_COMPONENT_MOUNT_RULES: Record<string, ComponentMountRule> = {
     platformScoped: true,
     resolveExpectedMount: (platformArch) => `node-pty/${platformArch}`,
   },
-  glm: {
+  zcode: {
     platformScoped: true,
-    resolveExpectedMount: (platformArch) => `glm/${platformArch}`,
+    resolveExpectedMount: (platformArch) => `zcode/${platformArch}`,
   },
   bfs: {
     platformScoped: true,
@@ -153,7 +153,7 @@ export function createRemoteAssetManifestRequestSignal(
       `[remote-assets] manifest request timeout must be a positive safe integer: ${String(timeoutMs)}`,
     );
   }
-  // manifest 是 server-bundle/GLM SHA 跳过判断的前置输入；网络半开时若不主动取消，
+  // manifest 是 server-bundle/zcode-agent SHA 跳过判断的前置输入；网络半开时若不主动取消，
   // 已完整部署的远端也会永久卡在初始化，且 single-flight 会把后续连接绑到同一 pending 请求。
   return AbortSignal.timeout(timeoutMs);
 }
@@ -858,7 +858,7 @@ async function ensureRemoteComponentDirFromCdnInternal(
     options.platformArch,
   );
   if (forceRefresh) {
-    // App 版本变化代表一次新的资源发布边界；即使 GLM SHA cache 命中，
+    // App 版本变化代表一次新的资源发布边界；即使 zcode-agent SHA cache 命中，
     // 也必须重新下载、校验并原子替换，避免本地上传把旧 cache 再次部署到远端。
     loggers.logWarn(
       `[remote-assets] forced component refresh: component=${component.id} path=${componentDir}`,
@@ -873,7 +873,7 @@ async function ensureRemoteComponentDirFromCdnInternal(
   }
   if (!forceRefresh && initialMissingPaths) {
     // 旧版本只用 .ready 判断 component cache 可用。用户先部署过只含
-    // zcode.cjs 的 glm cache 后，再补传 packages 会一直复用残缺 cache。
+    // zcode.cjs 的 zcode-agent cache 后，再补传 packages 会一直复用残缺 cache。
     // 这里按调用方声明的关键路径校验，缺失时清掉旧 cache 并从 CDN 重下完整组件。
     loggers.logWarn(
       `[remote-assets] local component cache incomplete: component=${component.id} missing=${initialMissingPaths.join(",")}; redownloading`,
@@ -1370,11 +1370,10 @@ function resolveContentAddressedReleaseSegments(
 ): string[] {
   const segments: string[] = [];
   for (const componentId of Object.keys(CONTENT_ADDRESSED_COMPONENT_RELEASE_DIRS)) {
-    // 兼容历史全量 release：未指定组件时只沿用原有 GLM 内容目录；server
-    // 安装始终显式请求 server-bundle，因此仍会进入独立 SHA release。
+    // 组件 id 已随 P4 身份重命名；历史全量 release 目录不迁移，远端按 Ruling 1 重新下载。
     if (
       requestedComponentIds === null
-        ? componentId !== "glm"
+        ? componentId !== "zcode"
         : !requestedComponentIds.has(componentId)
     ) {
       continue;

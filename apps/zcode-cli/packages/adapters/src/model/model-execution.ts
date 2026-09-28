@@ -12,19 +12,13 @@ import {
   type CompiledModelOptionMaps,
   type ModelOptionValues,
 } from "@zcode/model-option-map";
-import {
-  type Logger,
-  type ModelId,
-  type ModelProviderId,
-  type ModelRequestAuth,
-} from "@zcode/contracts";
+import { type Logger, type ModelId, type ModelProviderId } from "@zcode/contracts";
 import type { RegistryProviderConfig } from "@zcode/provider";
 import { withOpenRouterAttributionHeaders } from "@zcode/shared";
 import { createAnthropicCompatFetch } from "./anthropic-stream-compat.js";
 import { createOpenAIResponsesJsonCompatFetch } from "./openai-responses-json-compat.js";
 import { createModelOptionMapFetch, type RawRequestBodyCapture } from "./model-option-map-fetch.js";
 import { createNetworkProxyFetch } from "../network/proxy-fetch.js";
-import { createOfficialCodingPlanGatewayFetch } from "./official-coding-plan-gateway.js";
 import { normalizeModelTlsFailure } from "./failure-tls.js";
 import { mergeModelRequestHeaders } from "./model-request-headers.js";
 
@@ -73,10 +67,7 @@ export interface AiSdkResolvedModel {
 
 export interface AiSdkBoundModelResolution {
   readonly resolved: AiSdkResolvedModel;
-  resolveRequest(input: {
-    readonly options: ModelOptionValues;
-    readonly requestAuth?: ModelRequestAuth;
-  }): AiSdkResolvedModel;
+  resolveRequest(input: { readonly options: ModelOptionValues }): AiSdkResolvedModel;
 }
 
 type LanguageModelFactory = (modelId: string) => LanguageModel;
@@ -157,7 +148,7 @@ export class AiSdkModelExecution {
   private readonly network: AiSdkNetworkConfig;
   private readonly logger?: Logger;
   private readonly baseTransport?: ProviderFetch;
-  private readonly providerTransports = new Map<string, ProviderFetch>();
+  private networkFetch: ProviderFetch | undefined;
 
   constructor(config: AiSdkModelExecutionConfig = {}, options: AiSdkModelExecutionOptions = {}) {
     this.env = config.env ?? process.env;
@@ -165,6 +156,17 @@ export class AiSdkModelExecution {
     this.network = { ...config.network };
     this.logger = options.logger;
     this.baseTransport = options.transport;
+  }
+
+  private resolveNetworkFetch(): ProviderFetch {
+    this.networkFetch ??= createProviderProxyFetch({
+      caCertFile: this.network.caCertFile,
+      env: this.env,
+      fetch: this.baseTransport,
+      httpProxy: this.network.httpProxy,
+      noProxy: this.network.noProxy,
+    });
+    return this.networkFetch;
   }
 
   /**
@@ -187,9 +189,8 @@ export class AiSdkModelExecution {
     const optionMaps = compileModelOptionMaps(input.optionSpecs);
     return {
       // 这里只构造不执行请求的基础 Model；真正请求必须通过 resolveRequest 绑定完整 options。
-      resolved: this.resolveSnapshot(snapshot, undefined, undefined, undefined),
-      resolveRequest: ({ options, requestAuth }) =>
-        this.resolveSnapshot(snapshot, requestAuth, optionMaps, options),
+      resolved: this.resolveSnapshot(snapshot, undefined, undefined),
+      resolveRequest: ({ options }) => this.resolveSnapshot(snapshot, optionMaps, options),
     };
   }
 
@@ -224,11 +225,10 @@ export class AiSdkModelExecution {
 
   private resolveSnapshot(
     snapshot: AiSdkModelSnapshot,
-    requestAuth: ModelRequestAuth | undefined,
     optionMaps: CompiledModelOptionMaps | undefined,
     optionValues: ModelOptionValues | undefined,
   ): AiSdkResolvedModel {
-    const providerConfig = applyModelRequestAuth(snapshot.providerConfig, requestAuth);
+    const providerConfig = snapshot.providerConfig;
     // Model 创建时的 Provider 事实必须被冻结在当前 binding 中。若按 providerId 缓存
     // factory，配置更新后创建的新 Model 会错误复用旧 Endpoint / Header / API Key。
     const rawRequestBodyCapture: RawRequestBodyCapture = {};
@@ -262,9 +262,11 @@ export class AiSdkModelExecution {
   ): LanguageModelFactory {
     const apiKey = this.resolveApiKey(providerConfig);
     const headers = providerConfig.headers;
-    const providerTransport = this.resolveProviderTransport(providerId);
     const fetch = createProviderBusinessErrorFetch({
-      fetch: providerTransport,
+      // P4 review fix: official gateway 的 per-provider transport 缓存删除后，若每次绑定都
+      // 重建 proxy fetch，配置了 caCertFile 时会随请求反复读盘；网络配置在单个实例内
+      // 不可变，统一走实例级 memo（见 resolveNetworkFetch）。
+      fetch: this.resolveNetworkFetch(),
       providerId,
       providerKind: providerConfig.kind,
     });
@@ -320,24 +322,6 @@ export class AiSdkModelExecution {
   private resolveApiKey(providerConfig: AiSdkProviderConfig): string | undefined {
     return providerConfig.apiKey;
   }
-
-  private resolveProviderTransport(providerId: string): ProviderFetch {
-    const current = this.providerTransports.get(providerId);
-    if (current) {
-      return current;
-    }
-    // 官方 Coding Plan 端点先替换为平台网关端点，再进入用户 HTTP 代理 fetch，
-    // httpProxy / noProxy 按实际发送地址判定。
-    const transport = createProviderTransportFetch({
-      caCertFile: this.network.caCertFile,
-      env: this.env,
-      fetch: this.baseTransport,
-      httpProxy: this.network.httpProxy,
-      noProxy: this.network.noProxy,
-    });
-    this.providerTransports.set(providerId, transport);
-    return transport;
-  }
 }
 
 interface AiSdkModelSnapshot {
@@ -368,20 +352,6 @@ function toAiSdkProviderConfig(
       return { kind: "openai-compatible", name: providerId, ...common };
   }
   throw new Error(`Unsupported Provider API type: ${String(config.api.type)}`);
-}
-
-function applyModelRequestAuth(
-  providerConfig: AiSdkProviderConfig,
-  requestAuth: ModelRequestAuth | undefined,
-): AiSdkProviderConfig {
-  if (!requestAuth) return providerConfig;
-  return {
-    ...providerConfig,
-    ...(requestAuth.apiKey ? { apiKey: requestAuth.apiKey } : {}),
-    ...(requestAuth.headers
-      ? { headers: mergeModelRequestHeaders(providerConfig.headers, requestAuth.headers) }
-      : {}),
-  };
 }
 
 function withAnthropicAuthorizationHeader(
@@ -505,18 +475,6 @@ function createProviderProxyFetch(options: ProviderProxyFetchOptions): ProviderF
   // Node 的 global fetch 不会自动读取 HTTP_PROXY/http_proxy。
   // 模型 provider 和 MCP HTTP transport 都复用同一层 proxy-aware fetch，避免多套出口规则漂移。
   return createNetworkProxyFetch(options);
-}
-
-/**
- * 模型请求出口：官方 Coding Plan 端点经 ZCode 平台网关发送（做套餐权益校验等平台侧处理），
- * 其余 provider 直连；之后统一进入用户 HTTP 代理 fetch，httpProxy / noProxy 按实际发送地址判定。
- * 官方端点与网关端点的对应关系见 official-coding-plan-gateway.ts。
- */
-function createProviderTransportFetch(options: ProviderProxyFetchOptions): ProviderFetch {
-  return createOfficialCodingPlanGatewayFetch({
-    env: options.env,
-    fetch: createProviderProxyFetch(options),
-  });
 }
 
 async function detectProviderBusinessError(

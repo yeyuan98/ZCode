@@ -1,19 +1,19 @@
 import type { ZCodeProvider } from "@zcode/shared";
 
-type SkillSourceType = "glm" | "unknown";
+type SkillSourceType = "zcode" | "unknown";
 
 function resolveSkillSourceType(skillPath: string): SkillSourceType {
   const normalized = skillPath.replaceAll("\\", "/").toLowerCase();
   if (normalized.includes("/.zcode/skills/")) {
-    return "glm";
+    return "zcode";
   }
   if (normalized.includes("/.zcode/cli/plugins/cache/")) {
-    return "glm";
+    return "zcode";
   }
   return "unknown";
 }
 
-const SKILL_ID_PROVIDER_RE = /^glm:/;
+const SKILL_ID_PROVIDER_RE = /^zcode:/;
 
 function isZcodeSkill(skill: { id?: string; path: string; scope?: string }): boolean {
   return (
@@ -21,7 +21,7 @@ function isZcodeSkill(skill: { id?: string; path: string; scope?: string }): boo
     // 服务层已用 scope 标记来源，前端过滤时要放行，否则 `/` 和 `$` 面板会漏掉插件技能。
     skill.scope === "plugin" ||
     (typeof skill.id === "string" && SKILL_ID_PROVIDER_RE.test(skill.id)) ||
-    resolveSkillSourceType(skill.path) === "glm"
+    resolveSkillSourceType(skill.path) === "zcode"
   );
 }
 

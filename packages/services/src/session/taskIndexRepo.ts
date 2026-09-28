@@ -2388,7 +2388,7 @@ export class TaskIndexRepo {
       }
       if (params.provider && row.provider !== params.provider) {
         // grouped 保存回包之前没有 provider 边界，旧 gemini/codex/claude 排序残留会在保存后重新展示。
-        // 带 provider 的 ZCode Agent 视图只接受当前 glm task；旧 provider 引用作为不可见遗留数据跳过。
+        // 带 provider 的 ZCode Agent 视图只接受当前 zcode task；旧 provider 引用作为不可见遗留数据跳过。
         return null;
       }
       return key;

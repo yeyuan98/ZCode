@@ -59,7 +59,7 @@ export function createCompactContextExceededFinishError(
 }
 
 function isCompactEmptyLengthFinish(result: RuntimeModelTextResult): boolean {
-  // GLM/Z.AI compact 可能以 length + 空文本完成，真实含义是没有可保存的 summary；
+  // 部分 Anthropic 兼容端点的 compact 可能以 length + 空文本完成，真实含义是没有可保存的 summary；
   // 仅在 compact 路径把它归类为超窗压力，复用已有 prompt-too-long 降输入重试。
   return result.finishReason.trim().toLowerCase() === "length" && result.text.trim().length === 0;
 }

@@ -949,7 +949,7 @@ async function createLogArchiveArtifacts(
   await collectLogArchiveFilesFromDirectory(sourceDir, "", visitedDirs, files);
 
   const zcodeCliLogDir = getZCodeCliLogDir();
-  // GLM / zcode-cli 的运行日志写在 ~/.zcode/cli/log，不在应用主数据目录 ~/.zcode/v2 下。
+  // zcode-cli 的运行日志写在 ~/.zcode/cli/log，不在应用主数据目录 ~/.zcode/v2 下。
   // 如果导出日志只扫描 v2，定位 agent CLI 启动、协议或崩溃问题时会缺少最关键的原生侧日志。
   await collectLogArchiveFilesFromDirectory(
     zcodeCliLogDir,

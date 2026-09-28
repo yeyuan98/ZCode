@@ -78,10 +78,6 @@
       "types": "./dist/interfaces/mcp.port.d.ts",
       "import": "./dist/interfaces/mcp.port.js"
     },
-    "./tools/websearch": {
-      "types": "./dist/tools/websearch.d.ts",
-      "import": "./dist/tools/websearch.js"
-    },
     "./telemetry": {
       "types": "./dist/telemetry/index.d.ts",
       "import": "./dist/telemetry/index.js"

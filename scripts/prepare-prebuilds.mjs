@@ -43,7 +43,7 @@ const desktopDir = join(rootDir, "packages/desktop");
 const mockCdnDir = join(desktopDir, "mock-cdn");
 const version = require(join(rootDir, "package.json")).version;
 const ZCODE_AGENT_RUNTIME = {
-  glm: {
+  zcode: {
     version: readZCodeAgentRuntimeVersion(),
   },
 };
@@ -465,7 +465,7 @@ function assertRemoteOfficialPluginRuntime(plugin) {
   }
 }
 
-function stageRemoteOfficialPlugins(glmDir) {
+function stageRemoteOfficialPlugins(zcodeDir) {
   for (const plugin of remoteOfficialPluginPackages) {
     const sourceRoot = join(rootDir, plugin.relativePath);
     const manifestPath = join(sourceRoot, ".zcode-plugin", "plugin.json");
@@ -475,7 +475,7 @@ function stageRemoteOfficialPlugins(glmDir) {
       );
     }
 
-    const targetRoot = join(glmDir, ...plugin.stagedPath.split("/"));
+    const targetRoot = join(zcodeDir, ...plugin.stagedPath.split("/"));
     mkdirSync(targetRoot, { recursive: true });
     for (const entryName of remoteOfficialPluginTopLevelPaths) {
       const sourcePath = join(sourceRoot, entryName);
@@ -487,20 +487,20 @@ function stageRemoteOfficialPlugins(glmDir) {
     }
     for (const relativePath of remoteOfficialPluginRequiredPaths) {
       if (!relativePath.startsWith(`${plugin.stagedPath}/`)) continue;
-      const stagedAssetPath = join(glmDir, ...relativePath.split("/"));
+      const stagedAssetPath = join(zcodeDir, ...relativePath.split("/"));
       if (!existsSync(stagedAssetPath)) {
         throw new Error(
           `[prepare-prebuilds] missing staged remote official plugin seed asset: ${stagedAssetPath}`,
         );
       }
     }
-    console.log(`  [ok] mock-cdn glm official plugin ${plugin.stagedPath}`);
+    console.log(`  [ok] mock-cdn zcode official plugin ${plugin.stagedPath}`);
   }
 }
 
-async function stageRemoteBundledSkillPack(glmDir) {
+async function stageRemoteBundledSkillPack(zcodeDir) {
   const sourceRoot = join(rootDir, remoteBundledSkillPack.relativePath);
-  const targetRoot = join(glmDir, ...remoteBundledSkillPack.stagedPath.split("/"));
+  const targetRoot = join(zcodeDir, ...remoteBundledSkillPack.stagedPath.split("/"));
   await mkdir(targetRoot, { recursive: true });
   for (const entryName of remoteBundledSkillPack.topLevelPaths) {
     const sourcePath = join(sourceRoot, entryName);
@@ -513,13 +513,13 @@ async function stageRemoteBundledSkillPack(glmDir) {
     const stagedAssetPath = join(targetRoot, ...relativePath.split("/"));
     await access(stagedAssetPath);
   }
-  console.log(`  [ok] mock-cdn glm bundled skill pack ${remoteBundledSkillPack.stagedPath}`);
+  console.log(`  [ok] mock-cdn zcode bundled skill pack ${remoteBundledSkillPack.stagedPath}`);
 }
 
 // 远端 agent 现在跑编译出来的 zcode.cjs（而不是各平台独立的原生二进制）：
 // 远端部署时已经有一份独立 node（跑 zcode-server.cjs），agent 复用它执行 zcode.cjs 即可，
 // 不必再为每个平台准备一份内嵌 node 的 SEA 二进制。zcode.cjs 跨平台同一份，逐平台只是放进各自的
-// glm/<platform> 组件目录，保持现有 manifest 组件结构不变。
+// zcode/<platform> 组件目录，保持现有 manifest 组件结构不变。
 async function stageRemoteAgentBundles() {
   console.log("==> Building zcode-cli bundle for remote agents");
   // 复用桌面同款构建脚本（turbo build:desktop-agent --filter=@zcode/cli），命中缓存时几乎瞬时。
@@ -536,15 +536,15 @@ async function stageRemoteAgentBundles() {
   }
 
   for (const platformKey of remotePlatforms) {
-    const glmDir = join(releaseDir, "glm", platformKey);
-    // 干净重建：glm 组件现在只含 zcode.cjs，清掉历史遗留的原生二进制 / 旧 meta，
+    const zcodeDir = join(releaseDir, "zcode", platformKey);
+    // 干净重建：zcode 组件现在只含 zcode.cjs，清掉历史遗留的原生二进制 / 旧 meta，
     // 避免被打进组件 tar 把远端资源撑大。
-    rmSync(glmDir, { recursive: true, force: true });
-    mkdirSync(glmDir, { recursive: true });
-    copyFileSync(cliBundlePath, join(glmDir, "zcode.cjs"));
-    stageRemoteOfficialPlugins(glmDir);
-    await stageRemoteBundledSkillPack(glmDir);
-    console.log(`  [ok] mock-cdn glm/${platformKey}/zcode.cjs`);
+    rmSync(zcodeDir, { recursive: true, force: true });
+    mkdirSync(zcodeDir, { recursive: true });
+    copyFileSync(cliBundlePath, join(zcodeDir, "zcode.cjs"));
+    stageRemoteOfficialPlugins(zcodeDir);
+    await stageRemoteBundledSkillPack(zcodeDir);
+    console.log(`  [ok] mock-cdn zcode/${platformKey}/zcode.cjs`);
   }
 }
 
@@ -636,9 +636,10 @@ function resolveComponentSemanticVersion(componentVersion) {
   return /^[a-f0-9]{12,64}$/.test(suffix) ? version.slice(0, plusIndex) : version;
 }
 
-// glm 承载 zcode-cli app-server 协议 schema。即使 runtime 版本未变化，
-// zcode.cjs 也可能随 app 代码变更；跨 release 复用旧 glm 会让远端 agent 拒绝新协议字段。
-const nonReusableReleaseAssetIds = new Set(["server-bundle", "glm"]);
+// zcode-agent 组件（历史 id 为 glm，P4 重命名）承载 zcode-cli app-server 协议 schema。即使 runtime 版本未变化，
+// zcode.cjs 也可能随 app 代码变更；跨 release 复用旧组件会让远端 agent 拒绝新协议字段。
+// 历史列表保留旧 id：旧 release 的 manifest 仍以 glm 命名，重命名后的新 id 一并标记为不可复用。
+const nonReusableReleaseAssetIds = new Set(["server-bundle", "glm", "zcode"]);
 
 function readJsonFile(filePath) {
   try {
@@ -797,8 +798,8 @@ function buildReusableComponentRequiredPaths(componentId, platformKey) {
       return ["node"];
     case "node-pty":
       return platformKey.startsWith("darwin-") ? ["pty.node", "spawn-helper"] : ["pty.node"];
-    case "glm":
-      // GLM 现在是编译产物 zcode.cjs（跨平台同一份），远端用已部署的 node 执行它。
+    case "zcode":
+      // zcode-agent 组件是编译产物 zcode.cjs（跨平台同一份），远端用已部署的 node 执行它。
       // 复用时还要确认官方插件 seed 资源完整，否则旧 release 会继续产出 0 builtin plugin 的远端资源包。
       return ["zcode.cjs", ...remoteOfficialPluginRequiredPaths];
     case "bfs":
@@ -835,12 +836,12 @@ export function buildRemoteComponentDefinitions(platformKey) {
       sourcePath: join(releaseDir, "node-pty", platformKey),
     },
     {
-      id: "glm",
-      // GLM native binary 之前固定成 v1，二进制版本升级后不会触发组件 cache 失效。
-      // 这里复用 ZCODE_AGENT_RUNTIME.glm.version，保持 manifest 版本与运行时描述一致。
-      semanticPrefix: ZCODE_AGENT_RUNTIME.glm.version,
-      mount: joinPosix("glm", platformKey),
-      sourcePath: join(releaseDir, "glm", platformKey),
+      id: "zcode",
+      // 组件之前固定成 v1，二进制版本升级后不会触发组件 cache 失效。
+      // 这里复用 ZCODE_AGENT_RUNTIME.zcode.version，保持 manifest 版本与运行时描述一致。
+      semanticPrefix: ZCODE_AGENT_RUNTIME.zcode.version,
+      mount: joinPosix("zcode", platformKey),
+      sourcePath: join(releaseDir, "zcode", platformKey),
     },
   ];
 
@@ -1049,7 +1050,7 @@ async function main() {
   await stageThirdPartyNotices(join(releaseDir, "server"), rootDir);
   for (const platformKey of remotePlatforms) {
     await stageThirdPartyNotices(join(releaseDir, "node-pty", platformKey), rootDir);
-    await stageThirdPartyNotices(join(releaseDir, "glm", platformKey), rootDir);
+    await stageThirdPartyNotices(join(releaseDir, "zcode", platformKey), rootDir);
   }
   prepareRemoteComponentArtifacts();
 

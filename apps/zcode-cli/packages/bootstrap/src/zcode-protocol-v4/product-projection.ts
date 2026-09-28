@@ -354,9 +354,9 @@ function modelRetryReasonCode(
   switch (reason) {
     case "rate_limited":
       return "fault.provider.rateLimited";
-    // off-peak 排队（429/3105）语义上就是"上游让我们等"，UI 归入限流可恢复形态。
-    case "offpeak_queued":
-      return "fault.provider.rateLimited";
+    // P4 已删除 off-peak 闲时排队（offpeak_queued）枚举值；旧持久化事件回放时
+    // reason 可能仍是该原始字符串，switch 不再命中，reasonCode 返回 undefined，
+    // 该条事件按无归因渲染——按 P4 spec 接受，无需兼容代码。
     case "provider_overloaded":
     case "server_error":
       return "fault.provider.serverError";

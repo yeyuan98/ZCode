@@ -11,7 +11,6 @@ import type {
   Logger,
   Model,
   ModelOptions,
-  ModelRequestAuth,
   ModelStatusSink,
   ModelStreamEvent,
   ModelTextResult,
@@ -19,7 +18,6 @@ import type {
 import type { RegistryModelConfig, RegistryProviderConfig } from "@zcode/provider";
 import {
   AiSdkModelExecution,
-  type AiSdkResolvedModel,
   type AiSdkNetworkConfig,
   type AiSdkModelExecutionConfig,
   type EnvRecord,
@@ -146,9 +144,8 @@ export class AiSdkModelAdapter {
     };
     const optionSpecs = options.modelConfig.optionSpecs;
     const toLegacyRequest = (request: ModelExecutionRequest): AiSdkModelTextRequest => {
-      const context = getCurrentModelInvocationContext();
-      // P2：账号 Model 的调用级 header 刷新已删除；上下文只透传普通调用信息。
-      const { refreshRuntimeHeadersBeforeAttempt: _dropped, ...invocationContext } = context ?? {};
+      // P4：请求期 runtime headers 刷新链已删除；上下文只透传普通调用信息。
+      const invocationContext = getCurrentModelInvocationContext() ?? {};
       const shouldAttachReasoningTelemetry = request.options.reasoningLevel !== undefined;
       const selectedReasoningLevel = request.options.reasoningLevel;
       return {
@@ -174,33 +171,18 @@ export class AiSdkModelAdapter {
       };
     };
     const resolveForRequest = (
-      request: AiSdkModelTextRequest,
       optionValues: Required<ModelOptions>,
-    ): ((requestAuth?: ModelRequestAuth) => ResolvedAiSdkModel) => {
+    ): (() => ResolvedAiSdkModel) => {
       const maxOutputTokens = requireMaxOutputTokens(optionValues);
-      return request.refreshRuntimeHeadersBeforeAttempt
-        ? (requestAuth) => ({
-            ...assertSameBoundModel(
-              resolved,
-              boundResolution.resolveRequest({
-                options: {
-                  maxOutputTokens,
-                  reasoningLevel: optionValues.reasoningLevel,
-                },
-                requestAuth,
-              }),
-            ),
-            properties,
-          })
-        : () => ({
-            ...boundResolution.resolveRequest({
-              options: {
-                maxOutputTokens,
-                reasoningLevel: optionValues.reasoningLevel,
-              },
-            }),
-            properties,
-          });
+      return () => ({
+        ...boundResolution.resolveRequest({
+          options: {
+            maxOutputTokens,
+            reasoningLevel: optionValues.reasoningLevel,
+          },
+        }),
+        properties,
+      });
     };
     return createModel({
       providerId: resolved.providerId,
@@ -218,7 +200,7 @@ export class AiSdkModelAdapter {
           return this.generateTextWithResolved(
             legacyRequest,
             resolved,
-            resolveForRequest(legacyRequest, request.options),
+            resolveForRequest(request.options),
           );
         },
         streamText: (request) => {
@@ -226,7 +208,7 @@ export class AiSdkModelAdapter {
           return this.streamTextWithResolved(
             legacyRequest,
             resolved,
-            resolveForRequest(legacyRequest, request.options),
+            resolveForRequest(request.options),
           );
         },
       },
@@ -283,16 +265,6 @@ function requireMaxOutputTokens(options: ModelOptions): number {
     );
   }
   return options.maxOutputTokens;
-}
-
-function assertSameBoundModel(
-  bound: ResolvedAiSdkModel,
-  refreshed: AiSdkResolvedModel,
-): AiSdkResolvedModel {
-  if (bound.providerId !== refreshed.providerId || bound.modelId !== refreshed.modelId) {
-    throw new Error("Runtime header refresh changed the bound model identity.");
-  }
-  return refreshed;
 }
 
 function projectRequestHistory(

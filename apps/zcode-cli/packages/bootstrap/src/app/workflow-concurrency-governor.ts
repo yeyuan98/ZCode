@@ -73,7 +73,6 @@ interface WorkflowConcurrencyGovernorOptions {
 const THROTTLE_REASONS: ReadonlySet<string> = new Set<ConcurrencyThrottleReason>([
   "rate_limited",
   "provider_overloaded",
-  "offpeak_queued",
 ]);
 /** 不是 provider 失败的 retry 原因：既不减 cap 也不清 streak——只当尝试终结。 */
 const NON_FAILURE_RETRY_REASONS: ReadonlySet<string> = new Set([
@@ -216,7 +215,7 @@ function createWorkflowConcurrencyGovernor(
             // retryable:true 的 failed 紧随一条 retry_scheduled——那条才是信号。
             if (event.retryable) return;
             // 不可重试的限流：
-            // 主对话 / 工具侧撞上 3008 这类被分类器判终止的 429，仍是一次字面意义上的并发信号——
+            // 主对话 / 工具侧撞上被分类器判终止的 429，仍是一次字面意义上的并发信号——
             // 只当「链结束」会让 cap 从未因它降过。配额码也走这一支：多减一次半，run 随即停下，无害。
             if (event.reason === "rate_limited") {
               settle((at) =>

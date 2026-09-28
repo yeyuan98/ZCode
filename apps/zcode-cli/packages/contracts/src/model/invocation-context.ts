@@ -28,29 +28,6 @@ export interface ModelInvocationContext {
   streamIdleTimeoutRetryNumber?: number;
   streamRecovery?: ModelStreamRecoveryStatus;
   preserveProviderStreamBoundaries?: boolean;
-  refreshRuntimeHeadersBeforeAttempt?: (input: {
-    // P3 C4 供应商账号删除：accountAccess（zhipu-account 请求期鉴权身份）已移除，
-    // 刷新入参只保留中性的请求定位字段。
-    attempt: number;
-    reason?: "model-request";
-    abortSignal?: AbortSignal;
-    providerId: string;
-    modelId: string;
-    traceContext?: TraceContext;
-  }) => Promise<{
-    headersApplied: boolean;
-    requestAuth?: ModelRequestAuth;
-  }>;
-}
-
-/**
- * Adapter 为单个物理请求 attempt 使用的动态鉴权材料。
- * P3：闲时票据的 requestAuth 注入链（ModelRequestDependencies/Source）已删除；
- * 该形状仍服务于账号 Provider 的 runtime headers 刷新路径。
- */
-export interface ModelRequestAuth {
-  apiKey?: string;
-  headers?: Record<string, string>;
 }
 
 const modelInvocationStorage = new AsyncLocalStorage<ModelInvocationContext>();

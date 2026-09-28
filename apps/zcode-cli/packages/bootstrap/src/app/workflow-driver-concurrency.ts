@@ -80,7 +80,7 @@ export interface ActorModelActivity {
 
 /**
  * 一条请求链的相位。链 = 「一个逻辑请求及其全部重试」：按 (querySource, queryId, toolCallId) 键入——
- * turn step 有 queryId 无 toolCallId，并行的两次 WebSearch 各有自己的 toolCallId，压缩 / 标题 sidecar
+ * turn step 有 queryId 无 toolCallId，并行的两次工具内部请求各有自己的 toolCallId，压缩 / 标题 sidecar
  * 各有 querySource——重试换 requestId 但键不变，所以退避中的链与它的下一次尝试是同一条。
  */
 type ChainPhase = "queued" | "executing" | "backoff";
@@ -142,7 +142,7 @@ export function createActorModelActivity(input: {
   };
   /**
    * 聚合后仍在等：报一次 waiting（每一段等待恰好一条）。
-   * 一个子代理并行发 4 个 WebSearch、四条链在同一毫秒排队，四条 queued 事件各报一次
+   * 一个子代理并行发 4 个工具内部请求、四条链在同一毫秒排队，四条 queued 事件各报一次
    * `waiting(slot)`——实测 80 条等待记录有 26 条是这种同秒同文的重复。子代理相位没有变，
    * 事件就不该再发：与上一条已报出的等待信息逐字段相同时吞掉；换 executing 后再等才重新报。
    */

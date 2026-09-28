@@ -14,7 +14,6 @@ export const AgentTelemetryOperation = {
   SessionTitleGeneration: "session_title_generation",
   ToolInternalModelCall: "tool_internal_model_call",
   WebFetchProcessing: "web_fetch_processing",
-  WebSearch: "web_search",
   WorkspaceGitCommitMessage: "workspace_git_commit_message",
   WorkspaceGenerateText: "workspace_generate_text",
 } as const;

@@ -90,7 +90,6 @@ const TOOL_OPTIONS = [
   "Edit",
   "Write",
   "WebFetch",
-  "WebSearch",
   "TodoWrite",
 ] as const;
 const TOOL_OPTION_SET = new Set<string>(TOOL_OPTIONS);
