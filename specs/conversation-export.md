@@ -65,3 +65,13 @@ in-flight guard, service happy path, e2e export smoke (download triggered on web
 Hard-cut: previously imported share sessions lose their preview block and attach behavior
 (data parses; display removed). No share links can be created or re-imported. No migration
 code (alpha policy).
+
+## Amendments (in-phase, W4b)
+
+1. Input shape = `{workspacePath, workspaceIdentity?, remoteSessionId?, sessionId}` (rowsRange/readSession are workspace-scoped; mirrors the old preflight input). Result adds `fileName` alongside `markdown` (renderer needs `suggestedName`).
+2. `formatSharedContextV1` replaced in-place by `formatConversationExportV1` (zero consumers post-W4a; discipline preserved).
+3. Error model: `conversation_running` kind + cross-RPC error-kind reader added to `conversationExportError.ts`.
+4. Connection-scope factory re-implemented in slim form (Symbol + `scopeConversationExportServiceForConnection` + overrides at the 4 host exposure sites) — `conversationRowsRangeV4` trusted-carrier check requires it (the reason the old share service had one).
+5. Export is not gated on desktop-attached remote hosts (old share needed vendor auth there; export is local-only, all host modes share one construction).
+6. e2e export smoke descoped to manual QA (harness mock provider cannot produce a completed agent turn without heavy scaffolding); services-level tests cover formatter/guard/happy-path.
+7. `conversationRowSelection.ts` (selectRows) retained as deliberate v2 seed (knip-accepted).
