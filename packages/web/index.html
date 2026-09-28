@@ -17,7 +17,7 @@
       (() => {
         // JS bundle 执行前先按本地主题偏好决定首屏底色，避免 dark 用户在这一帧看到白底闪烁。
         const STORAGE_KEY = "zcode-theme";
-        const DEFAULT_THEME = "zai-dark";
+        const DEFAULT_THEME = "zcode-dark";
         const BROWSER_THEME_COLORS = {
           dark: "#161616",
           light: "#f8f8f8",
@@ -26,8 +26,8 @@
         const normalizeResolvedTheme = (theme) => {
           if (theme === "dark") return "dark";
           if (theme === "light") return "light";
-          if (theme === "zai-dark") return "dark";
-          if (theme === "zai-light") return "light";
+          if (theme === "zcode-dark") return "dark";
+          if (theme === "zcode-light") return "light";
           return theme;
         };
 

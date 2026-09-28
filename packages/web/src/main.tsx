@@ -45,29 +45,29 @@ function resolveWebThemePreference(defaultTheme: Theme = WEB_DEFAULT_THEME): The
 {
   // 分享页没有本地主题配置时使用浅色，已有配置仍然沿用；其他 Web 页面继续默认深色。
   const saved = resolveWebThemePreference(
-    isConversationSharePath(window.location.pathname) ? "zai-light" : undefined,
+    isConversationSharePath(window.location.pathname) ? "zcode-light" : undefined,
   );
   const resolved =
     saved === "system"
       ? window.matchMedia("(prefers-color-scheme: dark)").matches
         ? "dark"
         : "light"
-      : saved === "dark" || saved === "zai-dark"
+      : saved === "dark" || saved === "zcode-dark"
         ? "dark"
         : "light";
   const appliedTheme =
     saved === "system"
       ? resolved === "dark"
-        ? "zai-dark"
-        : "zai-light"
+        ? "zcode-dark"
+        : "zcode-light"
       : saved === "dark"
-        ? "zai-dark"
+        ? "zcode-dark"
         : saved === "light"
-          ? "zai-light"
+          ? "zcode-light"
           : saved;
   document.documentElement.classList.toggle("dark", resolved === "dark");
-  document.documentElement.classList.toggle("theme-zai-light", appliedTheme === "zai-light");
-  document.documentElement.classList.toggle("theme-zai-dark", appliedTheme === "zai-dark");
+  document.documentElement.classList.toggle("theme-zcode-light", appliedTheme === "zcode-light");
+  document.documentElement.classList.toggle("theme-zcode-dark", appliedTheme === "zcode-dark");
 }
 
 async function resolveFeedbackUrl(): Promise<string | undefined> {
@@ -144,7 +144,7 @@ async function renderConversationSharePage(): Promise<void> {
       getAccessToken={() => getMockToken()}
       onLogout={onLogout}
       locale={routeLocale}
-      theme={resolveWebThemePreference("zai-light")}
+      theme={resolveWebThemePreference("zcode-light")}
     />,
   );
 }

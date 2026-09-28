@@ -890,8 +890,8 @@ export function SettingsPage({
       if (
         value === "light" ||
         value === "dark" ||
-        value === "zai-light" ||
-        value === "zai-dark" ||
+        value === "zcode-light" ||
+        value === "zcode-dark" ||
         value === "system"
       ) {
         runUserAction({

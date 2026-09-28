@@ -99,7 +99,7 @@ export function toMcpRunResult(run: NodeReplRunResult): CallToolResult {
   delete responseMeta[CUA_APP_ASSOCIATIONS_META_KEY];
   delete responseMeta[ZCODE_MCP_NODE_REPL_CUA_APP_META_KEY];
   if (run.cuaApp) responseMeta[ZCODE_MCP_NODE_REPL_CUA_APP_META_KEY] = run.cuaApp;
-  // Anthropic 兼容网关（如 bigmodel MaaS）只解析 tool_result.content 开头的连续
+  // 部分 MaaS/Anthropic 兼容端点只解析 tool_result.content 开头的连续
   // image block，一旦先遇到 text 就丢弃后面的图，模型只能看到 image_ref 元数据而看不到画面
   // （实测 [image]/[image,text] 可见，[text,image]/[text,image,text] 不可见）。
   // 把 image 排在 text 之前即可让图稳定到达模型；顺序在 Anthropic 规范里本就是自由的。
