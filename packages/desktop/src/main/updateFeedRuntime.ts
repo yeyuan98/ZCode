@@ -3,7 +3,7 @@ import type { ElectronReleaseChannel } from "@zcode/shared";
 
 // P5（specs/distribution-and-updates.md §A）：更新源从厂商 manifest provider 切换为
 // electron-updater github provider + 可选 generic 镜像覆盖。本模块只承载可在无 electron
-// 运行时下单测的纯逻辑（allowPrerelease 下限、镜像覆盖解析、provider 选择），
+// 运行时下单测的纯逻辑（allowPrerelease 解析、镜像覆盖解析、provider 选择），
 // autoUpdater.ts 负责接线与副作用。
 
 export const UPDATE_FEED_URL_ENV = "ZCODE_UPDATE_FEED_URL";
@@ -107,15 +107,16 @@ export function resolveUpdateFeedProviderConfig(
 }
 
 /**
- * D-P5.1 allowPrerelease 下限规则：receivePreviewUpdates 开启，或当前版本本身带
- * prerelease 组件时必须放行 prerelease。尚无正式 release 时 /releases/latest 会 404，
- * 低于该下限会让 alpha 用户（预览关闭）每次检查都报 ERR_UPDATER_LATEST_VERSION_NOT_FOUND。
+ * P8（specs/distribution-and-updates.md P8 修订）：allowPrerelease 严格跟随 preview 偏好。
+ * 原 D-P5.1 的“当前版本带 prerelease 组件即放行”下限随首个正式版 v3.14.3 发布作废——
+ * 它使 alpha 客户端关闭预览后仍被强制检查预发布 feed，“退出 alpha”无法生效。退出语义 =
+ * 不降级：客户端保持当前版本，直到下一个正式版版本号超过它。dev 更新流程的下限由
+ * autoUpdater.ts 在接线上叠加（本纯模块不知晓 dev override）。
  */
 export function resolveAutoUpdaterAllowPrerelease(
   receivePreviewUpdates: boolean | undefined,
-  currentVersion: string,
 ): boolean {
-  return receivePreviewUpdates === true || (semver.prerelease(currentVersion)?.length ?? 0) > 0;
+  return receivePreviewUpdates === true;
 }
 
 /** 单 channel 文件（latest.yml）下，更新条目的 preview/stable 标签直接由版本号推导。 */

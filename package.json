@@ -41,6 +41,7 @@
     "bootstrap": "node scripts/bootstrap.mjs",
     "bootstrap:with-remote": "node scripts/bootstrap.mjs --with-remote",
     "release": "release-it",
+    "release:alpha": "release-it --preRelease=alpha --ci",
     "release:cli": "pnpm --dir apps/zcode-cli run release",
     "release:cli:dry": "pnpm --dir apps/zcode-cli run release:dry",
     "architecture:check": "node scripts/architecture/architecture-check.mjs check",

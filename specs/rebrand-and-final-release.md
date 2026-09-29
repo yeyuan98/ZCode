@@ -36,3 +36,7 @@ Keep unchanged (internal tokens): `zcode` CLI binary, `zcode://` scheme (last-in
 ## Acceptance
 
 All repo gates green (root typecheck/lint/fmt; CLI 4; unit + scripts tests; e2e; vendor-free; architecture full; knip set-diff clean vs branch point; smoke:windows-bundle with `Zodex-*-win-x64.exe`), full workflow proof run on the branch (mac jobs green), release assets verified per contract.
+
+## P8 amendment (2026-09-29)
+
+"Final release" framing superseded: Zodex continues development with versioning detached from upstream ZCode (on-demand alpha pre-releases + selective upstream merges; hotfix exception). Policy of record: `specs/distribution-and-updates.md` P8 修订 + `docs/versioning.md`; upstream merge ledger: `docs/upstream-sync.md`. D3's "old alphas get zero compatibility code" remains a historical statement about the 3.14.3 cutover, not an ongoing no-alpha policy.

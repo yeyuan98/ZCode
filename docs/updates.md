@@ -4,8 +4,10 @@
 
 - 桌面版内置更新器（electron-updater，GitHub Releases 托管）：安装包、各平台更新通道文件与
   `.blockmap` 均挂在 [本仓库 Releases](https://github.com/yeyuan98/zodex/releases)。
-- 正式版发布前，所有版本都是**预发布**（prerelease）。运行预发布版本的客户端默认接收
-  预发布更新；稳定版客户端默认只接收稳定版，可在设置中开启预览通道。
+- 更新通道由设置「接受提前收到预览版更新（Alpha）」控制：开启后可收到 alpha 预发布；
+  关闭后只检查正式版。**关闭不会降级**——运行 alpha 版本的客户端关闭开关后将保持当前
+  版本，直到下一个正式版版本号超过它。使用 `ZCODE_UPDATE_FEED_URL` 镜像时不受通道
+  过滤：镜像上的通道文件提供什么版本，客户端就会提示什么版本。
 - 手动检查更新：帮助菜单 → 检查更新。
 
 ## 各平台更新通道
@@ -33,6 +35,8 @@ GitHub 访问受限时可用以下环境变量覆盖：
 
 ## 参考
 
+- 版本规则、alpha 发布流程与上游 ZCode 合并 runbook：[versioning.md](versioning.md)、
+  [upstream-sync.md](upstream-sync.md)。
 - 远程资产（SSH/WSL 远程工作区的运行时组件）清单与校验：仓库 Release 的
   `manifest-<platform>.json` 与 `zcode-remote-*.tar.gz` 组件包。
 - 更新相关设计记录：[specs/distribution-and-updates.md](../specs/distribution-and-updates.md)。

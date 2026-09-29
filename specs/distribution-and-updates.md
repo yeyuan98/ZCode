@@ -219,3 +219,34 @@ src/plugins/marketplace.ts` 的 `isKnownMarketplaceRecord` 收紧为当前记录
   builder homepage / changelog 外链）与 Windows artifact 文件名前缀
   （`Zodex-<version>-win-x64.exe.blockmap`）随重命名更新；`zcode-remote-*` 资产名与
   `manifest-<platformArch>.json` 命名按 D2 保持不变。
+
+## P8 修订（2026-09-29，Zodex 版本独立与通道语义）
+
+- **撤销 D-P5.1 的 allowPrerelease 下限条款**（“当前版本带 prerelease 组件即放行”）。
+  该条款是首个正式版发布前的兜底：当时 `/releases/latest` 必 404，低于下限会让 alpha
+  客户端每次检查报 ERR_UPDATER_LATEST_VERSION_NOT_FOUND。正式版 v3.14.3 已发布，兜底
+  作废；且该下限使 alpha 客户端**关闭预览偏好后仍被强制检查预发布 feed**，“退出 alpha”
+  无法生效。新规则：`allowPrerelease = (receivePreviewUpdates === true)`，严格跟随偏好
+  （`resolveAutoUpdaterAllowPrerelease` 收缩为单参数纯函数）。退出 alpha 的语义 =
+  不提供降级：客户端保持当前版本，直到下一个正式版版本号超过它
+  （electron-updater `allowDowngrade` 默认 false）。
+- **dev 下限保留但换位**：dev 自动更新流程覆盖的版本本身是 prerelease 时
+  （`applyDevAutoUpdateRuntimeOverrides`），init 与 settings 刷新两处重算都必须叠加
+  dev 放行，否则重算会覆盖 `applyDevAutoUpdateRuntimeOverrides` 抬高的
+  allowPrerelease（旧下限规则此前掩盖了该时序）。dev 下限由 autoUpdater.ts 接线层
+  持有（`isDevPrereleaseAutoUpdateOverrideActive`），纯模块 updateFeedRuntime.ts 不感知
+  dev override；由 updateFeedPolicyP5.test.ts 源码扫描钉住。
+- **D-P5.1 其余条款继续有效**：单 channel 文件 `latest.yml`（`detectUpdateChannel:false`
+  不变）、永远不写 `autoUpdater.channel`（既有守卫测试保留）。
+- **记录 electron-updater 行为（lockfile 6.8.3；升级该依赖时需复核本节）**：
+  `allowPrerelease=true` 且解析出的最新 tag 为 prerelease 时，GitHubProvider 会先请求
+  `alpha.yml`、404 后回落 `latest.yml`（每次预览检查多一次无害 404；但任何误传的
+  `alpha.yml`/`beta.yml` 资产会成为预览客户端的真实 feed）——发布核对清单因此增加
+  “Release 资产不得出现 `alpha.yml`/`beta.yml` 等多余通道文件”。
+- **设置文案契约**：预览更新开关描述必须携带“关闭不降级”说明；运行 prerelease 构建时
+  额外显示一行提示（由 `ZCODE_VERSION` 含 `-` 推导，en/zh 同步）。镜像
+  （`ZCODE_UPDATE_FEED_URL`）路径不受通道过滤，镜像提供什么就提示什么——文案与
+  docs/updates.md 不得对镜像用户过度承诺。
+- **版本与发布流程政策**（Zodex semver 独立于上游 ZCode、alpha 按需发布、上游合并
+  runbook）见 `docs/versioning.md`；上游合并账本见 `docs/upstream-sync.md`。不变量：
+  每个 `v*` tag（含 alpha）都必须携带完整 remote-asset 集（§B 流程不变）。

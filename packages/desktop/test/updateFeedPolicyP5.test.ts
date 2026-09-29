@@ -32,6 +32,13 @@ test("autoUpdater.ts 源码契约：不写 autoUpdater.channel、不引用厂商
   ]) {
     assert.ok(!source.includes(banned), `强更机制 ${banned} 已在 P5 删除，不得重新引入`);
   }
+  // P8：dev prerelease 下限必须保留——init 与 settings 刷新重算 allowPrerelease 时叠加
+  // isDevPrereleaseAutoUpdateOverrideActive，否则会覆盖 applyDevAutoUpdateRuntimeOverrides
+  // 抬高的 allowPrerelease（旧 D-P5.1 产品版本下限撤销后，这是唯一保留的下限）。
+  assert.ok(
+    source.includes("isDevPrereleaseAutoUpdateOverrideActive"),
+    "P8 dev prerelease 下限必须保留（init/refresh 重算不得覆盖 dev override）",
+  );
 });
 
 test("index.ts 源码契约：不再引用 updateFeedPolicy / 强更 gate 与窗口拦截", async () => {

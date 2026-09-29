@@ -8,6 +8,7 @@ import type {
 import {
   TID_SETTINGS_ASK_USER_QUESTION_AUTO_RESOLUTION_SWITCH,
   TID_SETTINGS_NATIVE_SEARCH_SWITCH,
+  ZCODE_VERSION,
 } from "@zcode/shared";
 import { useState, useCallback, useEffect } from "react";
 import type { IPlatformService } from "@zcode/shared";
@@ -44,6 +45,11 @@ export { createSettingsPageConfig, resolveSettingsSectionForPlatform };
 
 const TASK_AUTO_ARCHIVE_DAY_OPTIONS = [3, 7, 14, 30] as const;
 const ZCODE_INTERACTION_BEHAVIOR_OPTIONS: readonly ZCodeInteractionBehavior[] = ["queue", "guide"];
+
+// P8（specs/distribution-and-updates.md P8 修订）：运行中的构建本身是 prerelease（版本号含
+// “-”；dev fallback “0.0.0-dev” 同样命中，属可接受的开发态提示）时，预览更新开关额外
+// 显示“关闭不降级”提示。
+const IS_PRERELEASE_APP_BUILD = ZCODE_VERSION.includes("-");
 
 export function GeneralSectionContent({
   localePreference,
@@ -576,9 +582,20 @@ export function GeneralSectionContent({
             />
             <SettingsRow
               label={intl.formatMessage({ id: "settings.receivePreviewUpdates" })}
-              description={intl.formatMessage({
-                id: "settings.receivePreviewUpdatesDescription",
-              })}
+              description={
+                <>
+                  {intl.formatMessage({
+                    id: "settings.receivePreviewUpdatesDescription",
+                  })}
+                  {IS_PRERELEASE_APP_BUILD ? (
+                    <div className="mt-1">
+                      {intl.formatMessage({
+                        id: "settings.receivePreviewUpdatesPrereleaseNote",
+                      })}
+                    </div>
+                  ) : null}
+                </>
+              }
               control={
                 <Switch
                   aria-label={intl.formatMessage({ id: "settings.receivePreviewUpdates" })}
