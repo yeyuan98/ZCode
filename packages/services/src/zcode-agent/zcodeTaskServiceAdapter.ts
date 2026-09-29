@@ -109,6 +109,7 @@ import {
   type ZCodeUserInputRequestParams,
   type ZCodeUserInputResponse,
   type ZCodeAgentMcpServer,
+  SHARE_FILE_TOOL_NAME,
 } from "@zcode/shared";
 import type {
   ZCodeTaskListQuery,
@@ -298,6 +299,7 @@ export function createZCodeTaskServiceAdapter(
     automationId?: string;
     offPeakTaskId?: string;
     toolDenylist?: string[];
+    botDeliveryTarget?: ZCodeAutomationBotDeliveryTarget;
   }): string[] | undefined {
     const toolDenylist = new Set(params.toolDenylist);
     // 持久化的 cronAutomationId 不能当成当前 turn 的执行身份，否则定时任务
@@ -313,6 +315,19 @@ export function createZCodeTaskServiceAdapter(
       for (const toolName of OFF_PEAK_MUTATION_TOOL_NAMES) {
         toolDenylist.add(toolName);
       }
+    }
+    // Phase B 披露（specs/bot-file-delivery.md）：share_file 只在 weixin 私聊 bot turn 且
+    // 非 automation/off-peak 派发轮允许；与 CLI 侧两条 per-turn 禁用名单同值镜像，
+    // 防止绕过 host adapter 直连路径注入。subtract-only，对旧工具面是语义 no-op（additive）。
+    if (
+      !(
+        params.botDeliveryTarget?.provider === "weixin" &&
+        params.botDeliveryTarget?.chatType === "private" &&
+        !params.automationId &&
+        !params.offPeakTaskId
+      )
+    ) {
+      toolDenylist.add(SHARE_FILE_TOOL_NAME);
     }
     return toolDenylist.size > 0 ? [...toolDenylist] : undefined;
   }

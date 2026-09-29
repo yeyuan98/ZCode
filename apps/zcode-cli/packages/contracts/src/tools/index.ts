@@ -19,6 +19,9 @@ export * from "./skill.js";
 export * from "./todo.js";
 export * from "./automation.js";
 export * from "./off-peak.js";
+// bot 会话文件分享：名字常量（自 shared 透传）被 core 的工具注册、bootstrap 的
+// per-turn 禁用名单与 services adapter 镜像读走，漏掉这行消费方拿不到 schema。
+export * from "./share-file.js";
 export * from "./target.js";
 export * from "./plan-mode.js";
 export * from "./ask-user-question.js";

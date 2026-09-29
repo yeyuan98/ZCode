@@ -51,6 +51,51 @@ export type ZCodeAutomationBotDeliveryTarget = z.infer<
   typeof zcodeAutomationBotDeliveryTargetSchema
 >;
 
+/**
+ * 对话式 share_file 工具名（Phase B）。常量放在 shared：CLI contracts、services adapter 的
+ * 禁用名单与 UI 渲染器都从这里取，避免三处字面量漂移。
+ */
+export const SHARE_FILE_TOOL_NAME = "share_file";
+
+export const botShareFileFailureReasonSchema = z.enum([
+  "no-target",
+  "not-allowed",
+  "unsupported-provider",
+  "remote-workspace",
+  "outside-workspace",
+  "not-found",
+  "too-large",
+  "quota-exceeded",
+  "send-failed",
+  "unsupported-method",
+  "unknown-outcome",
+]);
+
+export type BotShareFileFailureReason = z.infer<typeof botShareFileFailureReasonSchema>;
+
+/**
+ * share_file 的真实结局（单一事实来源在 services 侧；协议层只做保真传输）。
+ * 收件人永远由 Host 从 taskDeliveryRegistry 解析，模型工具参数不携带任何目标字段。
+ */
+export const botShareFileResultSchema = z.discriminatedUnion("ok", [
+  z
+    .object({
+      ok: z.literal(true),
+      filename: z.string().min(1),
+      sizeBytes: z.number().int().nonnegative(),
+    })
+    .strict(),
+  z
+    .object({
+      ok: z.literal(false),
+      reason: botShareFileFailureReasonSchema,
+      detail: z.string().optional(),
+    })
+    .strict(),
+]);
+
+export type BotShareFileResult = z.infer<typeof botShareFileResultSchema>;
+
 export function isFeishuBotProvider(provider: BotProvider): provider is FeishuBotProvider {
   return provider === "feishu" || provider === "lark";
 }

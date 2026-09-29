@@ -13,6 +13,7 @@ import {
   RESOLVE_WORKFLOW_QUESTION_TOOL_NAME,
   RESUME_WORKFLOW_RUN_TOOL_NAME,
   SAVE_WORKFLOW_TOOL_NAME,
+  SHARE_FILE_TOOL_NAME,
   SUBMIT_RESULT_TOOL_NAME,
   type JsonSchema,
 } from "@zcode/contracts";
@@ -57,6 +58,7 @@ import { resolveWorkflowQuestionToolEntry } from "./resolve-workflow-question.js
 import { taskOutputToolEntry } from "./task-output.js";
 import { taskStopToolEntry } from "./task-stop.js";
 import { readSessionContextToolEntry } from "./read-session-context.js";
+import { shareFileToolEntry } from "./share-file.js";
 import { amendWorkflowToolEntry } from "./amend-workflow.js";
 import { createWorkflowToolEntry } from "./create-workflow.js";
 import { saveWorkflowToolEntry } from "./save-workflow.js";
@@ -131,6 +133,9 @@ export const builtInTools: ToolEntry[] = [
   // `subagent_model`。不进 WORKFLOW_CHILD_DISALLOWED_TOOLS
   // ——那条禁令的理由是 alwaysAsk 在 child 里无窗可弹，只读查询不适用。
   listModelsToolEntry,
+  // bot 会话（微信私聊）的文件分享面：注册门是端口在场（includeBotFileShare），
+  // per-turn 再由 bootstrap 禁用名单收窄到 weixin+private 且非 automation/off-peak 轮。
+  shareFileToolEntry,
   // workflowToolEntry,
 ];
 
@@ -170,6 +175,8 @@ interface RegisterBuiltInToolsOptions {
   includeEscalate?: boolean;
   includeWorkflow?: boolean;
   includeAutomation?: boolean;
+  /** bot 会话文件分享工具面；由 BotFileSharePort 注入驱动（subagent_child 由 runtime gate 排除）。 */
+  includeBotFileShare?: boolean;
   /** Off-Peak 会话内创建工具面；由 host 的 offPeakToolEnabled flag（灰度/远程门）驱动。 */
   includeOffPeak?: boolean;
   /**
@@ -243,6 +250,9 @@ export function registerBuiltInTools(
         entry.metadata.name === "CronDelete") &&
       options.includeAutomation !== true
     ) {
+      continue;
+    }
+    if (entry.metadata.name === SHARE_FILE_TOOL_NAME && options.includeBotFileShare !== true) {
       continue;
     }
     if (

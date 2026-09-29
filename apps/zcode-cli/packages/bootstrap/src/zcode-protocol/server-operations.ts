@@ -69,6 +69,7 @@ import {
   zcodeWorkspaceGenerateTextParamsSchema,
   getConversationMessageProjectionPolicy,
   parseRemoteWorkspaceIdentity,
+  SHARE_FILE_TOOL_NAME,
   type ZCodeAutomationBotDeliveryTarget,
   type ZCodeSessionCreateParams,
   type ZCodeDeliveryKind,
@@ -107,6 +108,7 @@ import { createWorkspaceZCodeApp, ensureSessionModelAvailable } from "./workspac
 import { buildAppUsageSnapshot, resolveTzOffsetMs } from "./usage-stats-builder.js";
 import { createProtocolInteractionBroker } from "./interaction-broker.js";
 import { createProtocolAutomationPort } from "./automation-port.js";
+import { createProtocolBotFileSharePort } from "./bot-file-share-port.js";
 import { createProtocolOffPeakPort } from "./offpeak-port.js";
 import { createProtocolBrowserControlBroker } from "./browser-control-broker.js";
 import { mapComputerUseOperationEvent } from "./computer-use-operation-event.js";
@@ -2483,6 +2485,7 @@ function buildPromptTurnToolDisallowlist(
     offPeakTaskId?: string;
     inputId?: string;
     toolDenylist?: readonly string[];
+    botDeliveryTarget?: ZCodeAutomationBotDeliveryTarget;
   },
   activeAutomationId = params.automationId,
   activeOffPeakTaskId = params.offPeakTaskId,
@@ -2494,6 +2497,19 @@ function buildPromptTurnToolDisallowlist(
   // SendMessage / Workflow 同样隐藏，与 V4 prompt-turn 及 core turn-loop-state 同值。
   if (activeOffPeakTaskId) {
     for (const toolName of ["OffPeakCreate", "SendMessage", "Workflow"]) tools.add(toolName);
+  }
+  // Phase B 披露（specs/bot-file-delivery.md）：share_file 只在 weixin 私聊 bot turn 且
+  // 非 automation/off-peak 派发轮允许；其余 turn 一律加入 deny（subtract-only 机制）。
+  // 非 bot 轮从此携带单项 deny 列表——share_file 是全新工具名，对旧工具面是语义 no-op（additive）。
+  if (
+    !(
+      params.botDeliveryTarget?.provider === "weixin" &&
+      params.botDeliveryTarget?.chatType === "private" &&
+      !activeAutomationId &&
+      !activeOffPeakTaskId
+    )
+  ) {
+    tools.add(SHARE_FILE_TOOL_NAME);
   }
   return tools.size > 0 ? [...tools] : undefined;
 }
@@ -3376,6 +3392,8 @@ async function createRecord(
     // 这里把阻塞交互转换成 server-to-client JSON-RPC request，由 app 通过 response 释放 runtime。
     permissionBroker: createProtocolInteractionBroker(context),
     automationPort: createProtocolAutomationPort(context, () => ownSessionRecord),
+    // 与 automationPort 同款惰性绑定：share_file 工具在 turn 中调用时 record 早已就绪。
+    botFileSharePort: createProtocolBotFileSharePort(context, () => ownSessionRecord),
     // 只接入 Host 已开放的工具面；缺省不注入。复用现行异步工厂，
     // 不恢复旧 deferred ModelAdapter/Registry overlay，也不改变 Session Selection。
     ...(("offPeakToolEnabled" in params && params.offPeakToolEnabled === true) ||

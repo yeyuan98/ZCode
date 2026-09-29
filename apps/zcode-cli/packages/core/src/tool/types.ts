@@ -5,6 +5,7 @@
 import type {
   ExecutionShellSelection,
   AutomationPort,
+  BotFileSharePort,
   OffPeakPort,
   EmbeddedSearchBackend,
   ExecutionPort,
@@ -163,6 +164,8 @@ export interface ToolExecutionContext {
   workflowEscalatePort?: WorkflowEscalatePort;
   artifactStore?: ToolArtifactStorePort;
   automationPort?: AutomationPort;
+  /** bot 会话文件分享端口；仅在注入了端口的 bot 会话可用，缺席则 share_file 拒绝。 */
+  botFileSharePort?: BotFileSharePort;
   offPeakPort?: OffPeakPort;
   sessionStore?: SessionStorePort;
   sessionModePort?: SessionModePort;
