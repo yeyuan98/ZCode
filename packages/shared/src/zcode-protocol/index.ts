@@ -3316,6 +3316,15 @@ export type ZCodeAutomationDeleteProtocolParams = z.infer<typeof zcodeAutomation
 export const zcodeAutomationDeleteResultSchema = z.object({ deleted: z.boolean() }).strict();
 export type ZCodeAutomationDeleteProtocolResult = z.infer<typeof zcodeAutomationDeleteResultSchema>;
 
+// Bot 会话内文件分享（share_file）协议：schema 在叶子模块（见其顶部注释），此处
+// 再导出保持 barrel 的单一公开入口（与 localTtft 的再导出模式一致）。
+export {
+  zcodeBotsShareFileParamsSchema,
+  zcodeBotsShareFileResultSchema,
+  type ZCodeBotsShareFileProtocolParams,
+  type ZCodeBotsShareFileProtocolResult,
+} from "./bots-share-file.js";
+
 // ---- Off-Peak（闲时任务）会话内创建协议----
 // 与 automation 兄弟并列（独立域，禁止互相复用标记/表）。workspace 由 host 端从
 // 当前 session 注入，不进协议参数（对称 automation/create）。permissionMode 只开放产品
@@ -3454,6 +3463,8 @@ export const zcodeProtocolMethods = {
   automationCheckTaskBinding: "automation/checkTaskBinding",
   automationList: "automation/list",
   automationDelete: "automation/delete",
+  // Bot 会话内文件分享：CLI 端口 → Host 的反向请求（与 automation/create 同一消费模式）。
+  botsShareFile: "bots/shareFile",
   // Off-Peak 会话内创建：与 automation 兄弟并列的独立方法族。
   offPeakCreate: "offPeak/create",
   offPeakList: "offPeak/list",

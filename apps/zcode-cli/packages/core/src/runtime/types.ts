@@ -68,6 +68,7 @@ import type {
   BrowserControlPort,
   ExecutionShellSelection,
   AutomationPort,
+  BotFileSharePort,
   OffPeakPort,
   FileSystemPort,
   HttpClientPort,
@@ -362,6 +363,8 @@ export interface AgentRuntimeDeps {
   runtimeTaskRegistry?: RuntimeTaskRegistry;
   artifactStore?: ToolArtifactStorePort;
   automationPort?: AutomationPort;
+  /** bot 会话文件分享端口；存在即作为 share_file 的注册门（与 automationPort 同一注入方式）。 */
+  botFileSharePort?: BotFileSharePort;
   offPeakPort?: OffPeakPort;
   contextSourcePort?: ContextSourcePort;
   eventSink?: SessionEventSink;

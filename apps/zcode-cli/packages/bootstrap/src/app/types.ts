@@ -31,6 +31,7 @@ import type { ModelProviderSourceTitle } from "../model-config.js";
 import type { ZCodeInstalledPluginData } from "../plugins.js";
 import type {
   AutomationPort,
+  BotFileSharePort,
   OffPeakPort,
   BackgroundTaskCancelResult,
   CollaborationMode,
@@ -174,6 +175,8 @@ export interface ZCodeAppOptions {
   uiLocale?: UiLocale;
   onWorkflowEvent?: (event: WorkflowEvent) => void | Promise<void>;
   automationPort?: AutomationPort;
+  /** bot 会话文件分享端口；注入后 share_file 按 includeBotFileShare 注册（subagent 除外）。 */
+  botFileSharePort?: BotFileSharePort;
   offPeakPort?: OffPeakPort;
   /** 首次真实用户执行或 cold-resume fallback 时解析一次，之后由 app 生命周期缓存。 */
   resolveInitialBashShellSelection?: () => Promise<ExecutionShellSelection | undefined>;

@@ -2,7 +2,7 @@
 import { Buffer } from "node:buffer";
 import { createHash, randomBytes } from "node:crypto";
 import { mkdir, readFile, realpath, stat, writeFile } from "node:fs/promises";
-import { basename, dirname, extname, isAbsolute, join, resolve, sep } from "node:path";
+import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import type { IDisposable } from "@zcode/rpc";
 import { completeNewModelSelection } from "@zcode/provider";
 import {
@@ -55,6 +55,8 @@ import {
   type BotsConfigFile,
   type Locale,
   type SelectionPrompt,
+  type BotShareFileFailureReason,
+  type BotShareFileResult,
 } from "@zcode/shared";
 import type { IZCodeTaskService } from "../session/zcodeTaskService.js";
 import { resolveProviderModeIdFromConfigOptions } from "#src/session/sessionModeOptions.js";
@@ -284,6 +286,10 @@ interface BotsServiceDeps {
   // 修复原因：desktop-attached 远端启动阶段不应抢跑 bot 轮询、runtime lock 和模型候选缓存；
   // 这些后台任务属于本地桌面 host，不属于 SSH/Docker 远端首屏连接路径。
   runStartupBackgroundTasks?: boolean;
+  /** 测试注入：替换内置 provider adapter（如监听 sendAttachment 调用），不影响生产装配。 */
+  providerOverrides?: Partial<Record<BotProvider, BotProviderAdapter | null>>;
+  /** 测试注入：预置/观察 taskDeliveryRegistry；缺省在服务内创建唯一实例（specs Phase B）。 */
+  taskDeliveryRegistry?: BotTaskDeliveryRegistry;
 }
 
 interface BotRemoteWorkspaceTarget {
@@ -784,6 +790,171 @@ export function mergeWeixinContextTokens(
   );
 }
 
+// ---- Phase B：对话式 share_file 投递（specs/bot-file-delivery.md）----
+
+/** taskDeliveryRegistry 条目：收件人只从对话式入站消息捕获，绝不来自协议参数。 */
+export interface BotTaskDeliveryEntry {
+  botId: string;
+  actor: BotActor;
+  workspacePath: string;
+  workspaceIdentity?: string;
+}
+
+const BOT_TASK_DELIVERY_REGISTRY_MAX = 200;
+
+export interface BotTaskDeliveryRegistry {
+  get(taskId: string): BotTaskDeliveryEntry | undefined;
+  /** 记录/刷新条目；重写时更新插入顺序，保证按最旧淘汰。 */
+  remember(taskId: string, entry: BotTaskDeliveryEntry): void;
+  forget(taskId: string): void;
+  clear(): void;
+  readonly size: number;
+}
+
+/**
+ * taskId → 投递目标的内存注册表（specs/bot-file-delivery.md Phase B §2）。
+ * 只在对话式 watchTaskStream 调用点写入；有界（200，淘汰最旧）防止长运行内存增长。
+ * 独立导出为纯数据结构，便于单测淘汰与清理语义；服务内部持有唯一实例。
+ */
+export function createBotTaskDeliveryRegistry(): BotTaskDeliveryRegistry {
+  const entries = new Map<string, BotTaskDeliveryEntry>();
+  return {
+    get: (taskId) => entries.get(taskId),
+    remember(taskId, entry) {
+      entries.delete(taskId);
+      entries.set(taskId, entry);
+      while (entries.size > BOT_TASK_DELIVERY_REGISTRY_MAX) {
+        const oldestKey = entries.keys().next().value;
+        if (oldestKey === undefined) break;
+        entries.delete(oldestKey);
+      }
+    },
+    forget: (taskId) => {
+      entries.delete(taskId);
+    },
+    clear: () => {
+      entries.clear();
+    },
+    get size() {
+      return entries.size;
+    },
+  };
+}
+
+export interface BotShareFileQuotaTracker {
+  allows(botId: string, peerKey: string, now: number): boolean;
+  record(botId: string, peerKey: string, now: number): void;
+  /**
+   * 原子预留：同步完成「窗口判定 + 占位」。share_file 工具是 concurrentSafe，调度器会
+   * 并行执行多个调用；若沿用 allows() 判定 + 事后 record()，并行调用会在彼此落账前
+   * 全部通过判定（TOCTOU），绕过窗口上限。预留必须在任何 IO 之前发生。
+   */
+  reserve(botId: string, peerKey: string, now: number): boolean;
+  /** 释放一个具体预留时间戳：投递失败时归还占位，保持「只有成功投递消耗配额」的可观测语义。 */
+  release(botId: string, peerKey: string, at: number): void;
+}
+
+/** tool 来源配额：滚动窗口 10 分钟 3 次 AND 1 小时 20 次（specs Phase B §4）。 */
+const BOT_SHARE_FILE_QUOTA_WINDOWS = [
+  { limit: 3, windowMs: 10 * 60_000 },
+  { limit: 20, windowMs: 60 * 60_000 },
+] as const;
+
+/**
+ * share_file（source "tool"）滚动配额。纯内存、不落盘：持久化会与入站 token 合并的
+ * writeContext 产生回写竞争（specs Phase B 不变量）。时间由调用方注入便于测试。
+ * 说明：10 分钟窗口先命中时 1 小时窗口数学上不可达（≤18 次/小时），保留双窗口是
+ * 防御纵深——未来任一窗口调整时另一窗口仍是硬上限。
+ */
+export function createBotShareFileQuotaTracker(): BotShareFileQuotaTracker {
+  const deliveriesByKey = new Map<string, number[]>();
+  const buildKey = (botId: string, peerKey: string): string => `${botId}::${peerKey}`;
+  const longestWindowMs =
+    BOT_SHARE_FILE_QUOTA_WINDOWS[BOT_SHARE_FILE_QUOTA_WINDOWS.length - 1]!.windowMs;
+  const allows = (botId: string, peerKey: string, now: number): boolean => {
+    const timestamps = deliveriesByKey.get(buildKey(botId, peerKey));
+    if (!timestamps) return true;
+    for (const { limit, windowMs } of BOT_SHARE_FILE_QUOTA_WINDOWS) {
+      if (timestamps.filter((at) => now - at < windowMs).length >= limit) {
+        return false;
+      }
+    }
+    return true;
+  };
+  const record = (botId: string, peerKey: string, now: number): void => {
+    const key = buildKey(botId, peerKey);
+    const timestamps = [...(deliveriesByKey.get(key) ?? []), now].filter(
+      (at) => now - at < longestWindowMs,
+    );
+    deliveriesByKey.set(key, timestamps);
+  };
+  return {
+    allows,
+    record,
+    // Review 修复（并行 share_file TOCTOU）：share_file 是 concurrentSafe 工具，调度器
+    // 并行执行多个调用；原实现 allows() 判定在 IO 之前、record() 落账在投递完成之后，
+    // 并发调用在彼此落账前全部通过判定，可无限绕过窗口上限。reserve() 同步完成
+    // 判定 + 占位（JS 单线程内不可分割），每个在途调用各占一个槽位。
+    reserve(botId, peerKey, now) {
+      if (!allows(botId, peerKey, now)) return false;
+      record(botId, peerKey, now);
+      return true;
+    },
+    release(botId, peerKey, at) {
+      const key = buildKey(botId, peerKey);
+      const timestamps = deliveriesByKey.get(key);
+      if (!timestamps) return;
+      const index = timestamps.indexOf(at);
+      if (index >= 0) {
+        timestamps.splice(index, 1);
+      }
+      if (timestamps.length === 0) {
+        deliveriesByKey.delete(key);
+      }
+    },
+  };
+}
+
+/**
+ * deliverWorkspaceFile 的判别结果：成功携带 filename/sizeBytes；失败携带协议 failure
+ * reason（detail 供 /file 侧还原既有本地化文案，如体积或错误信息）。
+ */
+export type DeliverWorkspaceFileResult =
+  | { ok: true; filename: string; sizeBytes: number }
+  | { ok: false; reason: BotShareFileFailureReason; detail?: string };
+
+/**
+ * 读取侧二次校验（symlink-swap TOCTOU 防护）：resolveWorkspaceFilePath 完成词法 + realpath
+ * 校验后、真正读取前，路径上的符号链接可能被替换为指向 workspace 外（或文件增长超限）。
+ * 因此发送前必须重新 realpath 并确认真实路径仍在 workspace 内、大小仍在 5MB 内；
+ * 不能只复用首次 stat 的大小结果。
+ */
+export async function revalidateWorkspaceFileForDelivery(
+  workspacePath: string,
+  absolutePath: string,
+): Promise<
+  | { ok: true; absolutePath: string; sizeBytes: number }
+  | { ok: false; reason: "outside-workspace" | "not-found"; sizeBytes?: undefined }
+  | { ok: false; reason: "too-large"; sizeBytes: number }
+> {
+  try {
+    const [root, target] = await Promise.all([realpath(workspacePath), realpath(absolutePath)]);
+    if (target !== root && !target.startsWith(root + sep)) {
+      return { ok: false, reason: "outside-workspace" };
+    }
+    const stats = await stat(target);
+    if (!stats.isFile()) {
+      return { ok: false, reason: "not-found" };
+    }
+    if (stats.size > BOT_MAX_ATTACHMENT_SIZE_BYTES) {
+      return { ok: false, reason: "too-large", sizeBytes: stats.size };
+    }
+    return { ok: true, absolutePath: target, sizeBytes: stats.size };
+  } catch {
+    return { ok: false, reason: "not-found" };
+  }
+}
+
 export function createBotsService(
   deps: BotsServiceDeps,
 ): IBotsService & { disposeAll(): void; disposeAllAndWait(): Promise<void> } {
@@ -853,7 +1024,12 @@ export function createBotsService(
     }),
     discord: null,
     wecom: null,
+    // 测试注入的 adapter 覆盖（如监听 sendAttachment）；生产装配不传该参数。
+    ...deps.providerOverrides,
   };
+  // Phase B：taskId → 对话式投递目标注册表 + tool 来源滚动配额（均为纯内存，Host 侧唯一属主）。
+  const taskDeliveryRegistry = deps.taskDeliveryRegistry ?? createBotTaskDeliveryRegistry();
+  const shareFileQuota = createBotShareFileQuotaTracker();
   let service: IBotsService & {
     disposeAll(): void;
     disposeAllAndWait(): Promise<void>;
@@ -1211,6 +1387,117 @@ export function createBotsService(
     return state?.bots[botId]?.weixinContextTokens?.[peerKey]?.token;
   }
 
+  /**
+   * Phase B 单一媒体写出核心（specs/bot-file-delivery.md Phase B 不变量）：/file
+   * （source "command"）与 bots/shareFile RPC（source "tool"）都汇聚到这里，是唯一的
+   * adapter.sendAttachment 调用点。每次调用重新评估全部准入门槛——与 /file 的
+   * withAuthorizedContext 复用同一组原语（findAuthorizedBot / findBoundUser /
+   * isUserCommandAllowed），工具路径不另设第二套鉴权；任务中途撤销（禁用 bot、解绑、
+   * allowedCommands.file=false）与 /file 同步生效。
+   */
+  async function deliverWorkspaceFile(
+    bot: BotConfig,
+    actor: BotActor,
+    context: Pick<BotContextState, "workspacePath" | "workspaceIdentity">,
+    requestedPath: string,
+    opts: { source: "command" | "tool"; taskId?: string },
+  ): Promise<DeliverWorkspaceFileResult> {
+    const peerKey = actor.chatId?.trim() || actor.providerUserId.trim();
+    const auditSuffix = ` source=${opts.source}${opts.taskId ? ` task=${opts.taskId}` : ""}`;
+    const auditFailure = (
+      reason: BotShareFileFailureReason,
+      filename: string,
+      sizeBytes: number,
+      detail?: string,
+    ): DeliverWorkspaceFileResult => {
+      // 每次尝试都留审计（specs Phase B 场景 15）：bot、peer、file、size、outcome、source、task、path。
+      botsLogger.warn(
+        undefined,
+        `bot file delivery failed bot=${bot.id} peer=${peerKey} file=${filename} size=${sizeBytes} outcome=${reason}${auditSuffix} path=${requestedPath}${detail ? `: ${detail}` : ""}`,
+      );
+      return detail === undefined ? { ok: false, reason } : { ok: false, reason, detail };
+    };
+    const config = await repo.readConfig();
+    const authorizedBot = findAuthorizedBot(config, actor);
+    if (!authorizedBot || authorizedBot.id !== bot.id) {
+      return auditFailure("not-allowed", requestedPath, 0);
+    }
+    if (actor.chatType !== "private") {
+      return auditFailure("not-allowed", requestedPath, 0);
+    }
+    const user = findBoundUser(authorizedBot, actor);
+    if (!user || !isUserCommandAllowed(user, "file")) {
+      return auditFailure("not-allowed", requestedPath, 0);
+    }
+    const adapter = providers[authorizedBot.provider];
+    if (!adapter?.sendAttachment) {
+      return auditFailure("unsupported-provider", requestedPath, 0);
+    }
+    if (context.workspaceIdentity) {
+      return auditFailure("remote-workspace", requestedPath, 0);
+    }
+    const resolved = await resolveWorkspaceFilePath(context.workspacePath, requestedPath);
+    if (!resolved.ok) {
+      return auditFailure(
+        resolved.reason === "outside" ? "outside-workspace" : "not-found",
+        requestedPath,
+        0,
+      );
+    }
+    const rechecked = await revalidateWorkspaceFileForDelivery(
+      context.workspacePath,
+      resolved.absolutePath,
+    );
+    if (!rechecked.ok) {
+      return rechecked.reason === "too-large"
+        ? auditFailure(
+            "too-large",
+            requestedPath,
+            rechecked.sizeBytes ?? 0,
+            formatAttachmentSize(rechecked.sizeBytes ?? 0),
+          )
+        : auditFailure(rechecked.reason, requestedPath, 0);
+    }
+    const filename = basename(rechecked.absolutePath);
+    const kind = inferOutboundAttachmentKind(filename);
+    const attachment: BotOutboundAttachment = {
+      kind,
+      filename,
+      mimeType: inferOutboundAttachmentMime(filename, kind),
+      sizeBytes: rechecked.sizeBytes,
+      localPath: rechecked.absolutePath,
+    };
+    // Bot 会话强制 yolo，无交互权限；workspace-only 路径策略 + 审计日志 + 5MB 上限是出站防泄露边界。
+    botsLogger.info(
+      undefined,
+      `bot file delivery bot=${authorizedBot.id} peer=${peerKey} file=${filename} size=${rechecked.sizeBytes} kind=${kind} outcome=ok${auditSuffix} path=${relative(context.workspacePath, rechecked.absolutePath)}`,
+    );
+    const providerContextToken =
+      opts.source === "tool"
+        ? // 长任务里捕获的 actor token 可能已过期；任何入站 ping 都会刷新持久化 token 表，
+          // 因此 tool 路径优先取最新持久化 token，捕获 token 只作兜底（provider 内部
+          // ret=-2 无 token 重试逻辑不变，由 adapter 自行处理）。
+          ((await readPersistedWeixinContextToken(authorizedBot.id, actor)) ??
+          actor.providerContextToken)
+        : (actor.providerContextToken ??
+          (await readPersistedWeixinContextToken(authorizedBot.id, actor)));
+    try {
+      await adapter.sendAttachment(
+        authorizedBot,
+        {
+          ...createOutbound(actor, ""),
+          ...(providerContextToken ? { providerContextToken } : {}),
+          attachments: [attachment],
+        },
+        attachment,
+      );
+      return { ok: true, filename, sizeBytes: rechecked.sizeBytes };
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error);
+      return auditFailure("send-failed", filename, rechecked.sizeBytes, reason);
+    }
+  }
+
   async function handleFileCommand(
     message: BotInboundMessage,
     value: string,
@@ -1219,6 +1506,10 @@ export function createBotsService(
     if (!auth.ok) {
       return auth.reply;
     }
+    // Review 修复（/file 回复漂移）：还原 Alpha 0 的门槛顺序 adapter → 远程 → 空路径。
+    // Phase B 抽出 deliverWorkspaceFile 时这两道前置检查被并入了投递核心且排在空路径
+    // 检查之后，导致同一份输入在 feishu/远程渠道下回复文案偏离已发布行为。这里只是
+    // 恢复回复优先级；deliverWorkspaceFile 内部仍逐项重评（双保险不变）。
     const adapter = providers[auth.bot.provider];
     if (!adapter?.sendAttachment) {
       return [createOutbound(message.actor, msg(auth.locale, "fileCommandUnsupported"))];
@@ -1230,67 +1521,61 @@ export function createBotsService(
     if (!requestedPath) {
       return [createOutbound(message.actor, msg(auth.locale, "fileMissingPath"))];
     }
-    const resolved = await resolveWorkspaceFilePath(auth.context.workspacePath, requestedPath);
-    if (!resolved.ok) {
-      const messageId = resolved.reason === "outside" ? "fileOutsideWorkspace" : "fileNotFound";
-      return [createOutbound(message.actor, msg(auth.locale, messageId, { path: requestedPath }))];
-    }
-    if (resolved.sizeBytes > BOT_MAX_ATTACHMENT_SIZE_BYTES) {
-      return [
-        createOutbound(
-          message.actor,
-          msg(auth.locale, "fileTooLargeOutbound", {
-            size: formatAttachmentSize(resolved.sizeBytes),
-          }),
-        ),
-      ];
-    }
-    const filename = basename(resolved.absolutePath);
-    const kind = inferOutboundAttachmentKind(filename);
-    const attachment: BotOutboundAttachment = {
-      kind,
-      filename,
-      mimeType: inferOutboundAttachmentMime(filename, kind),
-      sizeBytes: resolved.sizeBytes,
-      localPath: resolved.absolutePath,
-    };
-    const peerKey = message.actor.chatId ?? message.actor.providerUserId;
-    // Bot 会话强制 yolo，无交互权限；workspace-only 路径策略 + 审计日志 + 5MB 上限是出站防泄露边界。
-    botsLogger.info(
-      undefined,
-      `bot file delivery bot=${auth.bot.id} peer=${peerKey} file=${filename} size=${resolved.sizeBytes} kind=${kind}`,
+    const delivered = await deliverWorkspaceFile(
+      auth.bot,
+      message.actor,
+      auth.context,
+      requestedPath,
+      {
+        source: "command",
+      },
     );
-    const providerContextToken =
-      message.actor.providerContextToken ??
-      (await readPersistedWeixinContextToken(auth.bot.id, message.actor));
-    try {
-      await adapter.sendAttachment(
-        auth.bot,
-        {
-          ...createOutbound(message.actor, ""),
-          ...(providerContextToken ? { providerContextToken } : {}),
-          attachments: [attachment],
-        },
-        attachment,
-      );
+    if (delivered.ok) {
       return [
         createOutbound(
           message.actor,
           msg(auth.locale, "fileSent", {
-            filename,
-            size: formatAttachmentSize(resolved.sizeBytes),
+            filename: delivered.filename,
+            size: formatAttachmentSize(delivered.sizeBytes),
           }),
         ),
       ];
-    } catch (error) {
-      const reason = error instanceof Error ? error.message : String(error);
-      botsLogger.warn(
-        undefined,
-        `bot file delivery failed bot=${auth.bot.id} peer=${peerKey} file=${filename}: ${reason}`,
-      );
-      return [
-        createOutbound(message.actor, msg(auth.locale, "fileSendFailed", { message: reason })),
-      ];
+    }
+    // 失败映射回 /file 既有本地化文案（specs Phase B 不变量：/file 行为零变化）。
+    switch (delivered.reason) {
+      case "unsupported-provider":
+        return [createOutbound(message.actor, msg(auth.locale, "fileCommandUnsupported"))];
+      case "remote-workspace":
+        return [createOutbound(message.actor, msg(auth.locale, "fileRemoteWorkspaceUnsupported"))];
+      case "outside-workspace":
+        return [
+          createOutbound(
+            message.actor,
+            msg(auth.locale, "fileOutsideWorkspace", { path: requestedPath }),
+          ),
+        ];
+      case "not-found":
+        return [
+          createOutbound(message.actor, msg(auth.locale, "fileNotFound", { path: requestedPath })),
+        ];
+      case "too-large":
+        return [
+          createOutbound(
+            message.actor,
+            msg(auth.locale, "fileTooLargeOutbound", { size: delivered.detail ?? "" }),
+          ),
+        ];
+      case "send-failed":
+        return [
+          createOutbound(
+            message.actor,
+            msg(auth.locale, "fileSendFailed", { message: delivered.detail ?? "" }),
+          ),
+        ];
+      default:
+        // not-allowed 等：/file 正常在 withAuthorizedContext 内先行回复，这里是竞态兜底，
+        // 对齐 commandNotAllowed 文案。
+        return [createOutbound(message.actor, msg(auth.locale, "commandNotAllowed"))];
     }
   }
 
@@ -4329,6 +4614,8 @@ export function createBotsService(
         );
         streamSubscriptions.get(streamSubscriptionKey)?.dispose();
         streamSubscriptions.delete(streamSubscriptionKey);
+        // Phase B：流到终态后投递目标随之失效；晚到的 share_file RPC 按 no-target 拒绝。
+        taskDeliveryRegistry.forget(event.taskId);
         if (event.type === "task_error") {
           if (supportsStreamingCardReply()) {
             streamingCardStatus = "error";
@@ -5012,6 +5299,9 @@ export function createBotsService(
         const userFacingMessage = formatUserFacingBotError(error, locale);
         runningTasks.delete(taskId);
         stopTyping(taskId);
+        // Review 修复（stale registry）：sendPrompt 失败即任务终态，注册表必须遗忘该
+        // taskId——终态任务不再有投递目标，晚到的 share_file RPC 只能按 no-target 拒绝。
+        taskDeliveryRegistry.forget(taskId);
         await broadcastTaskListChange(context, taskId, "error", {
           error: message,
         });
@@ -5157,6 +5447,14 @@ export function createBotsService(
         });
       }
       runningTasks.add(task.taskId);
+      // Phase B：仅对话式入站触发的任务在此记录 share_file 投递目标；automation/off-peak
+      // 复用会话不得重新武装（见 watchAutomationRun 的 forget）。
+      taskDeliveryRegistry.remember(task.taskId, {
+        botId: auth.bot.id,
+        actor: message.actor,
+        workspacePath: context.workspacePath,
+        ...(context.workspaceIdentity ? { workspaceIdentity: context.workspaceIdentity } : {}),
+      });
       await watchTaskStream(auth.bot, message.actor, context, auth.user);
       await broadcastTaskListChange(context, task.taskId, "prompt_sent", {
         task: broadcastTask,
@@ -5203,6 +5501,15 @@ export function createBotsService(
     }
     await broadcastTaskListChange(auth.context, auth.context.activeTaskId, "resumed");
     runningTasks.add(auth.context.activeTaskId);
+    // Phase B：续跑轮同样是对话式入站触发，刷新该任务的投递目标（actor 携带最新 chat/token）。
+    taskDeliveryRegistry.remember(auth.context.activeTaskId, {
+      botId: auth.bot.id,
+      actor: message.actor,
+      workspacePath: auth.context.workspacePath,
+      ...(auth.context.workspaceIdentity
+        ? { workspaceIdentity: auth.context.workspaceIdentity }
+        : {}),
+    });
     await watchTaskStream(auth.bot, message.actor, auth.context, auth.user);
     const traceId = generateTraceId(auth.context.activeTaskId);
     await broadcastTaskListChange(auth.context, auth.context.activeTaskId, "prompt_sent", {
@@ -5344,6 +5651,10 @@ export function createBotsService(
       // 且尚未观察到终态的 task 才阻止 /task、/new 等上下文切换。
       runningTasks.delete(context.activeTaskId);
       stopTyping(context.activeTaskId);
+      // Review 修复（stale registry）：这里检测到「本进程以为在跑、持久化状态已是终态」，
+      // 说明流终态事件已丢失——taskDeliveryRegistry 里的投递目标同样必须失效，终态任务
+      // 不能继续应答 share_file（晚到 RPC 按 no-target 拒绝）。
+      taskDeliveryRegistry.forget(context.activeTaskId);
       return false;
     }
     return true;
@@ -5365,6 +5676,9 @@ export function createBotsService(
   }
 
   async function watchAutomationRun(params: BotAutomationRunWatchParams): Promise<void> {
+    // Phase B：automation 复用 bot 会话（targetTaskId）运行时必须撤销对话式投递目标——
+    // 该轮次没有新的入站对话上下文，share_file 只能按 no-target 拒绝（specs Phase B 场景 3）。
+    taskDeliveryRegistry.forget(params.taskId);
     const config = await repo.readConfig();
     const bot = findBot(config, params.target.botId);
     if (!bot) {
@@ -5633,6 +5947,77 @@ export function createBotsService(
       await repo.writeState(state);
     },
     watchAutomationRun,
+    /**
+     * bots/shareFile RPC 的 Host 侧裁决入口（specs/bot-file-delivery.md Phase B §2）：
+     * 收件人只从 taskDeliveryRegistry 解析（协议参数绝不携带目标字段）；注册表未命中
+     * （未知/终态/automation 复用任务）→ no-target。quota 只作用于该 tool 路径，
+     * /file 命令不走这里、永不受配额限制。
+     */
+    async shareFileForTask(params: { taskId: string; path: string }): Promise<BotShareFileResult> {
+      const entry = taskDeliveryRegistry.get(params.taskId);
+      if (!entry) {
+        return { ok: false, reason: "no-target" };
+      }
+      const actor = entry.actor;
+      const peerKey = actor.chatId?.trim() || actor.providerUserId.trim();
+      // Review 修复（并行 share_file TOCTOU）：配额必须在任何文件 IO 之前「原子预留」。
+      // share_file 是 concurrentSafe 工具，调度器并行执行多个调用；原先 allows() 判定与
+      // 投递完成后的 record() 落账之间存在窗口，N 个并行调用会在彼此落账前全部通过判定，
+      // 绕过窗口上限。现在每个在途调用先占一个槽位（reserve 同步完成判定 + 占位），
+      // 投递失败时按预留时间戳精确释放（release），对外语义保持「只有成功投递消耗配额」。
+      const reservedAt = Date.now();
+      if (peerKey && !shareFileQuota.reserve(entry.botId, peerKey, reservedAt)) {
+        botsLogger.warn(
+          undefined,
+          `bot file delivery rejected bot=${entry.botId} peer=${peerKey} file=${params.path} size=0 outcome=quota-exceeded source=tool task=${params.taskId} path=${params.path}`,
+        );
+        return { ok: false, reason: "quota-exceeded" };
+      }
+      const releaseReservedQuota = (): void => {
+        if (peerKey) {
+          shareFileQuota.release(entry.botId, peerKey, reservedAt);
+        }
+      };
+      try {
+        const config = await repo.readConfig();
+        const bot = findBot(config, entry.botId);
+        if (!bot) {
+          releaseReservedQuota();
+          return { ok: false, reason: "not-allowed" };
+        }
+        const delivered = await deliverWorkspaceFile(
+          bot,
+          actor,
+          {
+            workspacePath: entry.workspacePath,
+            ...(entry.workspaceIdentity ? { workspaceIdentity: entry.workspaceIdentity } : {}),
+          },
+          params.path.trim(),
+          { source: "tool", taskId: params.taskId },
+        );
+        if (!delivered.ok) {
+          // 失败投递不消耗配额：预留槽位归还（sendAttachment 失败、路径/体积拒绝等全部适用）。
+          releaseReservedQuota();
+        }
+        return delivered;
+      } catch (error) {
+        // Review 修复（honest failure prose）：deliverWorkspaceFile 只守卫 sendAttachment
+        // await；repo.readConfig 等投递前置阶段的 Host 侧异常（如配置 IO 失败）会原样
+        // 抛出到这里——它们从未触达 provider，必须如实标注为投递前的 Host 错误，
+        // 不能让 CLI 侧把 -32602/-32603 传输错误误读成 provider 侧失败。
+        releaseReservedQuota();
+        const reasonText = error instanceof Error ? error.message : String(error);
+        botsLogger.warn(
+          undefined,
+          `bot file delivery failed bot=${entry.botId} peer=${peerKey} file=${params.path} size=0 outcome=send-failed source=tool task=${params.taskId} path=${params.path}: host error before delivery: ${reasonText}`,
+        );
+        return {
+          ok: false,
+          reason: "send-failed",
+          detail: `host error before delivery: ${reasonText}`,
+        };
+      }
+    },
     async handleInboundMessage(message: BotInboundMessage) {
       return enqueueInboundProcessing(message.actor, async () => {
         // 微信出站媒体依赖新鲜 context_token；必须在任何 context 读改写之前落库，避免被后续 writeContext 覆盖。
@@ -6557,6 +6942,7 @@ export function createBotsService(
         subscription.dispose();
       }
       streamSubscriptions.clear();
+      taskDeliveryRegistry.clear();
       transientInteractionCards.clear();
       for (const intervalId of typingIntervals.values()) {
         clearInterval(intervalId);

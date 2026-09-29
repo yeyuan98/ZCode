@@ -5,7 +5,11 @@
 // starting/active 状态都会继续挡住同一 session 的第二次 start。
 import { type TurnBackgroundAttribution, type TurnInputIntentMetadata } from "@zcode/contracts";
 import type { TurnAttachment } from "@zcode/core";
-import type { ZCodeAutomationBotDeliveryTarget } from "@zcode/shared";
+import {
+  botShareFileDeliveryTargetQualifies,
+  SHARE_FILE_TOOL_NAME,
+  type ZCodeAutomationBotDeliveryTarget,
+} from "@zcode/shared";
 import type { SendInputOptions, SendInputResult } from "../../app/types.js";
 import { runWithSessionResidencyFinalization } from "../../zcode-protocol/session-residency.js";
 import type { V4CommandCoreHost, V4SessionRecordView } from "./types.js";
@@ -214,7 +218,10 @@ function clearPromptRecordState(
 }
 
 function buildTurnToolDisallowlist(
-  params: Pick<StartPromptTurnParams, "automationId" | "offPeakTaskId" | "toolDisallowlist">,
+  params: Pick<
+    StartPromptTurnParams,
+    "automationId" | "offPeakTaskId" | "toolDisallowlist" | "botDeliveryTarget"
+  >,
   activeAutomationId = params.automationId,
   activeOffPeakTaskId = params.offPeakTaskId,
 ): readonly string[] | undefined {
@@ -227,6 +234,20 @@ function buildTurnToolDisallowlist(
     // 闲时派发轮隐藏 OffPeakCreate（防递归自我派生）；OffPeakList 只读保留。
     // automation 轮不加此项——cron 轮放行 OffPeakCreate（定时派生闲时任务）。
     for (const toolName of OFF_PEAK_MUTATION_TOOL_NAMES) tools.add(toolName);
+  }
+  // Phase B 披露（specs/bot-file-delivery.md）：share_file 只在 weixin 私聊 bot turn 且
+  // 非 automation/off-peak 派发轮允许；其余 turn 一律加入 deny（subtract-only 机制）。
+  // 非 bot 轮从此携带单项 deny 列表——share_file 是全新工具名，对旧工具面是语义 no-op（additive）。
+  // Review 修复：判定收敛为 shared 纯谓词（三处 deny 镜像同源）；v4 刻意保留自己更严的
+  // resolveTurnAutomationId/offPeak inputId 前缀兜底——解析在本函数调用前完成，解析结果
+  // 作为 automationId/offPeakTaskId 传入谓词，谓词本身不做解析。
+  if (
+    !botShareFileDeliveryTargetQualifies(params.botDeliveryTarget, {
+      automationId: activeAutomationId,
+      offPeakTaskId: activeOffPeakTaskId,
+    })
+  ) {
+    tools.add(SHARE_FILE_TOOL_NAME);
   }
   return tools.size > 0 ? [...tools] : undefined;
 }

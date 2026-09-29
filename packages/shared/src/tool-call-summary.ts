@@ -1,3 +1,5 @@
+import { SHARE_FILE_TOOL_NAME } from "./bots.js";
+
 export type CompactToolCallState =
   | "input-available"
   | "input-streaming"
@@ -212,7 +214,12 @@ export function getCompactToolCallSummary({
   raw,
 }: ToolCallSummarySource): ToolCallSummary {
   const changeStat = getChangeStat(kind, input, output, raw);
-  const primaryText = (title && normalizeDisplayText(title)) || "tool";
+  // share_file 紧凑摘要条目（微信文字模式回包的工具摘要行走这里）：标题缺席时按
+  // 工具名锚定主文案，避免退化成泛化的 "tool"；次文案由 getInputSummary 的通用
+  // path key 覆盖，刻意不解析结构化输出（Alpha 1 契约：结构化展示延后）。
+  const primaryText =
+    (title && normalizeDisplayText(title)) ||
+    (kind === SHARE_FILE_TOOL_NAME ? SHARE_FILE_TOOL_NAME : "tool");
   const secondaryText = getInputSummary(input);
   return {
     primaryText,

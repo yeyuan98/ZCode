@@ -772,6 +772,7 @@ export async function createZCodeApp(options: ZCodeAppOptions): Promise<ZCodeApp
       dynamicWorkflowSnippetPort,
       modelCatalogPort,
       automationPort: options.automationPort,
+      botFileSharePort: options.botFileSharePort,
       offPeakPort: options.offPeakPort,
       appVersion,
       traceContext,

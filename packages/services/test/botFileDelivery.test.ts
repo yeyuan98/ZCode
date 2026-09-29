@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createDecipheriv } from "node:crypto";
+import type { IDisposable } from "@zcode/rpc";
 import {
   buildWeixinMediaItem,
   buildWeixinUploadRequestBody,
@@ -9,16 +10,38 @@ import {
   weixinCdnPaddedSize,
 } from "../src/bots/providers/weixinProvider.js";
 import { parseBotCommand } from "../src/bots/commandParser.js";
-import { botAllowedCommandsSchema } from "@zcode/shared";
-import { normalizeBotCommandPolicy } from "../src/bots/config.js";
+import { formatBotToolCallSummaryLine } from "../src/bots/replyFormatter.js";
+import {
+  botAllowedCommandsSchema,
+  ZCODE_AGENT_PROVIDER,
+  type BotActor,
+  type BotOutboundAttachment,
+  type BotOutboundMessage,
+} from "@zcode/shared";
+import {
+  BOTS_CONFIG_FILE,
+  BOTS_STATE_FILE,
+  normalizeBotCommandPolicy,
+} from "../src/bots/config.js";
 import { isUserCommandAllowed } from "../src/bots/botConfigHelpers.js";
 import {
+  createBotShareFileQuotaTracker,
+  createBotTaskDeliveryRegistry,
+  createBotsService,
   inferOutboundAttachmentKind,
   inferOutboundAttachmentMime,
   mergeWeixinContextTokens,
   resolveWorkspaceFilePath,
+  revalidateWorkspaceFileForDelivery,
 } from "../src/bots/botsService.js";
-import { mkdtemp, mkdir, writeFile, symlink, rm } from "node:fs/promises";
+import { zcodeBotsShareFileParamsSchema } from "@zcode/shared";
+import { getAppConfigDir, setDataBaseDir } from "../src/paths.js";
+import type { IBotsService } from "../src/bots/bots.js";
+import type { IZCodeTaskService } from "../src/session/zcodeTaskService.js";
+import type { ICredentialService } from "../src/credential/credential.js";
+import type { IModelSelectionService } from "../src/model-provider/providerFacadeServices.js";
+import type { BotProviderAdapter } from "../src/bots/providers/types.js";
+import { mkdtemp, mkdir, writeFile, symlink, rm, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -259,4 +282,1107 @@ test("file 命令开关：schema 接受显式 false 且策略归一化不丢开�
     allowedCommands: normalizeBotCommandPolicy(),
   } as Parameters<typeof isUserCommandAllowed>[0];
   assert.equal(isUserCommandAllowed(defaultBot, "file"), true);
+});
+
+// ---- Phase B：对话式 share_file（specs/bot-file-delivery.md Phase B）----
+// 服务级测试统一通过 createBotsService 真实装配：临时 data 目录（setDataBaseDir）+
+// providerOverrides 注入可观测 adapter + 预置 taskDeliveryRegistry，走与生产一致的
+// 入站 → watchTaskStream 注册 → shareFileForTask 裁决链路。
+
+type StreamEnqueue = (event: unknown) => Promise<void>;
+
+interface SendAttachmentCall {
+  botId: string;
+  message: BotOutboundMessage;
+  attachment: BotOutboundAttachment;
+}
+
+const WEIXIN_BOT_ID = "bot-wx";
+const FEISHU_BOT_ID = "bot-fs";
+const CONVERSATIONAL_TASK_ID = "task-conv-1";
+
+function baseAllowedCommands() {
+  return {
+    status: true,
+    new: true,
+    workspace: true,
+    model: true,
+    thoughtLevel: true,
+    reply: true,
+  };
+}
+
+function buildWeixinBotConfig() {
+  return {
+    id: WEIXIN_BOT_ID,
+    name: "WeChat Bot",
+    provider: "weixin",
+    enabled: true,
+    providerUserId: "wx-user-1",
+    allowedWorkspaces: ["*"],
+    allowedCommands: baseAllowedCommands(),
+    currentOptions: {},
+    replyMode: "assistant_changes",
+  };
+}
+
+function buildFeishuBotConfig() {
+  return {
+    id: FEISHU_BOT_ID,
+    name: "Feishu Bot",
+    provider: "feishu",
+    enabled: true,
+    providerUserId: "fs-user-1",
+    allowedWorkspaces: ["*"],
+    allowedCommands: baseAllowedCommands(),
+    currentOptions: {},
+    replyMode: "assistant_changes",
+  };
+}
+
+interface HarnessOptions {
+  weixinBot?: ReturnType<typeof buildWeixinBotConfig>;
+  feishuBot?: ReturnType<typeof buildFeishuBotConfig> | null;
+  workspaceIdentity?: string;
+  sendAttachmentError?: Error;
+  /** 故意放慢 adapter.sendAttachment（quota TOCTOU 并发测试需要在途重叠窗口）。 */
+  sendAttachmentDelayMs?: number;
+  /** 注入 isConnected=true 的远端服务，模拟「已连接的远程 workspace」。 */
+  remoteConnected?: boolean;
+  /** 让 fake zcodeTaskService.sendPrompt 拒绝（sendPromptInBackground 失败终态路径）。 */
+  sendPromptError?: Error;
+  /** 让 getTaskSnapshot 返回终态 meta（isContextActiveTaskRunning 漏检终态路径）。 */
+  taskSnapshotMetaStatus?: "completed" | "error";
+}
+
+interface Harness {
+  service: IBotsService & { disposeAllAndWait(): Promise<void> };
+  registry: ReturnType<typeof createBotTaskDeliveryRegistry>;
+  sendAttachmentCalls: SendAttachmentCall[];
+  /** 测试中可变的 adapter 行为（切换错误/延迟），生产装配不受影响。 */
+  adapterControl: { error: Error | undefined; delayMs: number };
+  workspacePath: string;
+  outsideFilePath: string;
+  getStreamEnqueue: () => StreamEnqueue | undefined;
+  conversationalActor: BotActor;
+  triggerConversationalMessage(options?: {
+    text?: string;
+    token?: string;
+    messageId?: string;
+    chatType?: "private" | "group";
+  }): Promise<BotOutboundMessage[]>;
+  sendFileCommand(
+    value: string,
+    options?: { token?: string; messageId?: string; provider?: "weixin" | "feishu" },
+  ): Promise<BotOutboundMessage[]>;
+  readRawConfig(): Promise<string>;
+  readRawState(): Promise<string>;
+  writeRawConfig(config: unknown): Promise<void>;
+  dispose(): Promise<void>;
+}
+
+let inboundMessageCounter = 0;
+
+async function createHarness(options: HarnessOptions = {}): Promise<Harness> {
+  const dataRoot = await mkdtemp(join(tmpdir(), "zcode-bot-share-"));
+  setDataBaseDir(dataRoot);
+  const workspace = await mkdtemp(join(tmpdir(), "zcode-bot-ws-"));
+  await mkdir(join(workspace, "out"), { recursive: true });
+  await writeFile(join(workspace, "out", "result.txt"), "hello zodex");
+  const outsideRoot = await mkdtemp(join(tmpdir(), "zcode-bot-outside-"));
+  const outsideFilePath = join(outsideRoot, "secret.txt");
+  await writeFile(outsideFilePath, "secret");
+  const configDir = getAppConfigDir();
+  await mkdir(configDir, { recursive: true });
+  const bots = [
+    options.weixinBot ?? buildWeixinBotConfig(),
+    ...(options.feishuBot === null ? [] : [options.feishuBot ?? buildFeishuBotConfig()]),
+  ];
+  await writeFile(join(configDir, BOTS_CONFIG_FILE), JSON.stringify({ version: 3, bots }));
+  await writeFile(
+    join(configDir, BOTS_STATE_FILE),
+    JSON.stringify({
+      version: 3,
+      bots: {
+        [WEIXIN_BOT_ID]: {
+          botId: WEIXIN_BOT_ID,
+          workspacePath: workspace,
+          ...(options.workspaceIdentity ? { workspaceIdentity: options.workspaceIdentity } : {}),
+          mode: "task",
+          activeTaskId: CONVERSATIONAL_TASK_ID,
+          weixinActivatedAt: 1,
+          updatedAt: 1,
+        },
+        // feishu 同 workspace 的上下文：/file 渠道门槛测试需要已绑定 workspace 的 feishu 会话。
+        ...(options.feishuBot === null
+          ? {}
+          : {
+              [FEISHU_BOT_ID]: {
+                botId: FEISHU_BOT_ID,
+                workspacePath: workspace,
+                mode: "task",
+                activeTaskId: null,
+                updatedAt: 1,
+              },
+            }),
+      },
+    }),
+  );
+
+  const registry = createBotTaskDeliveryRegistry();
+  const sendAttachmentCalls: SendAttachmentCall[] = [];
+  const adapterControl = {
+    error: options.sendAttachmentError as Error | undefined,
+    delayMs: options.sendAttachmentDelayMs ?? 0,
+  };
+  const weixinAdapter: BotProviderAdapter = {
+    test: async () => ({ ok: true, message: "stub" }),
+    send: async () => undefined,
+    sendAttachment: async (bot, message, attachment) => {
+      if (adapterControl.delayMs > 0) {
+        await new Promise((resolve) => setTimeout(resolve, adapterControl.delayMs));
+      }
+      if (adapterControl.error) throw adapterControl.error;
+      sendAttachmentCalls.push({ botId: bot.id, message, attachment });
+    },
+  };
+  // feishu 覆盖为无 sendAttachment 能力的 stub：用于 unsupported-provider 判定。
+  const feishuAdapter: BotProviderAdapter = {
+    test: async () => ({ ok: true, message: "stub" }),
+    send: async () => undefined,
+  };
+
+  let streamEnqueue: StreamEnqueue | undefined;
+  const fakeTaskService = {
+    listDeletedTaskIds: async () => [] as string[],
+    resumeTask: async () => undefined,
+    createTask: async () => ({ taskId: "task-created" }),
+    deleteTask: async () => undefined,
+    getTaskModelSelection: async () => ({
+      providerId: ZCODE_AGENT_PROVIDER,
+      modelId: "glm-test",
+    }),
+    getTaskConfigOptions: async () => [],
+    listTasks: async () => [],
+    getTaskSnapshot: async () =>
+      options.taskSnapshotMetaStatus
+        ? {
+            meta: {
+              taskId: CONVERSATIONAL_TASK_ID,
+              status: options.taskSnapshotMetaStatus,
+              title: "terminal task",
+            },
+          }
+        : null,
+    sendPrompt: async () => {
+      if (options.sendPromptError) throw options.sendPromptError;
+    },
+    setMode: async () => undefined,
+    onDynamicStreamEvent:
+      (taskId: string) =>
+      (enqueue: StreamEnqueue): IDisposable => {
+        assert.equal(taskId, CONVERSATIONAL_TASK_ID);
+        streamEnqueue = enqueue;
+        return {
+          dispose: () => {
+            streamEnqueue = undefined;
+          },
+        };
+      },
+  };
+  const modelSelection = { providerId: ZCODE_AGENT_PROVIDER, modelId: "glm-test" };
+  const modelSelectionService = {
+    getView: async () =>
+      ({
+        revision: 1,
+        providers: [],
+        preferredSelection: modelSelection,
+        effectiveSelection: modelSelection,
+      }) as unknown as Awaited<ReturnType<IModelSelectionService["getView"]>>,
+  };
+  const credentialService = {
+    load: async () => null,
+  } as unknown as ICredentialService;
+
+  const service = createBotsService({
+    credentialService,
+    zcodeTaskService: fakeTaskService as unknown as IZCodeTaskService,
+    modelSelectionService,
+    runStartupBackgroundTasks: false,
+    providerOverrides: { weixin: weixinAdapter, feishu: feishuAdapter },
+    taskDeliveryRegistry: registry,
+    ...(options.remoteConnected
+      ? {
+          remoteWorkspaceService: {
+            isConnected: async () => true,
+            ensureConnected: async () => ({ ok: true as const }),
+          },
+        }
+      : {}),
+  });
+
+  const conversationalActor: BotActor = {
+    provider: "weixin",
+    botId: WEIXIN_BOT_ID,
+    providerUserId: "wx-user-1",
+    chatType: "private",
+    chatId: "wx-chat-1",
+  };
+
+  const buildInbound = (
+    overrides: {
+      text?: string;
+      token?: string;
+      messageId?: string;
+      chatType?: "private" | "group";
+      provider?: "weixin" | "feishu";
+    } = {},
+  ) => {
+    const provider = overrides.provider ?? "weixin";
+    inboundMessageCounter += 1;
+    const actor: BotActor = {
+      provider,
+      botId: provider === "weixin" ? WEIXIN_BOT_ID : FEISHU_BOT_ID,
+      providerUserId: provider === "weixin" ? "wx-user-1" : "fs-user-1",
+      chatType: overrides.chatType ?? "private",
+      chatId: provider === "weixin" ? "wx-chat-1" : "fs-chat-1",
+      providerMessageId: overrides.messageId ?? `msg-${inboundMessageCounter}`,
+      ...(overrides.token === undefined ? {} : { providerContextToken: overrides.token }),
+    };
+    return {
+      botId: actor.botId,
+      actor,
+      text: overrides.text ?? "继续分析",
+      receivedAt: Date.now(),
+    };
+  };
+
+  return {
+    service,
+    registry,
+    sendAttachmentCalls,
+    adapterControl,
+    workspacePath: workspace,
+    outsideFilePath,
+    getStreamEnqueue: () => streamEnqueue,
+    conversationalActor,
+    async triggerConversationalMessage(overrides = {}) {
+      const replies = await service.handleInboundMessage(buildInbound(overrides));
+      // sendPromptInBackground 是 fire-and-forget；等待微任务与定时器稳定。
+      await new Promise((resolve) => setTimeout(resolve, 25));
+      return replies;
+    },
+    async sendFileCommand(value: string, overrides = {}) {
+      const replies = await service.handleInboundMessage(
+        buildInbound({ text: `/file ${value}`, ...overrides }),
+      );
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      return replies;
+    },
+    readRawConfig: () => readFile(join(configDir, BOTS_CONFIG_FILE), "utf8"),
+    readRawState: () => readFile(join(configDir, BOTS_STATE_FILE), "utf8"),
+    async writeRawConfig(config: unknown) {
+      await writeFile(join(configDir, BOTS_CONFIG_FILE), JSON.stringify(config));
+    },
+    async dispose() {
+      await service.disposeAllAndWait().catch(() => undefined);
+      setDataBaseDir(null);
+      await rm(dataRoot, { recursive: true, force: true });
+      await rm(workspace, { recursive: true, force: true });
+      await rm(outsideRoot, { recursive: true, force: true });
+    },
+  };
+}
+
+function readRegistryActorToken(call: SendAttachmentCall): string | undefined {
+  return call.message.providerContextToken;
+}
+
+test("taskDeliveryRegistry：remember 有界 200 淘汰最旧，重写刷新顺序，forget/clear 生效", () => {
+  const registry = createBotTaskDeliveryRegistry();
+  const buildEntry = (botId: string) => ({
+    botId,
+    actor: { provider: "weixin", botId, providerUserId: "u", chatType: "private" },
+    workspacePath: "/ws",
+  });
+  registry.remember("task-0", buildEntry("bot-0"));
+  for (let index = 1; index <= 200; index += 1) {
+    registry.remember(`task-${index}`, buildEntry(`bot-${index}`));
+  }
+  assert.equal(registry.size, 200);
+  // task-0 是最旧条目，第 201 次写入后应被淘汰。
+  assert.equal(registry.get("task-0"), undefined);
+  assert.notEqual(registry.get("task-1"), undefined);
+  assert.notEqual(registry.get("task-200"), undefined);
+  // 重写既有 taskId 刷新插入顺序：task-1 不再是最旧。
+  registry.remember("task-1", buildEntry("bot-1"));
+  registry.remember("task-new", buildEntry("bot-new"));
+  assert.equal(registry.get("task-2"), undefined);
+  assert.notEqual(registry.get("task-1"), undefined);
+  registry.forget("task-new");
+  assert.equal(registry.get("task-new"), undefined);
+  registry.clear();
+  assert.equal(registry.size, 0);
+});
+
+test("shareFile 配额：10 分钟窗口 3 次上限，按 (botId, peerKey) 隔离", () => {
+  const quota = createBotShareFileQuotaTracker();
+  const t0 = 1_000_000;
+  for (let index = 0; index < 3; index += 1) {
+    quota.record("bot-1", "peer-1", t0 + index);
+  }
+  assert.equal(quota.allows("bot-1", "peer-1", t0 + 10), false);
+  // 不同 (botId, peerKey) 互不影响。
+  assert.equal(quota.allows("bot-1", "peer-2", t0 + 10), true);
+  assert.equal(quota.allows("bot-2", "peer-1", t0 + 10), true);
+  // 滚动窗口：最早一条滑出 10 分钟后恢复（此处窗口内仍有 2 条，未达 3 上限）。
+  assert.equal(quota.allows("bot-1", "peer-1", t0 + 600_000 + 1), true);
+});
+
+test("shareFile 配额：1 小时窗口 20 次上限独立生效（10 分钟窗口未满时）", () => {
+  const quota = createBotShareFileQuotaTracker();
+  // 合成时间线：20 条记录落在 [100, 2893]，查询时刻 10 分钟窗口为空、1 小时窗口全满。
+  const queryAt = 3_600_000;
+  for (let index = 0; index < 20; index += 1) {
+    quota.record("bot-1", "peer-1", 100 + index * 147);
+  }
+  assert.equal(quota.allows("bot-1", "peer-1", queryAt), false);
+  // 全部记录滑出 1 小时窗口后恢复。
+  assert.equal(quota.allows("bot-1", "peer-1", 100 + 3_600_000 + 20), true);
+});
+
+test("shareFile 配额：reserve 原子判定+占位，release 按时间戳精确归还（review TOCTOU 修复）", () => {
+  const quota = createBotShareFileQuotaTracker();
+  const t0 = 2_000_000;
+  // 连续 3 次预留全部成功；第 4 次被 10 分钟窗口拒绝。
+  for (let index = 0; index < 3; index += 1) {
+    assert.equal(quota.reserve("bot-1", "peer-1", t0 + index), true);
+  }
+  assert.equal(quota.reserve("bot-1", "peer-1", t0 + 5), false);
+  // 释放一个具体预留时间戳后，同窗口内又能预留一次。
+  quota.release("bot-1", "peer-1", t0 + 1);
+  assert.equal(quota.reserve("bot-1", "peer-1", t0 + 6), true);
+  // 释放不存在的时间戳 / 陌生 key 是 no-op。
+  quota.release("bot-1", "peer-1", t0 + 999);
+  quota.release("bot-1", "peer-unknown", t0);
+  assert.equal(quota.reserve("bot-1", "peer-1", t0 + 7), false);
+  // 全部归还后窗口完全恢复。
+  for (const at of [t0, t0 + 6]) quota.release("bot-1", "peer-1", at);
+  assert.equal(quota.allows("bot-1", "peer-1", t0 + 8), true);
+});
+
+test("revalidateWorkspaceFileForDelivery：读取前重校验大小增长（stat 与读取之间膨胀 → too-large）", async () => {
+  const root = await mkdtemp(join(tmpdir(), "zcode-bot-revalidate-"));
+  try {
+    const growing = join(root, "growing.bin");
+    await writeFile(growing, Buffer.alloc(4 * 1024 * 1024));
+    const first = await revalidateWorkspaceFileForDelivery(root, growing);
+    assert.equal(first.ok, true);
+    if (first.ok) {
+      assert.equal(first.sizeBytes, 4 * 1024 * 1024);
+    }
+    // 首次 stat 后文件增长超限：读取前必须以最新大小拒绝。
+    const handle = await readFile(growing);
+    assert.ok(handle.byteLength > 0);
+    await writeFile(growing, Buffer.concat([handle, Buffer.alloc(2 * 1024 * 1024)]));
+    const second = await revalidateWorkspaceFileForDelivery(root, growing);
+    assert.equal(second.ok, false);
+    if (!second.ok) {
+      assert.equal(second.reason, "too-large");
+      assert.equal(second.sizeBytes, 6 * 1024 * 1024);
+    }
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("revalidateWorkspaceFileForDelivery：符号链接被替换指向树外（TOCTOU）→ outside-workspace", async () => {
+  const root = await mkdtemp(join(tmpdir(), "zcode-bot-toctou-"));
+  try {
+    const outsideRoot = await mkdtemp(join(tmpdir(), "zcode-bot-toctou-out-"));
+    try {
+      await writeFile(join(outsideRoot, "leak.txt"), "leak");
+      const linkPath = join(root, "swap-link");
+      await symlink(join(root, "result.txt"), linkPath, "file");
+      await writeFile(join(root, "result.txt"), "safe");
+      // 首次校验时链接仍在树内。
+      const before = await revalidateWorkspaceFileForDelivery(root, linkPath);
+      assert.equal(before.ok, true);
+      // 链接被替换为指向 workspace 外（symlink swap）。
+      await rm(linkPath, { force: true });
+      await symlink(join(outsideRoot, "leak.txt"), linkPath, "file");
+      const after = await revalidateWorkspaceFileForDelivery(root, linkPath);
+      assert.equal(after.ok, false);
+      if (!after.ok) {
+        assert.equal(after.reason, "outside-workspace");
+      }
+    } finally {
+      await rm(outsideRoot, { recursive: true, force: true });
+    }
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("对话式入站消息填充 taskDeliveryRegistry（仅对话路径）", async () => {
+  const harness = await createHarness();
+  try {
+    await harness.triggerConversationalMessage({ token: "token-captured" });
+    const entry = harness.registry.get(CONVERSATIONAL_TASK_ID);
+    assert.ok(entry, "对话式消息触发的任务必须登记投递目标");
+    assert.equal(entry.botId, WEIXIN_BOT_ID);
+    assert.equal(entry.workspacePath, harness.workspacePath);
+    assert.equal(entry.actor.chatId, "wx-chat-1");
+    assert.equal(entry.workspaceIdentity, undefined);
+  } finally {
+    await harness.dispose();
+  }
+});
+
+test("watchAutomationRun 删除既有投递目标（automation 复用 → no-target）", async () => {
+  const harness = await createHarness();
+  try {
+    await harness.triggerConversationalMessage({ token: "token-captured" });
+    assert.ok(harness.registry.get(CONVERSATIONAL_TASK_ID));
+    await harness.service.watchAutomationRun({
+      target: {
+        provider: "weixin",
+        botId: WEIXIN_BOT_ID,
+        providerUserId: "wx-user-1",
+        chatType: "private",
+      },
+      taskId: CONVERSATIONAL_TASK_ID,
+      workspacePath: harness.workspacePath,
+    });
+    assert.equal(harness.registry.get(CONVERSATIONAL_TASK_ID), undefined);
+    const result = await harness.service.shareFileForTask({
+      taskId: CONVERSATIONAL_TASK_ID,
+      path: "out/result.txt",
+    });
+    assert.deepEqual(result, { ok: false, reason: "no-target" });
+    assert.equal(harness.sendAttachmentCalls.length, 0);
+  } finally {
+    await harness.dispose();
+  }
+});
+
+test("流终态清理投递目标（晚到 RPC → no-target）", async () => {
+  const harness = await createHarness();
+  try {
+    await harness.triggerConversationalMessage({ token: "token-captured" });
+    const enqueue = harness.getStreamEnqueue();
+    assert.ok(enqueue, "对话式任务必须已订阅任务流");
+    await enqueue({ type: "task_complete", taskId: CONVERSATIONAL_TASK_ID });
+    assert.equal(harness.registry.get(CONVERSATIONAL_TASK_ID), undefined);
+    const result = await harness.service.shareFileForTask({
+      taskId: CONVERSATIONAL_TASK_ID,
+      path: "out/result.txt",
+    });
+    assert.deepEqual(result, { ok: false, reason: "no-target" });
+  } finally {
+    await harness.dispose();
+  }
+});
+
+test("shareFileForTask：注册表未命中（未知任务）→ no-target", async () => {
+  const harness = await createHarness();
+  try {
+    const result = await harness.service.shareFileForTask({
+      taskId: "task-unknown",
+      path: "out/result.txt",
+    });
+    assert.deepEqual(result, { ok: false, reason: "no-target" });
+    assert.equal(harness.sendAttachmentCalls.length, 0);
+  } finally {
+    await harness.dispose();
+  }
+});
+
+test("shareFileForTask：happy path 走单一写出核心，adapter 恰好投递一次", async () => {
+  const harness = await createHarness();
+  try {
+    await harness.triggerConversationalMessage({ token: "token-captured" });
+    const result = await harness.service.shareFileForTask({
+      taskId: CONVERSATIONAL_TASK_ID,
+      path: "out/result.txt",
+    });
+    assert.deepEqual(result, { ok: true, filename: "result.txt", sizeBytes: "hello zodex".length });
+    assert.equal(harness.sendAttachmentCalls.length, 1);
+    assert.equal(
+      harness.sendAttachmentCalls[0].attachment.localPath,
+      join(harness.workspacePath, "out", "result.txt"),
+    );
+  } finally {
+    await harness.dispose();
+  }
+});
+
+test("shareFileForTask 守卫矩阵：bot 中途禁用 → not-allowed", async () => {
+  const harness = await createHarness();
+  try {
+    await harness.triggerConversationalMessage();
+    const rawConfig = JSON.parse(await harness.readRawConfig());
+    rawConfig.bots[0].enabled = false;
+    await harness.writeRawConfig(rawConfig);
+    const result = await harness.service.shareFileForTask({
+      taskId: CONVERSATIONAL_TASK_ID,
+      path: "out/result.txt",
+    });
+    assert.deepEqual(result, { ok: false, reason: "not-allowed" });
+    assert.equal(harness.sendAttachmentCalls.length, 0);
+  } finally {
+    await harness.dispose();
+  }
+});
+
+test("shareFileForTask 守卫矩阵：allowedCommands.file 中途关闭 → not-allowed", async () => {
+  const harness = await createHarness();
+  try {
+    await harness.triggerConversationalMessage();
+    const rawConfig = JSON.parse(await harness.readRawConfig());
+    rawConfig.bots[0].allowedCommands.file = false;
+    await harness.writeRawConfig(rawConfig);
+    const result = await harness.service.shareFileForTask({
+      taskId: CONVERSATIONAL_TASK_ID,
+      path: "out/result.txt",
+    });
+    assert.deepEqual(result, { ok: false, reason: "not-allowed" });
+    assert.equal(harness.sendAttachmentCalls.length, 0);
+  } finally {
+    await harness.dispose();
+  }
+});
+
+test("shareFileForTask 守卫矩阵：用户解绑（providerUserId 变更）→ not-allowed", async () => {
+  const harness = await createHarness();
+  try {
+    // 直接登记 feishu 会话目标，随后改绑 providerUserId，模拟中途解绑。
+    harness.registry.remember(CONVERSATIONAL_TASK_ID, {
+      botId: FEISHU_BOT_ID,
+      actor: {
+        provider: "feishu",
+        botId: FEISHU_BOT_ID,
+        providerUserId: "fs-user-1",
+        chatType: "private",
+      },
+      workspacePath: harness.workspacePath,
+    });
+    const rawConfig = JSON.parse(await harness.readRawConfig());
+    rawConfig.bots[1].providerUserId = "fs-someone-else";
+    await harness.writeRawConfig(rawConfig);
+    const result = await harness.service.shareFileForTask({
+      taskId: CONVERSATIONAL_TASK_ID,
+      path: "out/result.txt",
+    });
+    assert.deepEqual(result, { ok: false, reason: "not-allowed" });
+    assert.equal(harness.sendAttachmentCalls.length, 0);
+  } finally {
+    await harness.dispose();
+  }
+});
+
+test("shareFileForTask 守卫矩阵：群聊 actor → not-allowed", async () => {
+  const harness = await createHarness();
+  try {
+    harness.registry.remember(CONVERSATIONAL_TASK_ID, {
+      botId: WEIXIN_BOT_ID,
+      actor: { ...harness.conversationalActor, chatType: "group" },
+      workspacePath: harness.workspacePath,
+    });
+    const result = await harness.service.shareFileForTask({
+      taskId: CONVERSATIONAL_TASK_ID,
+      path: "out/result.txt",
+    });
+    assert.deepEqual(result, { ok: false, reason: "not-allowed" });
+    assert.equal(harness.sendAttachmentCalls.length, 0);
+  } finally {
+    await harness.dispose();
+  }
+});
+
+test("shareFileForTask 守卫矩阵：adapter 无 sendAttachment（feishu/lark）→ unsupported-provider", async () => {
+  const harness = await createHarness();
+  try {
+    harness.registry.remember(CONVERSATIONAL_TASK_ID, {
+      botId: FEISHU_BOT_ID,
+      actor: {
+        provider: "feishu",
+        botId: FEISHU_BOT_ID,
+        providerUserId: "fs-user-1",
+        chatType: "private",
+      },
+      workspacePath: harness.workspacePath,
+    });
+    const result = await harness.service.shareFileForTask({
+      taskId: CONVERSATIONAL_TASK_ID,
+      path: "out/result.txt",
+    });
+    assert.deepEqual(result, { ok: false, reason: "unsupported-provider" });
+    assert.equal(harness.sendAttachmentCalls.length, 0);
+  } finally {
+    await harness.dispose();
+  }
+});
+
+test("shareFileForTask 守卫矩阵：远程 workspace → remote-workspace，无本地读取兜底", async () => {
+  const harness = await createHarness();
+  try {
+    harness.registry.remember(CONVERSATIONAL_TASK_ID, {
+      botId: WEIXIN_BOT_ID,
+      actor: harness.conversationalActor,
+      workspacePath: harness.workspacePath,
+      workspaceIdentity: "remote-identity-1",
+    });
+    const result = await harness.service.shareFileForTask({
+      taskId: CONVERSATIONAL_TASK_ID,
+      path: "out/result.txt",
+    });
+    assert.deepEqual(result, { ok: false, reason: "remote-workspace" });
+    assert.equal(harness.sendAttachmentCalls.length, 0);
+  } finally {
+    await harness.dispose();
+  }
+});
+
+test("shareFileForTask 守卫矩阵：词法 ..、绝对路径、符号链接逃逸 → outside-workspace", async () => {
+  const harness = await createHarness();
+  try {
+    await harness.triggerConversationalMessage();
+    await symlink(harness.outsideFilePath, join(harness.workspacePath, "escape-link"), "file");
+    const paths = [`../${join(tmpdir(), "not-relevant")}`, harness.outsideFilePath, "escape-link"];
+    for (const path of paths) {
+      const result = await harness.service.shareFileForTask({
+        taskId: CONVERSATIONAL_TASK_ID,
+        path,
+      });
+      assert.equal(result.ok, false, `path=${path}`);
+      if (!result.ok) {
+        assert.equal(result.reason, "outside-workspace", `path=${path}`);
+      }
+    }
+    assert.equal(harness.sendAttachmentCalls.length, 0);
+  } finally {
+    await harness.dispose();
+  }
+});
+
+test("shareFileForTask 守卫矩阵：文件不存在 → not-found；超过 5MB → too-large", async () => {
+  const harness = await createHarness();
+  try {
+    await harness.triggerConversationalMessage();
+    const missing = await harness.service.shareFileForTask({
+      taskId: CONVERSATIONAL_TASK_ID,
+      path: "no-such-file.bin",
+    });
+    assert.deepEqual(missing, { ok: false, reason: "not-found" });
+    await writeFile(join(harness.workspacePath, "big.bin"), Buffer.alloc(5 * 1024 * 1024 + 1));
+    const tooLarge = await harness.service.shareFileForTask({
+      taskId: CONVERSATIONAL_TASK_ID,
+      path: "big.bin",
+    });
+    assert.equal(tooLarge.ok, false);
+    if (!tooLarge.ok) {
+      assert.equal(tooLarge.reason, "too-large");
+    }
+    assert.equal(harness.sendAttachmentCalls.length, 0);
+  } finally {
+    await harness.dispose();
+  }
+});
+
+test("shareFileForTask 守卫矩阵：adapter 抛错 → send-failed（仅一次调用）", async () => {
+  const harness = await createHarness({ sendAttachmentError: new Error("provider down") });
+  try {
+    await harness.triggerConversationalMessage();
+    const result = await harness.service.shareFileForTask({
+      taskId: CONVERSATIONAL_TASK_ID,
+      path: "out/result.txt",
+    });
+    assert.equal(result.ok, false);
+    if (!result.ok) {
+      assert.equal(result.reason, "send-failed");
+      assert.equal(result.detail, "provider down");
+    }
+    assert.equal(harness.sendAttachmentCalls.length, 0);
+  } finally {
+    await harness.dispose();
+  }
+});
+
+test("shareFile quota：10 分钟内第 4 次 tool 投递被拒；/file 不受限", async () => {
+  const harness = await createHarness();
+  try {
+    await harness.triggerConversationalMessage();
+    for (let index = 0; index < 3; index += 1) {
+      const result = await harness.service.shareFileForTask({
+        taskId: CONVERSATIONAL_TASK_ID,
+        path: "out/result.txt",
+      });
+      assert.equal(result.ok, true, `delivery ${index + 1}`);
+    }
+    assert.equal(harness.sendAttachmentCalls.length, 3);
+    const fourth = await harness.service.shareFileForTask({
+      taskId: CONVERSATIONAL_TASK_ID,
+      path: "out/result.txt",
+    });
+    assert.deepEqual(fourth, { ok: false, reason: "quota-exceeded" });
+    // 配额拒绝发生在任何文件 IO 之前：adapter 调用数不变。
+    assert.equal(harness.sendAttachmentCalls.length, 3);
+    // /file 永不受配额限制：连续 25 次全部尝试投递。
+    for (let index = 0; index < 25; index += 1) {
+      const replies = await harness.sendFileCommand("out/result.txt");
+      assert.match(replies[0].text, /^已发送 result\.txt（\d+B）。$/);
+    }
+    assert.equal(harness.sendAttachmentCalls.length, 28);
+  } finally {
+    await harness.dispose();
+  }
+});
+
+test("shareFile quota TOCTOU（review 修复）：6 个并行 share_file 只放行 3 个到达 adapter", async () => {
+  // 故意放慢 adapter，制造在途重叠窗口；share_file 是 concurrentSafe 工具，调度器并行执行。
+  const harness = await createHarness({ sendAttachmentDelayMs: 40 });
+  try {
+    await harness.triggerConversationalMessage();
+    const results = await Promise.all(
+      Array.from({ length: 6 }, () =>
+        harness.service.shareFileForTask({
+          taskId: CONVERSATIONAL_TASK_ID,
+          path: "out/result.txt",
+        }),
+      ),
+    );
+    // 全新窗口内：恰好 3 个成功、3 个 quota-exceeded；只有 3 个调用到达 adapter.sendAttachment。
+    // 修复前（allows 判定 + 投递后 record 落账）6 个并行调用会在彼此落账前全部通过判定。
+    const okCount = results.filter((result) => result.ok).length;
+    const quotaRejected = results.filter(
+      (result) => !result.ok && result.reason === "quota-exceeded",
+    ).length;
+    assert.equal(okCount, 3);
+    assert.equal(quotaRejected, 3);
+    assert.equal(harness.sendAttachmentCalls.length, 3);
+  } finally {
+    await harness.dispose();
+  }
+});
+
+test("shareFile quota 释放语义（review 修复）：投递失败归还槽位，只有成功投递消耗配额", async () => {
+  const harness = await createHarness({ sendAttachmentError: new Error("provider down") });
+  try {
+    await harness.triggerConversationalMessage();
+    // 3 次 send-failed：每次失败都必须归还预留槽位（否则第 3 次就会 quota-exceeded）。
+    for (let index = 0; index < 3; index += 1) {
+      const result = await harness.service.shareFileForTask({
+        taskId: CONVERSATIONAL_TASK_ID,
+        path: "out/result.txt",
+      });
+      assert.equal(result.ok, false, `attempt ${index + 1}`);
+      if (!result.ok) {
+        assert.equal(result.reason, "send-failed");
+      }
+    }
+    // 失败全部释放后窗口为空：清除错误，下一次应成功而非 quota-exceeded。
+    harness.adapterControl.error = undefined;
+    const recovered = await harness.service.shareFileForTask({
+      taskId: CONVERSATIONAL_TASK_ID,
+      path: "out/result.txt",
+    });
+    assert.equal(recovered.ok, true, "失败投递不得消耗配额槽位");
+    assert.equal(harness.sendAttachmentCalls.length, 1);
+  } finally {
+    await harness.dispose();
+  }
+});
+
+test("shareFile quota 释放语义：投递前置拒绝（not-found）同样归还槽位", async () => {
+  const harness = await createHarness();
+  try {
+    await harness.triggerConversationalMessage();
+    // 3 次路径不存在的失败投递：全部归还。
+    for (let index = 0; index < 3; index += 1) {
+      const result = await harness.service.shareFileForTask({
+        taskId: CONVERSATIONAL_TASK_ID,
+        path: "no-such-file.bin",
+      });
+      assert.deepEqual(result, { ok: false, reason: "not-found" });
+    }
+    // 若槽位泄漏，这次成功投递会变成 quota-exceeded。
+    const delivered = await harness.service.shareFileForTask({
+      taskId: CONVERSATIONAL_TASK_ID,
+      path: "out/result.txt",
+    });
+    assert.equal(delivered.ok, true);
+    assert.equal(harness.sendAttachmentCalls.length, 1);
+  } finally {
+    await harness.dispose();
+  }
+});
+
+test("sendPrompt 失败终态（review 修复）：taskDeliveryRegistry 遗忘 → share_file no-target", async () => {
+  const harness = await createHarness({ sendPromptError: new Error("session gone") });
+  try {
+    await harness.triggerConversationalMessage();
+    // sendPromptInBackground 的失败 catch 是任务终态：注册表必须遗忘该 taskId。
+    assert.equal(harness.registry.get(CONVERSATIONAL_TASK_ID), undefined);
+    const result = await harness.service.shareFileForTask({
+      taskId: CONVERSATIONAL_TASK_ID,
+      path: "out/result.txt",
+    });
+    assert.deepEqual(result, { ok: false, reason: "no-target" });
+    assert.equal(harness.sendAttachmentCalls.length, 0);
+  } finally {
+    await harness.dispose();
+  }
+});
+
+test("isContextActiveTaskRunning 漏检终态（review 修复）：registry 遗忘 → share_file no-target", async () => {
+  const harness = await createHarness({ taskSnapshotMetaStatus: "completed" });
+  try {
+    await harness.triggerConversationalMessage();
+    // 没有流终态事件：注册表仍持有投递目标。
+    assert.ok(harness.registry.get(CONVERSATIONAL_TASK_ID));
+    // /task 触发 missed-terminal 检测：持久化状态已是 completed → 遗忘注册表条目。
+    const replies = await harness.triggerConversationalMessage({ text: "/task" });
+    assert.ok(Array.isArray(replies));
+    assert.equal(harness.registry.get(CONVERSATIONAL_TASK_ID), undefined);
+    const result = await harness.service.shareFileForTask({
+      taskId: CONVERSATIONAL_TASK_ID,
+      path: "out/result.txt",
+    });
+    assert.deepEqual(result, { ok: false, reason: "no-target" });
+    assert.equal(harness.sendAttachmentCalls.length, 0);
+  } finally {
+    await harness.dispose();
+  }
+});
+
+test("/file 门槛顺序（review 修复）：feishu 渠道门槛先于路径解析", async () => {
+  const harness = await createHarness();
+  try {
+    // 即使路径不存在，feishu 也必须回复渠道不支持（Alpha 0 优先级：adapter → 远程 → 路径）。
+    const replies = await harness.sendFileCommand("no-such-file.bin", { provider: "feishu" });
+    assert.equal(replies[0].text, "该渠道暂不支持发送文件，会在后续版本提供。");
+    assert.equal(harness.sendAttachmentCalls.length, 0);
+  } finally {
+    await harness.dispose();
+  }
+});
+
+test("/file 门槛顺序（review 修复）：已连接远程 workspace 门槛先于路径解析", async () => {
+  const harness = await createHarness({
+    workspaceIdentity: "remote-identity-1",
+    remoteConnected: true,
+  });
+  try {
+    const replies = await harness.sendFileCommand("no-such-file.bin");
+    assert.equal(
+      replies[0].text,
+      "远端 workspace 的文件发送将在后续版本支持，当前仅支持本地 workspace。",
+    );
+    assert.equal(harness.sendAttachmentCalls.length, 0);
+  } finally {
+    await harness.dispose();
+  }
+});
+
+test("/file 无参数（review 修复附注）：parser 归为未知命令，与 Alpha 0 一致", async () => {
+  const harness = await createHarness();
+  try {
+    // 事实核对：parseBotCommand 把无参数 /file 归为 unknown（Alpha 0 起如此），
+    // fileMissingPath 空路径分支是防御代码，经 inbound 不可达；门槛顺序还原见上两测。
+    const replies = await harness.sendFileCommand("", {});
+    assert.equal(replies[0].text, "未知命令：**/file**");
+    assert.equal(harness.sendAttachmentCalls.length, 0);
+  } finally {
+    await harness.dispose();
+  }
+});
+
+test("微信文字模式工具摘要行（review 修复）：share_file 状态词按输出散文如实分流", async () => {
+  // 失败投递是正常 completed 工具结果：不能显示「完成」。
+  const failed = formatBotToolCallSummaryLine({
+    toolId: "tool-1",
+    kind: "share_file",
+    input: { path: "out/result.txt" },
+    status: "completed",
+    output: "The file exceeds the 5 MB delivery limit, so nothing was sent.",
+  });
+  assert.match(failed, /- 未发送 · /);
+  assert.ok(!failed.includes("完成"));
+  // 成功投递 → 已发送。
+  const sent = formatBotToolCallSummaryLine({
+    toolId: "tool-2",
+    kind: "share_file",
+    input: { path: "out/result.txt" },
+    status: "completed",
+    output:
+      "File sent to the bot chat user: result.txt (11 bytes). They should have received it as a native media message.",
+  });
+  assert.match(sent, /- 已发送 · /);
+  // unknown-outcome → 结果未知（不能误标成未发送）。
+  const unknown = formatBotToolCallSummaryLine({
+    toolId: "tool-3",
+    kind: "share_file",
+    input: { path: "out/result.txt" },
+    status: "completed",
+    output:
+      "The delivery outcome is UNKNOWN: the request timed out and the file may or may not have been sent. Do NOT claim success or failure.",
+  });
+  assert.match(unknown, /- 结果未知 · /);
+  // raw.result.content 兜底口径与 UI 渲染器一致。
+  const fromRaw = formatBotToolCallSummaryLine({
+    toolId: "tool-4",
+    kind: "share_file",
+    input: { path: "out/result.txt" },
+    status: "completed",
+    raw: { result: { content: "Sending to the provider failed." } },
+  });
+  assert.match(fromRaw, /- 未发送 · /);
+});
+
+test("单一写出核心：/file 失败零投递且回复文案保持既有本地化（pin 既有字符串）", async () => {
+  const harness = await createHarness();
+  try {
+    const outside = await harness.sendFileCommand("../../outside.txt");
+    assert.equal(outside[0].text, "只能发送当前 workspace 内的文件：../../outside.txt");
+    const missing = await harness.sendFileCommand("missing.bin");
+    assert.equal(missing[0].text, "文件不存在或不可读：missing.bin");
+    const sent = await harness.sendFileCommand("out/result.txt");
+    assert.equal(sent[0].text, "已发送 result.txt（11B）。");
+    assert.equal(harness.sendAttachmentCalls.length, 1);
+  } finally {
+    await harness.dispose();
+  }
+});
+
+test("严格 schema：携带 recipient/provider/peer 字段的请求在进入投递前被拒绝", async () => {
+  const harness = await createHarness();
+  try {
+    await harness.triggerConversationalMessage();
+    const injected = zcodeBotsShareFileParamsSchema.safeParse({
+      taskId: CONVERSATIONAL_TASK_ID,
+      path: "out/result.txt",
+      provider: "weixin",
+      botId: WEIXIN_BOT_ID,
+      peerUserId: "attacker@im.wechat",
+    });
+    assert.equal(injected.success, false, "未知键必须被 strict schema 拒绝");
+    assert.equal(harness.sendAttachmentCalls.length, 0);
+  } finally {
+    await harness.dispose();
+  }
+});
+
+test("无上下文改写：一次 share_file 投递不产生任何 bot 状态/配置写入", async () => {
+  const harness = await createHarness();
+  try {
+    await harness.triggerConversationalMessage({ token: "token-captured" });
+    const stateBefore = await harness.readRawState();
+    const configBefore = await harness.readRawConfig();
+    const result = await harness.service.shareFileForTask({
+      taskId: CONVERSATIONAL_TASK_ID,
+      path: "out/result.txt",
+    });
+    assert.equal(result.ok, true);
+    assert.equal(await harness.readRawState(), stateBefore);
+    assert.equal(await harness.readRawConfig(), configBefore);
+  } finally {
+    await harness.dispose();
+  }
+});
+
+test("token 偏好：tool 取最新持久化 token 覆盖陈旧捕获 token；/file 保持消息内 token 优先", async () => {
+  const harness = await createHarness();
+  try {
+    await harness.triggerConversationalMessage({ token: "token-captured" });
+    // 任务执行中的用户 ping（/status）刷新持久化 token 表，但不刷新注册表里的捕获 actor。
+    await harness.sendFileCommand("out/result.txt", { token: "token-cmd" }).then(() => undefined);
+    // 用一条无 token 的 /status ping 刷新持久化 token。
+    await harness.service.handleInboundMessage({
+      botId: WEIXIN_BOT_ID,
+      actor: {
+        provider: "weixin",
+        botId: WEIXIN_BOT_ID,
+        providerUserId: "wx-user-1",
+        chatType: "private",
+        chatId: "wx-chat-1",
+        providerContextToken: "token-refreshed",
+        providerMessageId: "msg-ping",
+      },
+      text: "/status",
+    });
+    const toolResult = await harness.service.shareFileForTask({
+      taskId: CONVERSATIONAL_TASK_ID,
+      path: "out/result.txt",
+    });
+    assert.equal(toolResult.ok, true);
+    const toolCall = harness.sendAttachmentCalls.at(-1);
+    assert.ok(toolCall);
+    assert.equal(readRegistryActorToken(toolCall), "token-refreshed");
+    // /file：消息自带 token 优先于持久化 token（此处持久化为 token-refreshed）。
+    const commandReplies = await harness.sendFileCommand("out/result.txt", {
+      token: "token-per-message",
+    });
+    assert.match(commandReplies[0].text, /^已发送/);
+    const commandCall = harness.sendAttachmentCalls.at(-1);
+    assert.ok(commandCall);
+    assert.equal(readRegistryActorToken(commandCall), "token-per-message");
+    // /file：消息无 token 时回退到持久化 token。
+    await harness.sendFileCommand("out/result.txt", { token: undefined });
+    const fallbackCall = harness.sendAttachmentCalls.at(-1);
+    assert.ok(fallbackCall);
+    assert.equal(readRegistryActorToken(fallbackCall), "token-per-message");
+  } finally {
+    await harness.dispose();
+  }
+});
+
+test("审计增强：tool 投递的 info 日志包含 source=tool、task 与 workspace 相对路径", async () => {
+  const harness = await createHarness();
+  const originalLog = console.log;
+  const originalWarn = console.warn;
+  const captured: string[] = [];
+  console.log = (...args: unknown[]) => {
+    captured.push(args.map((item) => String(item)).join(" "));
+  };
+  console.warn = (...args: unknown[]) => {
+    captured.push(args.map((item) => String(item)).join(" "));
+  };
+  try {
+    await harness.triggerConversationalMessage({ token: "token-captured" });
+    captured.length = 0;
+    const result = await harness.service.shareFileForTask({
+      taskId: CONVERSATIONAL_TASK_ID,
+      path: "out/result.txt",
+    });
+    assert.equal(result.ok, true);
+    const auditLine = captured.find((line) => line.includes("bot file delivery"));
+    assert.ok(auditLine, "必须留下投递审计日志");
+    assert.match(auditLine, /source=tool/);
+    assert.match(auditLine, new RegExp(`task=${CONVERSATIONAL_TASK_ID}`));
+    assert.match(auditLine, /path=out\/result\.txt/);
+    assert.match(auditLine, /outcome=ok/);
+    // 命令路径审计带 source=command。
+    captured.length = 0;
+    await harness.sendFileCommand("out/result.txt");
+    const commandLine = captured.find((line) => line.includes("bot file delivery"));
+    assert.ok(commandLine);
+    assert.match(commandLine, /source=command/);
+  } finally {
+    console.log = originalLog;
+    console.warn = originalWarn;
+    await harness.dispose();
+  }
+});
+
+test("disposeAllAndWait 清空投递注册表（Host 关闭后 fail-closed）", async () => {
+  const harness = await createHarness();
+  try {
+    await harness.triggerConversationalMessage();
+    assert.ok(harness.registry.get(CONVERSATIONAL_TASK_ID));
+    await harness.service.disposeAllAndWait();
+    assert.equal(harness.registry.size, 0);
+  } finally {
+    await harness.dispose();
+  }
 });

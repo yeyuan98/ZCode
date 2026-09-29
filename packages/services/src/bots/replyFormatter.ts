@@ -5,7 +5,11 @@ import type {
   ZCodeTaskChangeSummary,
   Locale,
 } from "@zcode/shared";
-import { getCompactToolCallSummary, getPermissionRequestPreview } from "@zcode/shared";
+import {
+  SHARE_FILE_TOOL_NAME,
+  getCompactToolCallSummary,
+  getPermissionRequestPreview,
+} from "@zcode/shared";
 import { normalizeBotMessageLocale } from "./messages.js";
 
 export interface BotReplyToolCallState {
@@ -62,6 +66,9 @@ const formatterMessages = {
     changeSummary: "变更摘要",
     moreToolCalls: "还有 {count} 个工具调用",
     moreFiles: "还有 {count} 个文件",
+    shareFileSent: "已发送",
+    shareFileNotSent: "未发送",
+    shareFileUnknownOutcome: "结果未知",
   },
   "en-US": {
     toolCalls: "Tool calls:",
@@ -78,6 +85,9 @@ const formatterMessages = {
     changeSummary: "Change summary",
     moreToolCalls: "{count} more tool calls",
     moreFiles: "{count} more files",
+    shareFileSent: "Sent",
+    shareFileNotSent: "Not sent",
+    shareFileUnknownOutcome: "Unknown outcome",
   },
 } as const;
 
@@ -246,6 +256,54 @@ function formatEditPermissionKindLabel(
   return t(locale, "editEditing");
 }
 
+// share_file 状态词（Review 修复：微信文字模式工具摘要行不能把失败投递标成「完成」）。
+// share_file 的失败是正常 completed 工具结果，toolCall.status 推不出投递结局；与 UI 渲染器
+// （packages/ui/src/ToolCallBlocks/renderers/share-file.tsx）同款三分逻辑，从输出散文判定：
+// 成功前缀 → 已发送；unknown-outcome 标记 → 结果未知；其余非空 → 未发送。结构化展示落地前
+// 这是约定口径（Alpha 1 契约：结构化 filename/size 展示延后）。
+const SHARE_FILE_SUCCESS_PROSE_PREFIX = "File sent to the bot chat user:";
+const SHARE_FILE_UNKNOWN_PROSE_MARKER = "The delivery outcome is UNKNOWN";
+
+function readShareFileOutputProse(toolCall: BotReplyToolCallState): string | undefined {
+  const raw = isRecord(toolCall.raw) ? toolCall.raw : null;
+  const rawResult = raw && isRecord(raw.result) ? raw.result : null;
+  const candidates = [
+    toolCall.output,
+    raw && typeof raw.rawOutput === "string" ? raw.rawOutput : undefined,
+    raw && typeof raw.output === "string" ? raw.output : undefined,
+    rawResult && typeof rawResult.content === "string" ? rawResult.content : undefined,
+    rawResult && typeof rawResult.display === "string" ? rawResult.display : undefined,
+  ];
+  for (const candidate of candidates) {
+    if (typeof candidate === "string" && candidate.trim().length > 0) {
+      return candidate.trim();
+    }
+  }
+  return undefined;
+}
+
+function formatShareFileToolCallStatus(
+  toolCall: BotReplyToolCallState,
+  locale?: Locale,
+): string | undefined {
+  if (toolCall.kind !== SHARE_FILE_TOOL_NAME || toolCall.status !== "completed") {
+    // 工具级失败/取消/运行中沿用通用状态词；非 share_file 不介入。
+    return undefined;
+  }
+  const prose = readShareFileOutputProse(toolCall);
+  if (prose === undefined) {
+    // 旧快照可能没有输出散文：回退通用「完成」，不臆造结局。
+    return undefined;
+  }
+  if (prose.startsWith(SHARE_FILE_SUCCESS_PROSE_PREFIX)) {
+    return t(locale, "shareFileSent");
+  }
+  if (prose.includes(SHARE_FILE_UNKNOWN_PROSE_MARKER)) {
+    return t(locale, "shareFileUnknownOutcome");
+  }
+  return t(locale, "shareFileNotSent");
+}
+
 export function formatBotToolCallSummaryLine(
   toolCall: BotReplyToolCallState,
   options?: BotReplyFormatOptions,
@@ -257,7 +315,9 @@ export function formatBotToolCallSummaryLine(
     output: toolCall.output,
     raw: toolCall.raw,
   });
-  const status = formatToolStatus(toolCall.status, toolCall.error, options?.locale);
+  const status =
+    formatShareFileToolCallStatus(toolCall, options?.locale) ??
+    formatToolStatus(toolCall.status, toolCall.error, options?.locale);
   const detail = formatCompactSummaryDetail(summary);
   return `- ${status} · ${summary.primaryText}${detail ? ` · ${detail}` : ""}`;
 }
