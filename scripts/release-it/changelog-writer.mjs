@@ -7,6 +7,10 @@ export const RELEASE_CHANGELOG_TYPES = [
   { type: "docs", section: "Documentation" },
   { type: "refactor", section: "Refactorings" },
   { type: "", section: "Other Changes" },
+  // P8：上游 ZCode 合并 commit（merge: upstream ZCode vX.Y.Z，仅标题不带 body）单行渲染，
+  // 细节记录在 docs/upstream-sync.md 账本；类型放在数组末尾使 Upstream 分节排在 changelog
+  // 最后（分节顺序 = 类型数组顺序）。
+  { type: "merge", section: "Upstream" },
 ];
 
 export const RELEASE_CHANGELOG_PARSER_OPTS = {

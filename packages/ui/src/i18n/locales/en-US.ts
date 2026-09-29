@@ -1930,7 +1930,9 @@ const enUS: Record<string, string> = {
     "Chrome hardware acceleration setting saved. Restart the app to take effect.",
   "settings.receivePreviewUpdates": "Receive preview updates early",
   "settings.receivePreviewUpdatesDescription":
-    "When enabled, you will get the earliest access to new features and improvements. When disabled, you will receive update pushes according to the regular release schedule.",
+    "Get early access to new features and improvements. Turning this off won't downgrade your current version — you'll stay on it until the next official release.",
+  "settings.receivePreviewUpdatesPrereleaseNote":
+    "You're on an Alpha (preview) build. If preview updates are off, you'll stay on this version until the next official release.",
   "settings.autoDownloadAndInstallUpdates": "Automatically download and install updates",
   "settings.autoDownloadAndInstallUpdatesDescription":
     "When enabled, updates start downloading as soon as they are found. Restart still requires confirmation when tasks are running.",

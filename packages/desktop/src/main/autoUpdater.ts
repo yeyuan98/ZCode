@@ -152,6 +152,19 @@ function getCurrentAppVersionForUpdate(): string {
   return devAutoUpdateVersionOverride ?? app.getVersion();
 }
 
+/**
+ * P8（specs/distribution-and-updates.md P8 修订）：dev 覆盖版本本身是 prerelease 时，
+ * init 与 settings 刷新的重算必须叠加放行——旧 D-P5.1 下限规则删除后，这里是唯一保留的
+ * dev 下限；缺少它，init 在 applyDevAutoUpdateRuntimeOverrides 之后的重算会把 dev 抬高的
+ * allowPrerelease 覆盖回 false，alpha→alpha 更新流程无法复现。
+ */
+function isDevPrereleaseAutoUpdateOverrideActive(): boolean {
+  return (
+    devAutoUpdateVersionOverride !== null &&
+    resolveReleaseChannelForVersion(devAutoUpdateVersionOverride) === "preview"
+  );
+}
+
 function resolveDevAutoUpdateVersion(): string | null {
   const configuredVersion =
     process.env[DEV_AUTO_UPDATE_VERSION_ENV]?.trim() ||
@@ -182,7 +195,9 @@ function applyDevAutoUpdateRuntimeOverrides(): void {
     // currentVersion 改成产品版本，否则 3.3.1 -> 3.3.2 这类流程无法复现。
     mutableAutoUpdater.currentVersion = parsedVersion;
     // P5（D-P5.1）：ctor 已按改写前的运行壳版本计算 allowPrerelease；
-    // dev 覆盖版本是 alpha 时必须显式抬高下限，否则检查会命中 /releases/latest 404。
+    // dev 覆盖版本是 alpha 时必须显式抬高（P8：init 随后的重算仅对 prerelease 覆盖
+    // 叠加同一 dev 下限——stable 覆盖会被重算按偏好收回，属预期行为——见
+    // isDevPrereleaseAutoUpdateOverrideActive）。
     mutableAutoUpdater.allowPrerelease = true;
   }
 
@@ -1263,12 +1278,12 @@ export function refreshAutoUpdaterReleaseChannel(
   }
 
   // P5（D-P5.1）：单 channel 文件（latest.yml），preview 偏好不再切换 manifest 通道，
-  // 只翻转 autoUpdater.allowPrerelease 并重新检查（下限规则见 updateFeedRuntime.ts）。
+  // 只翻转 autoUpdater.allowPrerelease 并重新检查。P8：allowPrerelease 严格跟随 preview
+  // 偏好（下限规则已撤销，见 updateFeedRuntime.ts），仅叠加 dev prerelease 下限。
   // 注意永远不能写 autoUpdater.channel。
-  const nextAllowPrerelease = resolveAutoUpdaterAllowPrerelease(
-    receivePreviewUpdates,
-    getCurrentAppVersionForUpdate(),
-  );
+  const nextAllowPrerelease =
+    resolveAutoUpdaterAllowPrerelease(receivePreviewUpdates) ||
+    isDevPrereleaseAutoUpdateOverrideActive();
 
   if (checkForUpdatesInFlight) {
     // 用户可能在启动检查尚未完成时切换 preview 开关。
@@ -1409,12 +1424,14 @@ export async function initAutoUpdater(options: InitAutoUpdaterOptions = {}): Pro
   autoUpdater.autoInstallOnAppQuit = process.platform !== "win32";
   autoUpdater.logger = logger;
   applyUpdateFeed(options);
-  // P5（D-P5.1）：allowPrerelease 下限 = preview 偏好开启，或当前版本本身带 prerelease 组件。
-  // 必须在首次 checkForUpdates 之前设定（ctor 按运行壳版本计算的默认值可能偏低）。
-  autoUpdater.allowPrerelease = resolveAutoUpdaterAllowPrerelease(
-    (await resolveUpdateReleaseChannel(options.settingService)) === "preview",
-    getCurrentAppVersionForUpdate(),
-  );
+  // P8（specs/distribution-and-updates.md P8 修订）：allowPrerelease 严格跟随 preview 偏好
+  // （旧“当前版本带 prerelease 组件即放行”的下限已撤销），仅叠加 dev prerelease 下限——
+  // dev 覆盖版本为 alpha 时不得被本重算覆盖。必须在首次 checkForUpdates 之前设定
+  // （ctor 按运行壳版本计算的默认值不可靠）。
+  autoUpdater.allowPrerelease =
+    resolveAutoUpdaterAllowPrerelease(
+      (await resolveUpdateReleaseChannel(options.settingService)) === "preview",
+    ) || isDevPrereleaseAutoUpdateOverrideActive();
 
   const triggerCheckForUpdates = (reason: string) => {
     if (checkForUpdatesInFlight) {

@@ -19,6 +19,7 @@
 | 桌面开发         | `pnpm dev:desktop`                        |
 | Web 开发         | `pnpm dev:web`                            |
 | 提交前检查       | `pnpm verify:pre-push`（Lint 与架构检查） |
+| alpha 预发布     | `pnpm release:alpha`                      |
 | 架构检查         | `pnpm architecture:check --changed`       |
 | 模块阅读包       | `pnpm architecture:context <module-id>`   |
 | 未使用依赖与导出 | `pnpm knip`                               |
@@ -68,11 +69,12 @@
 
 ## 发布流程
 
-- 发版唯一入口是 `pnpm release`（release-it）：自动升版本、按 conventional commit 生成/更新 `CHANGELOG.md`、提交 `chore: release vX`、打 `vX` 注解标签并推送。标签推送会触发 `.github/workflows/release-desktop.yml` 构建各平台桌面安装包并挂到 GitHub Release。
+- 正式版发版入口是 `pnpm release`，alpha 预发布入口是 `pnpm release:alpha`（同一 release-it 链路，`--preRelease=alpha`，新 train 首个版本为 `X.Y.Z-alpha.0`）：自动升版本、按 conventional commit 生成/更新 `CHANGELOG.md`、提交 `chore: release vX`、打 `vX` 注解标签并推送。标签推送会触发 `.github/workflows/release-desktop.yml` 构建各平台桌面安装包并挂到 GitHub Release（tag 含 `-` 自动标记 prerelease）。
+- 版本规则（Zodex semver 独立、alpha/正式版节奏、hotfix 例外）与上游 ZCode 合并 runbook 见 `docs/versioning.md`，上游合并账本见 `docs/upstream-sync.md`。
 - 禁止手工 `git tag` 发版：会绕过 `CHANGELOG.md` 生成（v3.14.3 曾因此缺失 changelog 条目）。
 - 变更详情写在 commit 消息体的 bullet 列表中，changelog writer 会把它们渲染为该条目的子条目。
 - 发布前先 `pnpm release --dry-run` 预览；非交互（agent）场景使用 `pnpm release --ci`。
-- 发布后核对 Actions 运行结果与 Release 资产：Windows 任务产出 `Zodex-<version>-win-x64.exe` + `latest.yml` + `*.exe.blockmap`；linux 任务产出 `Zodex-<version>-linux-x86_64.AppImage`+ `Zodex-<version>-linux-amd64.deb` + `latest-linux.yml`；mac 双架构任务（仅 tag/手动触发）产出 dmg/zip（含 blockmap）与合并后的 `latest-mac.yml`；`build-remote-assets` 任务产出 4 份 `manifest-<platform>.json` + 全部 `zcode-remote-*.tar.gz` 组件包（数量随平台变化，按 glob 上传）。所有桌面任务与 remote-assets 任务必须全部成功。
+- 发布后核对 Actions 运行结果与 Release 资产：Windows 任务产出 `Zodex-<version>-win-x64.exe` + `latest.yml` + `*.exe.blockmap`；linux 任务产出 `Zodex-<version>-linux-x86_64.AppImage`+ `Zodex-<version>-linux-amd64.deb` + `latest-linux.yml`；mac 双架构任务（仅 tag/手动触发）产出 dmg/zip（含 blockmap）与合并后的 `latest-mac.yml`；`build-remote-assets` 任务产出 4 份 `manifest-<platform>.json` + 全部 `zcode-remote-*.tar.gz` 组件包（数量随平台变化，按 glob 上传）。所有桌面任务与 remote-assets 任务必须全部成功，且 Release 资产中不得出现 `alpha.yml`/`beta.yml` 等多余通道文件（单通道不变量，见 specs P8）。
 - 推送工作流/打包脚本改动前，先用 `pnpm smoke:windows-bundle` 在本地 Docker 复刻 Windows 打包链路（产物写入 `~/temp/zcode-smoke/`，默认自动清理；镜像与缓存默认保留）。
 
 ## Workspace Identity

@@ -10,24 +10,18 @@ import {
   UPDATE_FEED_URL_SWITCH,
 } from "../src/main/updateFeedRuntime.js";
 
-// P5（specs/distribution-and-updates.md §A / D-P5.1）回归钉：
-// 1) allowPrerelease 下限规则；2) 镜像覆盖解析（无 isPackaged 守卫 + URL 校验 + 归一）；
-// 3) provider 选择（覆盖 → generic，默认 → github）。
+// P5（specs/distribution-and-updates.md §A / D-P5.1）+ P8 修订回归钉：
+// 1) allowPrerelease 严格跟随 preview 偏好（下限规则已撤销，dev 下限在 autoUpdater.ts）；
+// 2) 镜像覆盖解析（无 isPackaged 守卫 + URL 校验 + 归一）；3) provider 选择（覆盖 →
+// generic，默认 → github）。
 
-test("resolveAutoUpdaterAllowPrerelease：D-P5.1 下限规则", () => {
-  // alpha 当前版本 + 预览关闭 → 必须放行 prerelease（/releases/latest 404 兜底）。
-  assert.equal(resolveAutoUpdaterAllowPrerelease(false, "3.14.3-alpha.8"), true);
-  assert.equal(resolveAutoUpdaterAllowPrerelease(undefined, "3.14.3-alpha.8"), true);
-  // 稳定当前版本 + 预览关闭 → 关闭。
-  assert.equal(resolveAutoUpdaterAllowPrerelease(false, "3.14.3"), false);
-  assert.equal(resolveAutoUpdaterAllowPrerelease(undefined, "3.14.3"), false);
+test("resolveAutoUpdaterAllowPrerelease：P8 严格跟随 preview 偏好（原 D-P5.1 下限已撤销）", () => {
+  // 预览关闭/缺省 → 恒 false。alpha 客户端关闭预览即退出 alpha 通道：不降级，
+  // 保持当前版本直到下一个正式版版本号超过它（electron-updater allowDowngrade 默认 false）。
+  assert.equal(resolveAutoUpdaterAllowPrerelease(false), false);
+  assert.equal(resolveAutoUpdaterAllowPrerelease(undefined), false);
   // 预览开启 → 恒为 true（即便当前是稳定版）。
-  assert.equal(resolveAutoUpdaterAllowPrerelease(true, "3.14.3"), true);
-  assert.equal(resolveAutoUpdaterAllowPrerelease(true, "3.14.3-alpha.8"), true);
-});
-
-test("resolveAutoUpdaterAllowPrerelease：非法版本号不抬高下限（semver.prerelease 返回 null）", () => {
-  assert.equal(resolveAutoUpdaterAllowPrerelease(false, "not-a-version"), false);
+  assert.equal(resolveAutoUpdaterAllowPrerelease(true), true);
 });
 
 test("resolveReleaseChannelForVersion：preview/stable 标签由版本号推导", () => {
