@@ -1,5 +1,65 @@
 # Changelog
 
+## [3.14.4-alpha.1](https://github.com/yeyuan98/zodex/compare/v3.14.4-alpha.0...v3.14.4-alpha.1) (2026-09-29)
+
+### Features
+
+* **protocol:** bots/shareFile RPC + share_file tool gating (CLI) ([340354a](https://github.com/yeyuan98/zodex/commit/340354a777b5f5c198f17d8fd3024893a74a0e90))
+  * shared: SHARE_FILE_TOOL_NAME、BotShareFileResult 判别联合（11 种 failure reason）与 strict zod schema；bots/shareFile 请求严格 { taskId, path }，收件人字段一律拒绝
+  * protocol: zcodeProtocolMethods 注册 bots/shareFile（schema 放叶子模块由 barrel 再导出，保持 node --test 可直跑校验）
+  * contracts: share_file 工具输入 schema（仅 path）+ BotFileSharePort 端口契约
+  * core: share_file ToolEntry（honest 结局文案、无审批流、providerVisible）+ ToolExecutionContext/executor/runtime deps 全链路端口透传；注册门 includeBotFileShare = 端口在场 && taskType !== subagent_child
+  * bootstrap: bots/shareFile 端口实现——taskId 取自归属 session id；无 activeBotDeliveryTarget fail-closed no-target；-32601 → unsupported-method；超时(300s，高于 provider 上传+发送 ≈225s 最坏预算) → unknown-outcome；其余传输错误 → send-failed
+  * per-turn 禁用名单：legacy buildPromptTurnToolDisallowlist + v4 buildTurnToolDisallowlist + zcodeTaskServiceAdapter resolvePromptToolDenylist 三处同值镜像——仅 weixin 私聊且非 automation/off-peak 轮放行 share_file（披露：非 bot 轮携带单项 deny，语义 no-op，additive）
+  * tests: packages/shared/test/botsShareFile.test.ts（strict 拒绝未知键、空/空白 taskId/path、全部 reason 往返、barrel 注册源码扫描断言）
+
+* **services:** conversational bot file delivery via bots/shareFile ([d2aff1a](https://github.com/yeyuan98/zodex/commit/d2aff1af4c51e284d2133327119677b4152bd0c1))
+  * deliverWorkspaceFile：/file 鉴权后核心抽为单一媒体写出入口（/file 与 RPC 同源，adapter.sendAttachment 唯一调用点）；准入每次重评并复用 withAuthorizedContext 原语（findAuthorizedBot/findBoundUser/isUserCommandAllowed），失败映射回既有本地化文案（/file 零行为变化）；读取前 re-realpath + 大小重校验（symlink-swap TOCTOU 防护，含 stat 与读取间增长）
+  * taskDeliveryRegistry：仅两处对话式 watchTaskStream 调用点登记（有界 200 淘汰最旧）；watchAutomationRun 复用 bot 会话时删除既有目标（automation 轮不得重新武装）；流终态与 disposeAll 清理
+  * tool 专属滚动配额：每 (botId, peerKey) 10 分钟 3 次 AND 1 小时 20 次，纯内存（规避 writeContext token 回写竞争），文件 IO 之前裁决；/file 永不受限；tool 路径优先最新持久化 context_token，捕获 token 兜底，provider 内 ret=-2 重试不变
+  * 审计增强：每次尝试记录 bot/peer/file/size/outcome + source=command|tool、task、workspace 相对路径
+  * host 路由 + 装配：zcodeAgentService 新增 botsShareFileExecutor 选项与 bots/shareFile handler（W2 strict schema 拒绝任何收件人字段；未装配 host 返回 -32601 → CLI unsupported-method）；node.ts createLocalServices 按 OffPeak 前向引用模式接线到 botsService.shareFileForTask
+  * tests：注册表（对话登记/automation 删除/终态清理/有界）、守卫矩阵（no-target、not-allowed×4、unsupported-provider、remote-workspace、outside-workspace×3、not-found、too-large、send-failed）、配额（10 分钟第 4 次拒、1 小时窗口、/file 25 次不受限）、单一写出（成功恰一次/失败零次 + pin 既有回复文案）、strict schema 拒注入字段、无上下文写入、token 偏好、审计字段、revalidate TOCTOU/增长
+
+* **ui:** share_file tool chip + compact summary line ([e7b0f2d](https://github.com/yeyuan98/zodex/commit/e7b0f2d59aec716df54ee60a4b17c9b7936ee02d))
+  * name-based renderer branch in resolveRenderer (path from tool input, delivery outcome from output prose; memoized leaf reusing FileDisplayInline chip; no protocol/display-union changes)
+  * tool-call-summary compact entry: anchor primaryText on SHARE_FILE_TOOL_NAME when title is absent (path already covered by generic input summary)
+
+
+### Bug Fixes
+
+* **bots:** review-round fixes for share_file delivery ([405544f](https://github.com/yeyuan98/zodex/commit/405544fa9100f124bc80887790518ebe332c68f2))
+  * atomic quota reserve/release: share_file is concurrentSafe and its parallel invocations all passed the pre-IO allows() check before any post-delivery record() landed (TOCTOU bypass of the 3/10min and 20/1h caps); quota tracker gains reserve() (synchronous check+hold before any file IO) and release() (exact-timestamp refund on delivery failure); observable semantics stay "only successful deliveries consume quota"; regression test fires 6 concurrent shareFileForTask calls against a slow adapter — exactly 3 reach sendAttachment, the rest get quota-exceeded
+  * shared deny predicate: the weixin+private+clean-turn condition was triplicated across legacy buildPromptTurnToolDisallowlist, v4 buildTurnToolDisallowlist, and the zcodeTaskServiceAdapter mirror while apps/zcode-cli has no test harness; de-duplicated into botShareFileDeliveryTargetQualifies (packages/shared, next to the delivery-target schema) consumed by all three sites (each keeps its own input resolution; v4 keeps its stricter resolveTurnAutomationId fallback) + full matrix tests in packages/shared/test
+  * /file gate-order parity restored: adapter capability and remote-workspace guards reply before the empty-path check as in Alpha 0 (drift introduced when the checks moved into deliverWorkspaceFile); deliverWorkspaceFile still re-evaluates every gate
+  * registry forget on two missed terminal paths: sendPromptInBackground failure catch and isContextActiveTaskRunning missed-terminal detection now call taskDeliveryRegistry.forget so a terminal task always answers no-target
+  * honest send-failed prose: CLI modelContent no longer asserts provider-side failure (host errors like pre-delivery config IO failures never reached the provider); shareFileForTask maps pre-delivery throws to send-failed with "host error before delivery:" detail
+  * WeChat text-mode summary status word: share_file failures are normal completed tool results and previously rendered as 完成; formatBotToolCallSummaryLine now derives 已发送/未发送/结果未知 from the output prose with the same three-way logic as the UI renderer
+  * docs truthfulness: Phase B coverage note now names the shared predicate matrix tests (apps/zcode-cli has no test harness; builders covered via shared predicate + fail-closed layers + manual rig), scenario 2 re-tagged [shared predicate tests + manual rig], scenario 10 re-tagged [code-verified + manual rig] with the -32022 timeout mapping disclosed as unharnessed; spec adds atomic reserve/release clause, audit field precision (kind= only on success), and the WeChat summary status-word clause; handoff §4/§6 updated to match
+
+
+### Chores
+
+* release v3.15.0-alpha.0 ([acb644a](https://github.com/yeyuan98/zodex/commit/acb644aace5ae9ae7ea25e57c4003ea797234913))
+
+
+### Documentation
+
+* **specs:** bot file delivery Phase B spec (conversational share_file) ([38ac229](https://github.com/yeyuan98/zodex/commit/38ac22949cdc1577b4306efa430c1ce833627f56))
+  * add Phase B behavior: tool exposure gates, host-side recipient resolution
+  * pin Phase B invariants: RPC sole trigger, no context mutation, tool-result-only
+  * add all 15 acceptance scenarios with coverage split (unit vs owner-rig manual
+  * update owners: CLI runtime, host RPC routing, taskDeliveryRegistry/quota,
+
+* **specs:** correct Alpha 0 single-writer invariant + Phase B precision fixes ([a420b0f](https://github.com/yeyuan98/zodex/commit/a420b0fdeba0f82a753f30e2a6df38c3f3fec4a3))
+  * rewrite Alpha 0 single-writer invariant truthfully: handleFileCommand is the
+  * clarify token retry ownership: provider-internal ret=-2 retry applies
+  * fix markdown glitch in Phase B behavior item 7 (stray nested-list marker
+
+* **specs:** mark bot-file-delivery Alpha 0 as shipped in 3.14.4-alpha.0 ([01aca44](https://github.com/yeyuan98/zodex/commit/01aca44165a2eda761df0aad6464863c42a828f5)), closes [#2]()
+
+* **specs:** oxfmt fix for bot-file-delivery spec ([9798dd9](https://github.com/yeyuan98/zodex/commit/9798dd956919bc1d0a5489d750fab4f34640f705))
+
 ## [3.14.4-alpha.0](https://github.com/yeyuan98/zodex/compare/v3.14.3...v3.14.4-alpha.0) (2026-09-29)
 
 ### Features
