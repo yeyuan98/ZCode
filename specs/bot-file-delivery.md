@@ -64,8 +64,10 @@ Related: `docs/versioning.md` (patch 3.14.4 = full bidirectional file sync).
 - Bot message text replies, typing indicators, permissions, and task lifecycle behave
   exactly as before this change (zero modification to the existing text `send()` path).
 - `/file` does not create, resume, or mutate tasks; it is a pure side-channel command.
-- One writer for outbound attachments: `sendOutbound` remains the only delivery entry; the
-  media path is an extension of the adapter contract, not a second queue.
+- One writer for outbound media: `handleFileCommand` is the only media-delivery code path
+  (an extension of the adapter contract, not a second queue; it calls `adapter.sendAttachment`
+  directly rather than going through the text `sendOutbound` path). Phase B extracts this core
+  as the shared `deliverWorkspaceFile` — see Phase B invariants for the superseding wording.
 
 ## Acceptance scenarios (Alpha 0)
 
@@ -110,7 +112,7 @@ the deployed rig; 8 additionally covered by the full pre-existing bot regression
    `allowedCommands.file`, private chat, adapter `sendAttachment` capability, non-remote
    workspace — then the same workspace-only path policy (lexical + realpath, re-realpath at
    read), 5MB gate (incl. growth between stat and read), and freshest persisted
-   context_token (ret=-2 → retry once without token).
+   context_token (provider-internal ret=-2 retry-without-token applies unchanged).
 4. **Tool-only quota.** Max 3 deliveries per rolling 10 minutes AND max 20 per rolling 1 hour
    per (botId, peerKey), applied only to source "tool". `/file` is never quota-bound.
    In-memory, host-side; no persistence (avoids the writeContext token-map revert race).
@@ -127,11 +129,11 @@ the deployed rig; 8 additionally covered by the full pre-existing bot regression
 6. **Audit enrichment.** Per attempt: existing fields (bot, peer, file, size, kind) plus
    `source=command|tool`, `task=<taskId when tool>`, `path=<workspace relative>`.
 7. **UI = toolCall row + chip renderer.** The share renders as the existing toolCall row plus
-   a name-based chip renderer (`packages/ui/src/ToolCallBlocks/resolveRenderer.ts`; input path
-   - status derived from output prose) and a compact summary line
-     (`packages/shared/src/tool-call-summary.ts`). No new protocol display types (structured
-     filename/size display deferred). Both desktop-continuous and web-remote-replayable links
-     render it.
+   a name-based chip renderer (`packages/ui/src/ToolCallBlocks/resolveRenderer.ts`; the chip
+   derives the file path from the tool input and the status from the output prose) and a
+   compact summary line (`packages/shared/src/tool-call-summary.ts`). No new protocol display
+   types (structured filename/size display deferred). Both desktop-continuous and
+   web-remote-replayable links render it.
 
 ### Invariants
 
