@@ -42,6 +42,15 @@ const messages = {
     attachmentDownloadUnavailable:
       "无法下载附件。文件可能已过期、已撤回，或机器人没有读取权限。请重新发送附件后再试。",
     attachmentTooLarge: "附件超过 5MB，请压缩后重新发送。",
+    fileCommandUnsupported: "该渠道暂不支持发送文件，会在后续版本提供。",
+    fileRemoteWorkspaceUnsupported:
+      "远端 workspace 的文件发送将在后续版本支持，当前仅支持本地 workspace。",
+    fileMissingPath: "请指定要发送的文件路径，例如 **/file reports/result.png**。",
+    fileOutsideWorkspace: "只能发送当前 workspace 内的文件：{path}",
+    fileNotFound: "文件不存在或不可读：{path}",
+    fileTooLargeOutbound: "文件超过 5MB 上限（{size}），请压缩或选择更小的文件。",
+    fileSent: "已发送 {filename}（{size}）。",
+    fileSendFailed: "文件发送失败：{message}",
     selectionCancelled: "已取消。",
     selectionCancelOption: "取消",
     selectionTextHint: "回复数字选择，0 取消。",
@@ -159,6 +168,17 @@ const messages = {
     attachmentDownloadUnavailable:
       "Could not download the attachment. The file may have expired, been removed, or the bot may not have permission to read it. Please send the attachment again and try once more.",
     attachmentTooLarge: "The attachment exceeds 5MB. Compress it and send it again.",
+    fileCommandUnsupported:
+      "This channel does not support sending files yet; coming in a later release.",
+    fileRemoteWorkspaceUnsupported:
+      "File delivery from remote workspaces arrives in a later release; only local workspaces are supported for now.",
+    fileMissingPath: "Specify the file to send, e.g. **/file reports/result.png**.",
+    fileOutsideWorkspace: "Only files inside the current workspace can be sent: {path}",
+    fileNotFound: "File not found or unreadable: {path}",
+    fileTooLargeOutbound:
+      "File exceeds the 5MB limit ({size}). Please compress or pick a smaller file.",
+    fileSent: "Sent {filename} ({size}).",
+    fileSendFailed: "Failed to send file: {message}",
     selectionCancelled: "Cancelled.",
     selectionCancelOption: "Cancel",
     selectionTextHint: "Reply with a number to choose, or 0 to cancel.",

@@ -47,6 +47,8 @@ export function normalizeBotCommandPolicy(
     sandboxMode: commands.sandboxMode ?? DEFAULT_BOT_COMMANDS.sandboxMode,
     approvalPolicy: commands.approvalPolicy ?? DEFAULT_BOT_COMMANDS.approvalPolicy,
     reply: commands.reply ?? DEFAULT_BOT_COMMANDS.reply,
+    // /file 开关缺省允许；这里必须透传显式 false，否则 isUserCommandAllowed 的 !== false 判断永远看不到关闭值。
+    file: commands.file ?? undefined,
   };
 }
 

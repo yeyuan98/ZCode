@@ -42,6 +42,10 @@ export function parseBotCommand(text: string): BotCommand {
     case "reconnect":
     case "重连":
       return { type: "reconnect" };
+    case "file":
+    case "文件":
+      // /file <path>：从当前 workspace 向会话投递文件（specs/bot-file-delivery.md）。
+      return rest ? { type: "file", value: rest } : { type: "unknown", name, raw: text };
     case "workspace":
     case "project":
     case "项目":

@@ -78,3 +78,28 @@ export async function fetchBotProviderJson<T>(
     return { ok: response.ok, status: response.status, payload, responseLogId };
   });
 }
+
+export interface BotProviderHeadResponse {
+  ok: boolean;
+  status: number;
+  headers: Record<string, string>;
+}
+
+/**
+ * 与 fetchBotProvider 相同的有界请求，但保留响应头。
+ * 微信 CDN 上传的下载参数只存在于响应头 x-encrypted-param，无法用 JSON 消费路径读取。
+ */
+export async function fetchBotProviderWithHeaders(
+  input: string | URL | Request,
+  init: RequestInit = {},
+  timeoutMs = BOT_PROVIDER_REQUEST_TIMEOUT_MS,
+): Promise<BotProviderHeadResponse> {
+  return runBotProviderRequest(input, init, timeoutMs, async (response) => {
+    await response.arrayBuffer();
+    const headers: Record<string, string> = {};
+    response.headers.forEach((value, key) => {
+      headers[key] = value;
+    });
+    return { ok: response.ok, status: response.status, headers };
+  });
+}

@@ -95,7 +95,8 @@ export function isUserCommandAllowed(
     | "reply"
     | "stop"
     | "message"
-    | "approve",
+    | "approve"
+    | "file",
 ): boolean {
   if (
     requestedCommand === "help" ||
