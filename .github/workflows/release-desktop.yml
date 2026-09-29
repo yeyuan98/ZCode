@@ -117,7 +117,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: desktop-linux-x64
-          # Zodex-*-linux-* 同时覆盖 AppImage/deb 与 .AppImage.blockmap；
+          # Zodex-*-linux-* 覆盖 AppImage 与 deb；本配置不产出 AppImage blockmap（无差分更新）；
           # latest-linux.yml 与它们同属 electron-updater feed（安装包 glob 保持 error-on-missing）。
           path: |
             packages/desktop/dist/Zodex-*-linux-*
@@ -131,7 +131,6 @@ jobs:
         with:
           files: |
             packages/desktop/dist/Zodex-*-linux-x86_64.AppImage
-            packages/desktop/dist/Zodex-*-linux-x86_64.AppImage.blockmap
             packages/desktop/dist/Zodex-*-linux-amd64.deb
             packages/desktop/dist/latest-linux.yml
           fail_on_unmatched_files: true

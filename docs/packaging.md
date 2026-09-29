@@ -82,7 +82,7 @@ node dist/zcode/debug/zcode/bin/zcode.mjs --web \
 发版唯一入口是 `pnpm release`（release-it）：自动升版本、按 conventional commit 生成/更新 [CHANGELOG.md](../CHANGELOG.md)、提交 `chore: release vX`、打 `vX` 注解标签并推送。标签推送触发 [Release Desktop](../.github/workflows/release-desktop.yml) 工作流，产物全部挂到 GitHub Release：
 
 - Windows 任务（windows-latest，每次 tag / 手动触发）：构建 `Zodex-<version>-win-x64.exe` 与更新元数据（`latest.yml` + `.exe.blockmap`）。
-- Linux 任务（ubuntu-latest，每次 tag / 手动触发）：经 `ZCODE_LINUX_CI_TARGETS` 构建 `Zodex-<version>-linux-x86_64.AppImage`（含 blockmap）、`Zodex-<version>-linux-amd64.deb` 与 `latest-linux.yml`。
+- Linux 任务（ubuntu-latest，每次 tag / 手动触发）：经 `ZCODE_LINUX_CI_TARGETS` 构建 `Zodex-<version>-linux-x86_64.AppImage`、`Zodex-<version>-linux-amd64.deb` 与 `latest-linux.yml`。
 - macOS arm64 / x64 双架构任务（仅 tag / 手动触发）：产出 dmg 与 zip（含 blockmap），未签名（`CSC_IDENTITY_AUTO_DISCOVERY=false`）；随后的通道合并任务把双架构合并为单份 `latest-mac.yml` 再挂到 Release。
 - 远程资产任务（ubuntu-latest）：构建远程资产扁平上传集（各平台 manifest 与组件包）。
 - 本地 mac / linux 打包不变：完整目标列表（含 rpm / pacman）本地构建仍可用，CI 的 Linux 目标由 `ZCODE_LINUX_CI_TARGETS` 收窄为 AppImage + deb。

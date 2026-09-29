@@ -29,7 +29,7 @@ Keep unchanged (internal tokens): `zcode` CLI binary, `zcode://` scheme (last-in
 ## Release contract (3.14.3)
 
 - Workflow: windows job (renamed globs) + remote-assets job (unchanged) + NEW linux-desktop job + NEW mac arm64/x64 jobs + NEW mac channel-merge job (tag-gated attach).
-- Expected release assets (44, count may drift with remote components): win 3 (exe + latest.yml + exe.blockmap); mac 9 (2 × (dmg + dmg.blockmap + zip + zip.blockmap) + merged latest-mac.yml); linux 4 (AppImage + blockmap + deb + latest-linux.yml); manifests 4; `zcode-remote-*.tar.gz` 24.
+- Expected release assets (43, count may drift with remote components): win 3 (exe + latest.yml + exe.blockmap); mac 9 (2 × (dmg + dmg.blockmap + zip + zip.blockmap) + merged latest-mac.yml); linux 3 (AppImage + deb + latest-linux.yml — no AppImage blockmap: this config does not emit one, AppImage updates download the full file); manifests 4; `zcode-remote-*.tar.gz` 24.
 - Release notes must state: rename, side-by-side install for old alphas (fresh install recommended), desktop data reset (CLI data survives), unsigned-mac first-run instructions, Linux formats.
 - Post-release user verification: in-app/first-run checks on Windows, macOS, Linux.
 
