@@ -88,6 +88,8 @@ export interface BotAllowedCommands {
   sandboxMode?: boolean;
   approvalPolicy?: boolean;
   reply: boolean;
+  /** /file 出站文件投递；缺省视为允许，仅在显式 false 时关闭。 */
+  file?: boolean;
 }
 
 export type BotCommandPolicy = BotAllowedCommands;
@@ -187,6 +189,8 @@ export interface BotState {
   telegramOffset?: number;
   weixinGetUpdatesBuf?: string;
   weixinActivatedAt?: number;
+  /** 每个会话对象（peer userId）最近一次入站 context_token；出站媒体消息依赖其新鲜度。 */
+  weixinContextTokens?: Record<string, { token: string; updatedAt: number }>;
   updatedAt: number;
 }
 
@@ -235,6 +239,17 @@ export interface BotInboundAttachment {
   providerMetadata?: Record<string, string>;
 }
 
+export type BotOutboundAttachmentKind = "image" | "video" | "file";
+
+/** Bot 出站附件：由 host 侧读取本地文件，经 provider 上传后以原生媒体消息投递。 */
+export interface BotOutboundAttachment {
+  kind: BotOutboundAttachmentKind;
+  filename: string;
+  mimeType: string;
+  sizeBytes: number;
+  localPath: string;
+}
+
 export type BotCommand =
   | { type: "bind"; code: string }
   | { type: "help" }
@@ -260,6 +275,7 @@ export type BotCommand =
   | { type: "elicitation.submit" }
   | { type: "approve"; requestId: string; optionId: string }
   | { type: "deny"; requestId: string }
+  | { type: "file"; value: string }
   | { type: "unknown"; name: string; raw: string }
   | { type: "selection.cancel" }
   | { type: "message"; text: string };
@@ -306,6 +322,8 @@ export interface BotOutboundMessage {
   selection?: SelectionPrompt;
   elicitation?: BotOutboundElicitationRequest;
   providerContextToken?: string;
+  /** 出站媒体附件；provider 不支持时由服务层降级为文本提示。 */
+  attachments?: BotOutboundAttachment[];
 }
 
 export interface BotTaskSummary {
@@ -390,6 +408,8 @@ export const botAllowedCommandsSchema = z
     // 兼容旧 bot-config.json；/cli 命令已移除，新配置不会再写入这个字段。
     cli: z.boolean().optional(),
     reply: z.boolean(),
+    // /file 出站文件投递开关；缺省视为允许，仅在显式 false 时关闭。
+    file: z.boolean().optional(),
   })
   .strict();
 
@@ -514,6 +534,9 @@ export const botsStateFileSchema = z
         telegramOffset: z.number().optional(),
         weixinGetUpdatesBuf: z.string().optional(),
         weixinActivatedAt: z.number().optional(),
+        weixinContextTokens: z
+          .record(z.string(), z.object({ token: z.string().min(1), updatedAt: z.number() }))
+          .optional(),
         updatedAt: z.number(),
       }),
     ),

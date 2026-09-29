@@ -1,14 +1,26 @@
 /* eslint-disable max-lines -- 微信 iLink provider 集中处理轮询、文本/媒体解析、发送和 typing 协议。 */
 import { Buffer } from "node:buffer";
-import { createDecipheriv, randomInt, randomUUID } from "node:crypto";
+import {
+  createCipheriv,
+  createDecipheriv,
+  createHash,
+  randomBytes,
+  randomInt,
+  randomUUID,
+} from "node:crypto";
+import { readFile } from "node:fs/promises";
 import type {
   BotInboundAttachment,
   BotConfig,
   BotInboundMessage,
+  BotOutboundAttachment,
   BotOutboundMessage,
 } from "@zcode/shared";
 import type { BotProviderAdapter, BotTypingTarget } from "./types.js";
-import { fetchBotProviderJson } from "#src/bots/providers/providerRequest.js";
+import {
+  fetchBotProviderJson,
+  fetchBotProviderWithHeaders,
+} from "#src/bots/providers/providerRequest.js";
 
 export const DEFAULT_WEIXIN_ILINK_BASE_URL = "https://ilinkai.weixin.qq.com";
 const WEIXIN_BOT_API_PREFIX = "/ilink/bot";
@@ -17,6 +29,17 @@ const WEIXIN_MESSAGE_TYPE_BOT = 2;
 const WEIXIN_MESSAGE_STATE_FINISH = 2;
 const WEIXIN_CDN_AES_ALGORITHM = "aes-128-ecb";
 const WEIXIN_GET_UPDATES_TIMEOUT_MS = 90_000;
+const WEIXIN_CDN_BASE_URL = "https://novac2c.cdn.weixin.qq.com/c2c";
+const WEIXIN_CDN_UPLOAD_MAX_RETRIES = 3;
+const WEIXIN_CDN_UPLOAD_TIMEOUT_MS = 60_000;
+// 与服务层 BOT_MAX_ATTACHMENT_SIZE_BYTES 对齐；provider 侧读取时兜底校验。
+const WEIXIN_OUTBOUND_MAX_BYTES = 5 * 1024 * 1024;
+// 出站媒体链路（getuploadurl/CDN/sendmessage 媒体项）按 2026-09-29 生产环境实测值声明：
+// 官方参考实现 @tencent-weixin/openclaw-weixin@2.4.2 的协议版本与 bot_agent（specs/bot-file-delivery.md §5）。
+const WEIXIN_MEDIA_CHANNEL_VERSION = "2.4.2";
+const WEIXIN_MEDIA_BOT_AGENT = "Zodex/1.0";
+const WEIXIN_UPLOAD_MEDIA_TYPE = { image: 1, video: 2, file: 3 } as const;
+const WEIXIN_MESSAGE_ITEM_TYPE = { text: 1, image: 2, file: 4, video: 5 } as const;
 
 interface WeixinProviderDeps {
   loadCredential(key: string): Promise<string | null>;
@@ -93,6 +116,37 @@ function decryptWeixinCdnMedia(data: Uint8Array, aesKey: string): Uint8Array {
   // 微信 iLink CDN 返回 AES-128-ECB + PKCS7 padding 的密文字节；直接保存会得到不可识别的 data 文件。
   const decipher = createDecipheriv(WEIXIN_CDN_AES_ALGORITHM, key, null);
   return Buffer.concat([decipher.update(data), decipher.final()]);
+}
+
+function encryptWeixinCdnMedia(data: Uint8Array, aesKey: Buffer): Buffer {
+  // 入站解密的镜像：出站媒体同样以 AES-128-ECB + PKCS7 密文上传 CDN（specs/bot-file-delivery.md §5.3）。
+  const cipher = createCipheriv(WEIXIN_CDN_AES_ALGORITHM, aesKey, null);
+  return Buffer.concat([cipher.update(data), cipher.final()]);
+}
+
+/** 供测试与协议校验使用：AES-ECB 密文长度（PKCS7 补齐到 16 字节边界）。 */
+export function weixinCdnPaddedSize(plaintextSize: number): number {
+  return Math.ceil((plaintextSize + 1) / 16) * 16;
+}
+
+/** 协议不变量（specs/bot-file-delivery.md §5.1）：aes_key 是 hex 字符串的 base64，不是原始 16 字节 key 的 base64。 */
+export function encodeWeixinMediaAesKey(aesKeyHex: string): string {
+  return Buffer.from(aesKeyHex, "utf8").toString("base64");
+}
+
+export function encryptWeixinCdnMediaForTest(data: Uint8Array, aesKeyHex: string): Buffer {
+  const key = parseWeixinAesKey(aesKeyHex);
+  if (!key) {
+    throw new Error("Weixin attachment AES key is invalid.");
+  }
+  return encryptWeixinCdnMedia(data, key);
+}
+
+function encodeWeixinMediaClientVersion(version: string): number {
+  const [major = 0, minor = 0, patch = 0] = version
+    .split(".")
+    .map((part) => Number.parseInt(part, 10));
+  return ((major & 0xff) << 16) | ((minor & 0xff) << 8) | (patch & 0xff);
 }
 
 function getWeixinApiBaseUrl(): string {
@@ -174,6 +228,292 @@ function unwrapData(payload: unknown): unknown {
     return payload.data;
   }
   return payload;
+}
+
+function buildMediaHeaders(token: string): Record<string, string> {
+  // 出站媒体链路按实测要求额外携带 iLink-App-Id / iLink-App-ClientVersion（specs/bot-file-delivery.md §5.6）。
+  return {
+    ...buildHeaders(token),
+    "iLink-App-Id": "bot",
+    "iLink-App-ClientVersion": String(encodeWeixinMediaClientVersion(WEIXIN_MEDIA_CHANNEL_VERSION)),
+  };
+}
+
+function buildMediaBaseInfo(): Record<string, unknown> {
+  return {
+    channel_version: WEIXIN_MEDIA_CHANNEL_VERSION,
+    bot_agent: WEIXIN_MEDIA_BOT_AGENT,
+  };
+}
+
+async function requestWeixinMediaJson(
+  bot: BotConfig,
+  deps: WeixinProviderDeps,
+  path: string,
+  body: Record<string, unknown>,
+  timeoutMs?: number,
+): Promise<Record<string, unknown>> {
+  const token = await readAccessToken(bot, deps);
+  if (!token?.trim()) {
+    throw new Error("Weixin iLink bot token is missing. Scan the Weixin login QR code first.");
+  }
+  const response = await fetchBotProviderJson<unknown>(
+    `${getWeixinApiBaseUrl()}${WEIXIN_BOT_API_PREFIX}${path}`,
+    {
+      method: "POST",
+      headers: buildMediaHeaders(token.trim()),
+      body: JSON.stringify({
+        base_info: buildMediaBaseInfo(),
+        ...body,
+      }),
+    },
+    timeoutMs,
+  );
+  if (!response.ok) {
+    throw new Error(`Weixin iLink ${path} failed: HTTP ${response.status}`);
+  }
+  const payload = response.payload;
+  const data = isRecord(payload) ? payload : null;
+  const ret = readNumber(data, "ret");
+  const errcode = readNumber(data, "errcode");
+  if ((ret !== null && ret !== 0) || (errcode !== null && errcode !== 0)) {
+    const message =
+      readString(data, "errmsg") ||
+      readString(data, "message") ||
+      `ret=${ret ?? ""} errcode=${errcode ?? ""}`.trim();
+    const error = new Error(`Weixin iLink ${path} failed: ${message}`);
+    (error as Error & { weixinRet?: number }).weixinRet = ret ?? undefined;
+    throw error;
+  }
+  return data ?? {};
+}
+
+/** getuploadurl 请求体（base_info 由 requestWeixinMediaJson 统一附加）。供测试校验线上协议形状。 */
+export function buildWeixinUploadRequestBody(params: {
+  filekey: string;
+  mediaType: (typeof WEIXIN_UPLOAD_MEDIA_TYPE)[keyof typeof WEIXIN_UPLOAD_MEDIA_TYPE];
+  toUserId: string;
+  rawSize: number;
+  rawFileMd5: string;
+  /** AES-128-ECB + PKCS7 补齐后的密文大小。 */
+  ciphertextSize: number;
+  aesKeyHex: string;
+}): Record<string, unknown> {
+  return {
+    filekey: params.filekey,
+    media_type: params.mediaType,
+    to_user_id: params.toUserId,
+    rawsize: params.rawSize,
+    rawfilemd5: params.rawFileMd5,
+    filesize: params.ciphertextSize,
+    no_need_thumb: true,
+    aeskey: params.aesKeyHex,
+  };
+}
+
+/** 媒体 item 形状（specs/bot-file-delivery.md §5）：len 是明文大小的字符串，mid_size/video_size 是密文大小。 */
+export function buildWeixinMediaItem(params: {
+  kind: BotOutboundAttachment["kind"];
+  filename: string;
+  rawSize: number;
+  ciphertextSize: number;
+  downloadParam: string;
+  aesKeyHex: string;
+}): Record<string, unknown> {
+  const media = {
+    encrypt_query_param: params.downloadParam,
+    aes_key: encodeWeixinMediaAesKey(params.aesKeyHex),
+    encrypt_type: 1,
+  };
+  if (params.kind === "image") {
+    return {
+      type: WEIXIN_MESSAGE_ITEM_TYPE.image,
+      image_item: { media, mid_size: params.ciphertextSize },
+    };
+  }
+  if (params.kind === "video") {
+    return {
+      type: WEIXIN_MESSAGE_ITEM_TYPE.video,
+      video_item: { media, video_size: params.ciphertextSize },
+    };
+  }
+  return {
+    type: WEIXIN_MESSAGE_ITEM_TYPE.file,
+    file_item: { media, file_name: params.filename, len: String(params.rawSize) },
+  };
+}
+
+async function getWeixinUploadUrl(params: {
+  bot: BotConfig;
+  deps: WeixinProviderDeps;
+  filekey: string;
+  mediaType: (typeof WEIXIN_UPLOAD_MEDIA_TYPE)[keyof typeof WEIXIN_UPLOAD_MEDIA_TYPE];
+  toUserId: string;
+  rawSize: number;
+  rawFileMd5: string;
+  ciphertextSize: number;
+  aesKeyHex: string;
+}): Promise<{ uploadFullUrl?: string; uploadParam?: string }> {
+  const payload = await requestWeixinMediaJson(
+    params.bot,
+    params.deps,
+    "/getuploadurl",
+    buildWeixinUploadRequestBody(params),
+  );
+  const uploadFullUrl = readString(payload, "upload_full_url").trim();
+  const uploadParam = readString(payload, "upload_param").trim();
+  if (!uploadFullUrl && !uploadParam) {
+    throw new Error(`Weixin iLink getuploadurl returned no upload URL.`);
+  }
+  return {
+    uploadFullUrl: uploadFullUrl || undefined,
+    uploadParam: uploadParam || undefined,
+  };
+}
+
+async function uploadWeixinCdnBuffer(params: {
+  plaintext: Uint8Array;
+  aesKey: Buffer;
+  filekey: string;
+  uploadFullUrl?: string;
+  uploadParam?: string;
+}): Promise<{ downloadParam: string; ciphertextSize: number }> {
+  const ciphertext = encryptWeixinCdnMedia(params.plaintext, params.aesKey);
+  const cdnUrl =
+    params.uploadFullUrl ??
+    `${WEIXIN_CDN_BASE_URL}/upload?encrypted_query_param=${encodeURIComponent(params.uploadParam ?? "")}&filekey=${encodeURIComponent(params.filekey)}`;
+  if (!params.uploadFullUrl && !params.uploadParam) {
+    throw new Error("Weixin CDN upload URL missing.");
+  }
+  let lastError: unknown;
+  for (let attempt = 1; attempt <= WEIXIN_CDN_UPLOAD_MAX_RETRIES; attempt++) {
+    try {
+      const response = await fetchBotProviderWithHeaders(
+        cdnUrl,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/octet-stream" },
+          body: new Uint8Array(ciphertext),
+        },
+        WEIXIN_CDN_UPLOAD_TIMEOUT_MS,
+      );
+      if (response.status >= 400 && response.status < 500) {
+        // CDN 4xx 是协议/参数错误，重试只会重复失败；错误细节在 x-error-message 头里。
+        throw new Error(
+          `Weixin CDN upload client error: HTTP ${response.status} ${response.headers["x-error-message"] ?? ""}`.trim(),
+        );
+      }
+      if (!response.ok) {
+        throw new Error(`Weixin CDN upload server error: HTTP ${response.status}`);
+      }
+      const downloadParam = response.headers["x-encrypted-param"];
+      if (!downloadParam) {
+        throw new Error("Weixin CDN upload response missing x-encrypted-param header.");
+      }
+      return { downloadParam, ciphertextSize: ciphertext.length };
+    } catch (error) {
+      lastError = error;
+      if (error instanceof Error && /client error/u.test(error.message)) {
+        throw error;
+      }
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error("Weixin CDN upload failed.");
+}
+
+async function sendWeixinMediaItem(params: {
+  bot: BotConfig;
+  deps: WeixinProviderDeps;
+  toUserId: string;
+  contextToken?: string;
+  item: Record<string, unknown>;
+}): Promise<void> {
+  const buildBody = (contextToken: string | undefined): Record<string, unknown> => ({
+    msg: {
+      from_user_id: params.bot.providerUserId ?? "",
+      to_user_id: params.toUserId,
+      client_id: buildWeixinClientId(),
+      message_type: WEIXIN_MESSAGE_TYPE_BOT,
+      message_state: WEIXIN_MESSAGE_STATE_FINISH,
+      ...(contextToken ? { context_token: contextToken } : {}),
+      item_list: [params.item],
+    },
+  });
+  try {
+    await requestWeixinMediaJson(
+      params.bot,
+      params.deps,
+      "/sendmessage",
+      buildBody(params.contextToken),
+    );
+    return;
+  } catch (error) {
+    // ret=-2 prepare failed = context_token 过期（实测：约 40 分钟后失效）。
+    // 参考实现的既定行为是去掉 token 重试一次；仍失败则上抛，由服务层降级为文本提示。
+    const weixinRet = (error as { weixinRet?: number }).weixinRet;
+    if (weixinRet === -2 && params.contextToken) {
+      await requestWeixinMediaJson(params.bot, params.deps, "/sendmessage", buildBody(undefined));
+      return;
+    }
+    throw error;
+  }
+}
+
+async function uploadAndSendWeixinAttachment(params: {
+  bot: BotConfig;
+  deps: WeixinProviderDeps;
+  toUserId: string;
+  contextToken?: string;
+  maxBytes: number;
+  attachment: BotOutboundAttachment;
+}): Promise<void> {
+  const plaintext = await readFile(params.attachment.localPath);
+  if (plaintext.length > params.maxBytes) {
+    // resolveWorkspaceFilePath 的 stat 与 provider readFile 之间存在窗口；
+    // 文件在窗口期增长时必须在读取侧再拦一次大小上限。
+    throw new Error(
+      `${params.attachment.filename} exceeds ${Math.floor(params.maxBytes / 1024 / 1024)}MB.`,
+    );
+  }
+  const rawSize = plaintext.length;
+  const rawFileMd5 = createHash("md5").update(plaintext).digest("hex");
+  const ciphertextSize = weixinCdnPaddedSize(rawSize);
+  const filekey = randomBytes(16).toString("hex");
+  const aesKey = randomBytes(16);
+  const aesKeyHex = aesKey.toString("hex");
+  const upload = await getWeixinUploadUrl({
+    bot: params.bot,
+    deps: params.deps,
+    filekey,
+    mediaType: WEIXIN_UPLOAD_MEDIA_TYPE[params.attachment.kind],
+    toUserId: params.toUserId,
+    rawSize,
+    rawFileMd5,
+    ciphertextSize,
+    aesKeyHex,
+  });
+  const { downloadParam } = await uploadWeixinCdnBuffer({
+    plaintext,
+    aesKey,
+    filekey,
+    uploadFullUrl: upload.uploadFullUrl,
+    uploadParam: upload.uploadParam,
+  });
+  const item = buildWeixinMediaItem({
+    kind: params.attachment.kind,
+    filename: params.attachment.filename,
+    rawSize,
+    ciphertextSize,
+    downloadParam,
+    aesKeyHex,
+  });
+  await sendWeixinMediaItem({
+    bot: params.bot,
+    deps: params.deps,
+    toUserId: params.toUserId,
+    contextToken: params.contextToken,
+    item,
+  });
 }
 
 function readMessagesContainer(payload: unknown): Record<string, unknown> {
@@ -707,6 +1047,19 @@ export function createWeixinBotProvider(deps: WeixinProviderDeps): BotProviderAd
             },
           ],
         },
+      });
+    },
+
+    async sendAttachment(bot, message, attachment) {
+      // 出站媒体链路（specs/bot-file-delivery.md）：getuploadurl → AES-128-ECB CDN 上传 → 媒体 item 发送。
+      // maxBytes 由服务层传入，与入站附件共用 5MB 上限，读取侧兜底防止 stat/readFile 窗口期膨胀。
+      await uploadAndSendWeixinAttachment({
+        bot,
+        deps,
+        toUserId: message.providerUserId,
+        contextToken: message.providerContextToken,
+        maxBytes: WEIXIN_OUTBOUND_MAX_BYTES,
+        attachment,
       });
     },
 

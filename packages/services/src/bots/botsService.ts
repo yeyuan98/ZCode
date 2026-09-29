@@ -1,8 +1,8 @@
 /* eslint-disable max-lines -- Bots 服务仍复用原 RPC 文件名，先把鉴权、命令路由、ZCode Agent 桥接收口集中在同一服务内。 */
 import { Buffer } from "node:buffer";
 import { createHash, randomBytes } from "node:crypto";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { mkdir, readFile, realpath, stat, writeFile } from "node:fs/promises";
+import { basename, dirname, extname, isAbsolute, join, resolve, sep } from "node:path";
 import type { IDisposable } from "@zcode/rpc";
 import { completeNewModelSelection } from "@zcode/provider";
 import {
@@ -41,6 +41,7 @@ import {
   type BotCommand,
   type BotInboundAttachment,
   type BotInboundMessage,
+  type BotOutboundAttachment,
   type BotOutboundMessage,
   type BotPendingElicitation,
   type BotStructuredElicitationResponse,
@@ -323,7 +324,8 @@ type BotAuthorizedCommand =
   | "reply"
   | "stop"
   | "message"
-  | "approve";
+  | "approve"
+  | "file";
 
 interface BindCodeRecord {
   botId: string;
@@ -675,6 +677,112 @@ const BOT_ELICITATION_CUSTOM_OPTION_ID = "__custom__";
 const BOT_ELICITATION_SUBMIT_OPTION_ID = "__submit__";
 const BOT_ELICITATION_SKIP_OPTION_ID = "__skip__";
 const BOT_ELICITATION_FORM_VALUE_PREFIX = "__form__:";
+
+const OUTBOUND_IMAGE_EXTENSIONS = new Set([
+  ".png",
+  ".jpg",
+  ".jpeg",
+  ".gif",
+  ".webp",
+  ".bmp",
+  ".svg",
+]);
+const OUTBOUND_VIDEO_EXTENSIONS = new Set([".mp4", ".mov", ".mkv", ".avi", ".webm", ".m4v"]);
+const OUTBOUND_MIME_BY_EXTENSION: Record<string, string> = {
+  ".png": "image/png",
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".gif": "image/gif",
+  ".webp": "image/webp",
+  ".bmp": "image/bmp",
+  ".svg": "image/svg+xml",
+  ".pdf": "application/pdf",
+  ".txt": "text/plain",
+  ".md": "text/markdown",
+  ".json": "application/json",
+  ".csv": "text/csv",
+  ".zip": "application/zip",
+  ".mp4": "video/mp4",
+  ".mov": "video/quicktime",
+  ".webm": "video/webm",
+};
+
+export function inferOutboundAttachmentKind(filename: string): BotOutboundAttachment["kind"] {
+  const extension = extname(filename).toLowerCase();
+  if (OUTBOUND_IMAGE_EXTENSIONS.has(extension)) return "image";
+  if (OUTBOUND_VIDEO_EXTENSIONS.has(extension)) return "video";
+  return "file";
+}
+
+export function inferOutboundAttachmentMime(
+  filename: string,
+  kind: BotOutboundAttachment["kind"],
+): string {
+  return (
+    OUTBOUND_MIME_BY_EXTENSION[extname(filename).toLowerCase()] ??
+    (kind === "image" ? "image/jpeg" : kind === "video" ? "video/mp4" : "application/octet-stream")
+  );
+}
+
+/**
+ * /file 路径策略（specs/bot-file-delivery.md §2）：只允许当前 workspace 目录树内的普通文件。
+ * 通过 realpath 归一化两侧路径后再做前缀判断，相对路径按 workspace 根解析。
+ * 供测试与命令处理共用；调用方负责大小上限与渠道能力检查。
+ */
+export async function resolveWorkspaceFilePath(
+  workspacePath: string,
+  requestedPath: string,
+): Promise<
+  | { ok: true; absolutePath: string; sizeBytes: number }
+  | { ok: false; reason: "outside" | "missing" }
+> {
+  const candidate = isAbsolute(requestedPath)
+    ? requestedPath
+    : resolve(workspacePath, requestedPath);
+  // 词法预检：先把明显的 “..”/绝对路径逃逸挡掉（即使目标不存在也按 outside 拒绝，语义确定）。
+  const normalizedRoot = resolve(workspacePath);
+  if (candidate !== normalizedRoot && !candidate.startsWith(normalizedRoot + sep)) {
+    return { ok: false, reason: "outside" };
+  }
+  try {
+    // realpath 二次校验：拦截词法上在树内、实际指向树外的符号链接。
+    const [root, target] = await Promise.all([realpath(workspacePath), realpath(candidate)]);
+    if (target !== root && !target.startsWith(root + sep)) {
+      return { ok: false, reason: "outside" };
+    }
+    const stats = await stat(target);
+    if (!stats.isFile()) {
+      return { ok: false, reason: "missing" };
+    }
+    return { ok: true, absolutePath: target, sizeBytes: stats.size };
+  } catch {
+    return { ok: false, reason: "missing" };
+  }
+}
+
+const WEIXIN_CONTEXT_TOKEN_MAX_PEERS = 20;
+
+/**
+ * 合并并裁剪每个 bot 的 peer → context_token 表（specs/bot-file-delivery.md §6）。
+ * 只保留最近活跃的 N 个 peer，防止长期运行下状态文件无界膨胀。
+ */
+export function mergeWeixinContextTokens(
+  existing: BotContextState["weixinContextTokens"],
+  peerKey: string,
+  token: string,
+  updatedAt: number,
+  maxPeers = WEIXIN_CONTEXT_TOKEN_MAX_PEERS,
+): NonNullable<BotContextState["weixinContextTokens"]> {
+  const merged: NonNullable<BotContextState["weixinContextTokens"]> = {
+    ...existing,
+    [peerKey]: { token, updatedAt },
+  };
+  return Object.fromEntries(
+    Object.entries(merged)
+      .sort((left, right) => right[1].updatedAt - left[1].updatedAt)
+      .slice(0, maxPeers),
+  );
+}
 
 export function createBotsService(
   deps: BotsServiceDeps,
@@ -1060,6 +1168,130 @@ export function createBotsService(
       return msg(locale, "attachmentDownloadUnavailable");
     }
     return message;
+  }
+
+  /** 微信出站媒体依赖新鲜 context_token；入站时持久化每个 peer 的最新 token（有界，最多 20 个 peer）。 */
+  async function persistWeixinContextToken(message: BotInboundMessage): Promise<void> {
+    if (message.actor.provider !== "weixin" || !message.actor.providerContextToken?.trim()) {
+      return;
+    }
+    const peerKey = message.actor.chatId?.trim() || message.actor.providerUserId.trim();
+    if (!peerKey) return;
+    try {
+      const state = await repo.readState();
+      const existing = state.bots[message.botId];
+      if (!existing) return;
+      const previous = existing.weixinContextTokens?.[peerKey];
+      if (previous?.token === message.actor.providerContextToken) return;
+      state.bots[message.botId] = {
+        ...existing,
+        weixinContextTokens: mergeWeixinContextTokens(
+          existing.weixinContextTokens,
+          peerKey,
+          message.actor.providerContextToken,
+          Date.now(),
+        ),
+      };
+      await repo.writeState(state);
+    } catch (error) {
+      botsLogger.warn(
+        undefined,
+        `persist weixin context token failed bot=${message.botId}: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+  }
+
+  async function readPersistedWeixinContextToken(
+    botId: string,
+    actor: BotActor,
+  ): Promise<string | undefined> {
+    const peerKey = actor.chatId?.trim() || actor.providerUserId.trim();
+    if (!peerKey) return undefined;
+    const state = await repo.readState().catch(() => null);
+    return state?.bots[botId]?.weixinContextTokens?.[peerKey]?.token;
+  }
+
+  async function handleFileCommand(
+    message: BotInboundMessage,
+    value: string,
+  ): Promise<BotOutboundMessage[]> {
+    const auth = await withAuthorizedContext(message, "file");
+    if (!auth.ok) {
+      return auth.reply;
+    }
+    const adapter = providers[auth.bot.provider];
+    if (!adapter?.sendAttachment) {
+      return [createOutbound(message.actor, msg(auth.locale, "fileCommandUnsupported"))];
+    }
+    if (auth.context.workspaceIdentity) {
+      return [createOutbound(message.actor, msg(auth.locale, "fileRemoteWorkspaceUnsupported"))];
+    }
+    const requestedPath = value.trim();
+    if (!requestedPath) {
+      return [createOutbound(message.actor, msg(auth.locale, "fileMissingPath"))];
+    }
+    const resolved = await resolveWorkspaceFilePath(auth.context.workspacePath, requestedPath);
+    if (!resolved.ok) {
+      const messageId = resolved.reason === "outside" ? "fileOutsideWorkspace" : "fileNotFound";
+      return [createOutbound(message.actor, msg(auth.locale, messageId, { path: requestedPath }))];
+    }
+    if (resolved.sizeBytes > BOT_MAX_ATTACHMENT_SIZE_BYTES) {
+      return [
+        createOutbound(
+          message.actor,
+          msg(auth.locale, "fileTooLargeOutbound", {
+            size: formatAttachmentSize(resolved.sizeBytes),
+          }),
+        ),
+      ];
+    }
+    const filename = basename(resolved.absolutePath);
+    const kind = inferOutboundAttachmentKind(filename);
+    const attachment: BotOutboundAttachment = {
+      kind,
+      filename,
+      mimeType: inferOutboundAttachmentMime(filename, kind),
+      sizeBytes: resolved.sizeBytes,
+      localPath: resolved.absolutePath,
+    };
+    const peerKey = message.actor.chatId ?? message.actor.providerUserId;
+    // Bot 会话强制 yolo，无交互权限；workspace-only 路径策略 + 审计日志 + 5MB 上限是出站防泄露边界。
+    botsLogger.info(
+      undefined,
+      `bot file delivery bot=${auth.bot.id} peer=${peerKey} file=${filename} size=${resolved.sizeBytes} kind=${kind}`,
+    );
+    const providerContextToken =
+      message.actor.providerContextToken ??
+      (await readPersistedWeixinContextToken(auth.bot.id, message.actor));
+    try {
+      await adapter.sendAttachment(
+        auth.bot,
+        {
+          ...createOutbound(message.actor, ""),
+          ...(providerContextToken ? { providerContextToken } : {}),
+          attachments: [attachment],
+        },
+        attachment,
+      );
+      return [
+        createOutbound(
+          message.actor,
+          msg(auth.locale, "fileSent", {
+            filename,
+            size: formatAttachmentSize(resolved.sizeBytes),
+          }),
+        ),
+      ];
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error);
+      botsLogger.warn(
+        undefined,
+        `bot file delivery failed bot=${auth.bot.id} peer=${peerKey} file=${filename}: ${reason}`,
+      );
+      return [
+        createOutbound(message.actor, msg(auth.locale, "fileSendFailed", { message: reason })),
+      ];
+    }
   }
 
   function buildAttachmentCachePath(params: {
@@ -5403,6 +5635,8 @@ export function createBotsService(
     watchAutomationRun,
     async handleInboundMessage(message: BotInboundMessage) {
       return enqueueInboundProcessing(message.actor, async () => {
+        // 微信出站媒体依赖新鲜 context_token；必须在任何 context 读改写之前落库，避免被后续 writeContext 覆盖。
+        await persistWeixinContextToken(message);
         if (message.elicitationResponse) {
           return handleStructuredElicitationResponse(message, message.elicitationResponse);
         }
@@ -5431,6 +5665,8 @@ export function createBotsService(
             return handleStatus(message);
           case "reconnect":
             return handleReconnect(message);
+          case "file":
+            return handleFileCommand(message, command.value);
           case "new": {
             const auth = await withAuthorizedContext(message, "new");
             if (!auth.ok) return auth.reply;

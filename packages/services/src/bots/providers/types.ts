@@ -3,6 +3,7 @@ import type {
   BotConfig,
   BotInboundAttachment,
   BotInboundMessage,
+  BotOutboundAttachment,
   BotOutboundMessage,
   BotProviderCallbackResult,
   Locale,
@@ -53,6 +54,16 @@ export interface BotProviderAdapter {
   resolveName?(bot: BotConfig): Promise<string | null>;
   syncCommands?(bot: BotConfig): Promise<void>;
   send(bot: BotConfig, message: BotOutboundMessage): Promise<void>;
+  /**
+   * 出站媒体投递能力：把本地文件上传到 provider 媒体通道并投递给 message 目标。
+   * 未实现的 provider 保持 undefined，服务层负责降级为文本提示。
+   * 失败语义：抛错即失败；context_token 过期类错误由实现内部先做一次无 token 重试。
+   */
+  sendAttachment?(
+    bot: BotConfig,
+    message: BotOutboundMessage,
+    attachment: BotOutboundAttachment,
+  ): Promise<void>;
   sendTyping?(bot: BotConfig, target: BotTypingTarget): Promise<void>;
   startTyping?(bot: BotConfig, target: BotTypingTarget): Promise<void>;
   stopTyping?(bot: BotConfig, target: BotTypingTarget): Promise<void>;
