@@ -1,5 +1,49 @@
 # Changelog
 
+## [3.14.4-alpha.0](https://github.com/yeyuan98/zodex/compare/v3.14.3...v3.14.4-alpha.0) (2026-09-29)
+
+### Features
+
+* **bots:** WeChat outbound file delivery via /file command (Alpha 0) ([aa63a31](https://github.com/yeyuan98/zodex/commit/aa63a3173c2eb167a0e16fe1ac2331c9eaa9d0f6))
+  * add /file <path> (alias /文件) bot command: uploads a workspace file to the
+  * weixinProvider: probe-proven upload pipeline — getuploadurl, AES-128-ECB
+  * botsService: workspace-only path policy (lexical pre-check + realpath
+  * persist latest per-peer weixin context_token in bot state (bounded 20
+  * shared: additive BotOutboundAttachment type, BotOutboundMessage.attachments?,
+  * providers: optional BotProviderAdapter.sendAttachment capability;
+  * tests: 12 cases pinning wire invariants (padded-size math, aes_key
+  * validated: pnpm typecheck, lint, fmt:check, verify:pre-push,
+
+* P8 — Zodex versioning runbook, working alpha opt-out, upstream merge ledger ([2b14d9c](https://github.com/yeyuan98/zodex/commit/2b14d9c156b3c57c083485f43c7eec338c0cee58))
+  * specs: P8 amendment revoking D-P5.1 allowPrerelease floor clause (stable v3.14.3 exists; floor made alpha opt-out a no-op); keep single latest.yml + never write autoUpdater.channel; record electron-updater 6.8.3 alpha.yml-probe fallback; rebrand spec: 'final release' framing superseded by ongoing alpha + upstream-merge policy
+  * desktop main: resolveAutoUpdaterAllowPrerelease now strictly follows receivePreviewUpdates (single-param pure fn); opt-out semantics = no downgrade, stay until next official surpasses; new isDevPrereleaseAutoUpdateOverrideActive floor OR-ed into init + settings-refresh recompute (fixes override clobber exposed by floor removal)
+  * tests: re-pin new allowPrerelease rule (false/undefined → false, true → true); source-scan guard pins dev prerelease floor
+  * ui: settings toggle copy gains no-downgrade note; extra hint line when running a prerelease build (ZCODE_VERSION contains '-'), en-US + zh-CN
+  * docs: new docs/versioning.md (version policy, on-demand alpha procedure, upstream merge runbook, glossary alpha vs Preview flavor) + docs/upstream-sync.md ledger (baseline row: 3.14.3 = ZCode 3.14.3); docs/updates.md channel semantics rewritten
+  * release tooling: pnpm release:alpha (release-it --preRelease=alpha --ci, fresh train starts at X.Y.Z-alpha.0); changelog writer gains trailing 'Upstream' section rendering merge commits as single lines
+  * AGENTS.md: release:alpha command row; release-entry bullet reconciled (release / release:alpha same toolchain); post-release check rejects stray alpha.yml/beta.yml channel files
+
+
+### Bug Fixes
+
+* [ulw] review round — spec history pointers, dev-floor guard hardening, doc nits ([a294c09](https://github.com/yeyuan98/zodex/commit/a294c09babc46bd2b6d4749e077322c877bce8e1))
+  * specs/distribution-and-updates.md §A.4: inline strike/pointer to P8 (body text no longer states revoked floor as live rule)
+  * specs/telemetry-and-update-policy.md: cross-reference notes floor clause revoked by P8
+  * updateFeedPolicyP5.test.ts: dev-floor guard now pins the wired join shape (resolveAutoUpdaterAllowPrerelease(...) || isDevPrereleaseAutoUpdateOverrideActive(), exactly 2 sites) instead of bare identifier
+  * autoUpdater.ts: dev override comment clarified (stable dev override is correctly reclaimed by strict-follow recompute; only prerelease overrides keep the floor)
+  * docs: ledger title paren, updates.md toggle name aligned to actual label
+  * VENDOR-PURGE-PLAN.md: historical floor-rule record annotated as revoked by P8
+
+* **ci:** drop AppImage blockmap from linux release attach — builder does not emit one ([d3da47f](https://github.com/yeyuan98/zodex/commit/d3da47fb849e09b3d35efd253f19dab4c369b74b))
+  * v3.14.3 tag run failed on unmatched glob (proof run couldn't catch it: attach steps are tag-gated)
+  * AppImage updates fall back to full-file download; mac zip/dmg blockmaps verified produced
+  * asset contract corrected to 43 across workflow comment, AGENTS.md, packaging.md, spec
+
+
+### Documentation
+
+* **plan:** P7 shipped — v3.14.3 released (43 assets), linux attach incident + fix recorded ([fa8c777](https://github.com/yeyuan98/zodex/commit/fa8c77769daae2f6d2f94833de34447fae48258f))
+
 ## 3.14.3 (2026-09-28)
 
 ### ⚠ BREAKING CHANGES
