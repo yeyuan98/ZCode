@@ -1,7 +1,9 @@
 # Spec: Bot Outbound File Delivery (Alpha 0 — WeChat `/file`)
 
-Status: implemented-by Alpha 0 (branch agent/coder/bot-file-delivery-alpha0-weixin; first alpha of
-the 3.14.4 train per docs/versioning.md). Full-feature playbook in ../ZCode-handoff.md.
+Status: **shipped** in `3.14.4-alpha.0` (PR #2, merge `a399b22`, tag `v3.14.4-alpha.0`;
+first alpha of the 3.14.4 train per docs/versioning.md). Owner manual smoke on the deployed
+Windows rig passed 2026-09-29. Full-feature playbook: ../ZCode-handoff.md (next milestone:
+Phase B conversational delivery; later: Telegram/Feishu senders + remote workspaces).
 Owners: bots service (`packages/services/src/bots/botsService.ts`) — command admission, path
 policy, size gates; weixin provider adapter (`providers/weixinProvider.ts`) — CDN upload +
 media sendmessage; bot state repo (`repo.ts`) — per-peer context_token persistence.
@@ -12,6 +14,8 @@ Related: `docs/versioning.md` (patch 3.14.4 = full bidirectional file sync).
 1. **New authorized bot command `/file <path>` (aliases `/文件`).** Only in private chats
    (`chatType === "private"`), only for providers whose adapter implements `sendAttachment`
    (Alpha 0: weixin only). Other channels get a localized "not supported yet" reply.
+   Operators can disable the command per bot via `allowedCommands.file: false`
+   (absent = allowed; schema + policy normalization honor explicit false).
 2. **Path policy: workspace-only.** The requested path is resolved against the bot context's
    active workspace root. Paths escaping the workspace tree (after resolving `.`/`..` and
    symlinks via `realpath`) are rejected with a localized notice. Absolute paths inside the
@@ -20,8 +24,10 @@ Related: `docs/versioning.md` (patch 3.14.4 = full bidirectional file sync).
 3. **Size/count gates: ≤ 5MB, 1 file per command** (symmetric with inbound
    `BOT_MAX_ATTACHMENT_SIZE_BYTES`). Oversize → localized rejection listing the limit.
 4. **Remote workspaces: honest guard.** If the context workspace is remote
-   (`workspaceIdentity` set), `/file` replies that remote-workspace delivery arrives in a
-   later alpha; it never pretends success and never reads local paths for a remote context.
+   (`workspaceIdentity` set) and connected, `/file` replies that remote-workspace delivery
+   arrives in a later alpha; it never pretends success and never reads local paths for a remote
+   context. (A *disconnected* remote workspace surfaces the standard `/重连` hint first —
+   `blockDisconnectedRemoteWorkspace` runs before the `/file` guard.)
 5. **Delivery pipeline (probe-proven 2026-09-29, see ../ZCode-handoff.md §5).**
    `getuploadurl` → AES-128-ECB(+PKCS7) encrypt → CDN ciphertext POST (read
    `x-encrypted-param` response header) → `sendmessage` with `image_item|file_item|video_item`.
@@ -56,6 +62,10 @@ Related: `docs/versioning.md` (patch 3.14.4 = full bidirectional file sync).
   media path is an extension of the adapter contract, not a second queue.
 
 ## Acceptance scenarios
+
+Verified 2026-09-29: unit/integration tests (`packages/services/test/botFileDelivery.test.ts`,
+103/103 suite) cover 2/3/4/5/7 + wire invariants; 1/6/8 validated by CI + owner manual smoke on
+the deployed rig; 8 additionally covered by the full pre-existing bot regression suite.
 
 1. `/file relative/path/result.png` in an active local workspace → WeChat receives an image
    message that opens on the phone.
