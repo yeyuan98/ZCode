@@ -32,10 +32,18 @@ alpha 发布流程与上游合并 runbook 的正式记录；上游合并的逐�
 **触发**：无固定节奏、CI 不自动打 tag。当有值得测试的内容（测试者要包，或一段工作刚
 落地）时，由维护者在干净 main 上执行一次发布命令。
 
-**命令**：`pnpm release:alpha`（= `release-it --preRelease=alpha --ci`，与正式版同一
-链路：升版本、重新生成 license notices 与 `CHANGELOG.md` 小节、提交
-`chore: release vX.Y.Z-alpha.N` 并推送 tag）。与正式版相同：发布前先 `--dry-run`
-预览；新 train 的首个 alpha 版本为 `X.Y.Z-alpha.0`，此后每次执行递增 `-alpha.N`。
+**命令**：`pnpm release:alpha --increment=<显式版本>`（= `release-it --preRelease=alpha
+--ci --increment=X.Y.Z-alpha.N`，与正式版同一链路：升版本、重新生成 license notices 与
+`CHANGELOG.md` 小节、提交 `chore: release vX.Y.Z-alpha.N` 并推送 tag）。
+⚠ 2026-09-29 实测（incident：v3.15.0-alpha.0 误切 train，已回滚）：本仓库的 release-it
+配置下**必须显式传 `--increment`**——
+
+- 续 train（`3.14.4-alpha.0` → `3.14.4-alpha.1`）：`pnpm release:alpha --increment=3.14.4-alpha.1`
+  （完整版本号；`--increment=prerelease` 实测同样会 minor 跳 train，不可用）；
+- 新 train 首个 alpha（`3.14.3` → `3.14.4-alpha.0`）：`pnpm release:alpha --increment=patch`；
+- 不带 `--increment` 的裸 `pnpm release:alpha` 会 minor 跳 train（如 3.14.4 → 3.15.0-alpha.0），**禁止**。
+  与正式版相同：发布前先 `--dry-run` 预览版本号（⚠ dry-run 经 npm version 副作用会把版本写进
+  `package.json`，预览后必须 `git checkout -- package.json` 还原再正式执行）。
 
 **构建与交付全自动**：tag 推送触发 `release-desktop.yml`（对任何 `v*` 生效），产出全
 平台安装包与 remote 资产并挂到 GitHub Release；tag 含 `-` 自动标记 prerelease。测试者
