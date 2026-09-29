@@ -405,6 +405,7 @@ import {
   ZCODE_CUA_PLUGIN_AUTHORITY_ENV_KEY,
   type ZCodeAutomation,
   type ZCodeAutomationRun,
+  type BotShareFileResult,
   getCapturedZCodeAgentTelemetryEnv,
   ZCODE_DESKTOP_CONTEXT_PROMPT_ENABLED_ENV,
   // P5 D-P5.4：buildRuntimeZCodeApiUrl 已删除——分享 client（W4）与 clientScenes
@@ -1760,6 +1761,9 @@ export function createLocalServices(options: {
   // OffPeakTaskService 单例在下方 DI register IIFE 中创建（晚于 agent service）；
   // 用前向引用 holder 惰性绑定——offPeak/create 协议请求只会发生在服务集合装配完成后。
   let offPeakTaskServiceForAgent: OffPeakTaskService | undefined;
+  // bots/shareFile（Phase B 对话式 share_file）：IBotsService 单例同样在下方注册链创建
+  // （晚于 agent service），沿用 OffPeak 的前向引用模式；协议请求只会发生在装配完成后。
+  let botsServiceForAgent: Pick<IBotsService, "shareFileForTask"> | undefined;
   // desktop-attached-remote 装配不暴露 Off-Peak 工具面（远程不在支持范围）。
   const offPeakToolWiring =
     options?.serviceAuthorityMode === "desktop-attached-remote"
@@ -1793,6 +1797,13 @@ export function createLocalServices(options: {
     spawnFallbackCwd: options?.zcodeAgentSpawnFallbackCwd,
     // browser-use：host→main 执行桥透传给 agent service 的 onRequest browserExecute 路由。
     browserControlExecutor: options?.browserControlExecutor,
+    // 对话式 share_file：bots/shareFile 协议 handler 转发到 bots 服务（收件人由其内部
+    // taskDeliveryRegistry 解析；agent service 不持有任何投递状态）。装配完成前到达的
+    // 请求按 no-target 拒绝（fail-closed，与 CLI 端 unsupported-method 语义衔接）。
+    botsShareFileExecutor: (params) =>
+      botsServiceForAgent
+        ? botsServiceForAgent.shareFileForTask(params)
+        : Promise.resolve({ ok: false, reason: "no-target" } satisfies BotShareFileResult),
     cuaOperationStateReporter: shouldEnableCuaOperationStateReporter({
       serviceAuthorityMode: options?.serviceAuthorityMode,
       hasReporter: Boolean(options?.cuaOperationStateReporter),
@@ -2039,17 +2050,22 @@ export function createLocalServices(options: {
     .register(IConversationExportService, conversationExportService)
     .register(
       IBotsService,
-      createBotsService({
-        credentialService,
-        zcodeTaskService,
-        broadcastService,
-        settingService,
-        modelSelectionService: providerRuntime.modelSelection,
-        remoteWorkspaceService: botRemoteWorkspaceService,
-        // 远端与本地 Bot 都读取所属 Environment 的 Model Selection View。
-        // 远端启动期不再轮询旧 Preset，避免重新制造一套模型候选事实。
-        runStartupBackgroundTasks: !isDesktopAttachedRemote,
-      }),
+      (() => {
+        const botsService = createBotsService({
+          credentialService,
+          zcodeTaskService,
+          broadcastService,
+          settingService,
+          modelSelectionService: providerRuntime.modelSelection,
+          remoteWorkspaceService: botRemoteWorkspaceService,
+          // 远端与本地 Bot 都读取所属 Environment 的 Model Selection View。
+          // 远端启动期不再轮询旧 Preset，避免重新制造一套模型候选事实。
+          runStartupBackgroundTasks: !isDesktopAttachedRemote,
+        });
+        // 回写前向引用，供 zcodeAgentService 的 bots/shareFile 协议 handler 调用。
+        botsServiceForAgent = botsService;
+        return botsService;
+      })(),
     )
     .register(IFileWatcherService, createFileWatcherService())
     .register(

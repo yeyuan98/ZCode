@@ -10,6 +10,7 @@ import type {
   BotProvider,
   BotProviderCallbackResult,
   BotServiceStatus,
+  BotShareFileResult,
   BotWorkspaceRef,
   BotsConfigFile,
   ZCodeAutomationBotDeliveryTarget,
@@ -154,6 +155,12 @@ export interface IBotsService {
   resetBotState(contextKey: string): Promise<void>;
   /** 在 automation prompt 派发前订阅终态，并把结果回推到创建它的 Bot 会话。 */
   watchAutomationRun(params: BotAutomationRunWatchParams): Promise<void>;
+  /**
+   * bots/shareFile RPC 的 Host 侧裁决入口（specs/bot-file-delivery.md Phase B）：
+   * 按 taskId 从服务内 taskDeliveryRegistry 解析收件人并走 deliverWorkspaceFile 单一
+   * 写出核心；注册表未命中 → no-target。收件人不来自任何协议参数。
+   */
+  shareFileForTask(params: { taskId: string; path: string }): Promise<BotShareFileResult>;
   handleInboundMessage(message: BotInboundMessage): Promise<BotOutboundMessage[]>;
   handleProviderCallback(provider: BotProvider, payload: unknown): Promise<BotOutboundMessage[]>;
   handleProviderCallbackResponse(

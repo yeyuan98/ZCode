@@ -54,6 +54,7 @@ import {
   zcodeAutomationDeleteParamsSchema,
   zcodeAutomationListParamsSchema,
   zcodeAutomationUpdateParamsSchema,
+  zcodeBotsShareFileParamsSchema,
   zcodeOffPeakCreateParamsSchema,
   zcodeOffPeakListParamsSchema,
   zcodeComputerUseOperationEventSchema,
@@ -90,6 +91,7 @@ import {
   type DynamicWorkflowClientConfig,
   type ZCodePluginOperationProgressNotification,
   type ZCodeTaskMode,
+  type BotShareFileResult,
 } from "@zcode/shared";
 import { createServiceLogger } from "#src/logger/serviceLogger.js";
 // P3 C3：官方 MCP（Z.ai 托管）服务删除，发放审计（officialMcpIssuanceAudit）随之移除。
@@ -866,6 +868,13 @@ interface CreateZCodeAgentServiceOptions extends Omit<
    * browser 命令返回 backend_unavailable，不影响其它功能。
    */
   browserControlExecutor?: BrowserAmbientContextExecutor;
+  /**
+   * bots/shareFile（对话式 share_file，specs/bot-file-delivery.md Phase B）的 Host 侧
+   * 裁决器：按 taskId 从 bots 服务的 taskDeliveryRegistry 解析收件人并投递。
+   * desktop host 装配时注入（node.ts createLocalServices 前向引用，与 OffPeak 同模式）；
+   * 缺省（旧 host / 未装配）返回 -32601，由 CLI 映射为 unsupported-method——fail-closed。
+   */
+  botsShareFileExecutor?: (params: { taskId: string; path: string }) => Promise<BotShareFileResult>;
   /** desktop-local Host 注入；只消费已校验、已去重的 live session event。 */
   cuaOperationStateReporter?: CuaOperationStateReporter;
   onCuaPipSessionLifecycle?: (
@@ -2079,6 +2088,45 @@ export function createZCodeAgentService(
               await client.respond(request.id, {
                 automation: toProtocolAutomation(automation),
               });
+            } catch (error) {
+              await client.respondError(request.id, {
+                code: -32603,
+                message: error instanceof Error ? error.message : String(error),
+              });
+            }
+          })();
+          return;
+        }
+
+        if (request.method === zcodeProtocolMethods.botsShareFile) {
+          // 严格 schema：请求只允许 { taskId, path }。任何客户端携带的 recipient/provider/
+          // peer 字段在此直接拒绝——收件人只能由 Host 从自己的注册表解析，bot 会话
+          // force-yolo，不能让（可能被注入的）模型工具参数指派投递目标。
+          const parsed = zcodeBotsShareFileParamsSchema.safeParse(request.params);
+          if (!parsed.success) {
+            void client.respondError(request.id, {
+              code: -32602,
+              message: "Invalid bots shareFile params",
+              data: parsed.error.flatten(),
+            });
+            return;
+          }
+          const shareFileExecutor = options?.botsShareFileExecutor;
+          if (!shareFileExecutor) {
+            // 旧 host / 未装配：-32601 由 CLI 端口映射为 unsupported-method（结构化失败）。
+            void client.respondError(request.id, {
+              code: -32601,
+              message: "bots/shareFile is unavailable on this host",
+            });
+            return;
+          }
+          void (async () => {
+            try {
+              const result = await shareFileExecutor({
+                taskId: parsed.data.taskId,
+                path: parsed.data.path,
+              });
+              await client.respond(request.id, result);
             } catch (error) {
               await client.respondError(request.id, {
                 code: -32603,
