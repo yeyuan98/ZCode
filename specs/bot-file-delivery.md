@@ -26,7 +26,7 @@ Related: `docs/versioning.md` (patch 3.14.4 = full bidirectional file sync).
 4. **Remote workspaces: honest guard.** If the context workspace is remote
    (`workspaceIdentity` set) and connected, `/file` replies that remote-workspace delivery
    arrives in a later alpha; it never pretends success and never reads local paths for a remote
-   context. (A *disconnected* remote workspace surfaces the standard `/重连` hint first —
+   context. (A _disconnected_ remote workspace surfaces the standard `/重连` hint first —
    `blockDisconnectedRemoteWorkspace` runs before the `/file` guard.)
 5. **Delivery pipeline (probe-proven 2026-09-29, see ../ZCode-handoff.md §5).**
    `getuploadurl` → AES-128-ECB(+PKCS7) encrypt → CDN ciphertext POST (read
