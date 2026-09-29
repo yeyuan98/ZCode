@@ -844,6 +844,14 @@ export function createBotTaskDeliveryRegistry(): BotTaskDeliveryRegistry {
 export interface BotShareFileQuotaTracker {
   allows(botId: string, peerKey: string, now: number): boolean;
   record(botId: string, peerKey: string, now: number): void;
+  /**
+   * 原子预留：同步完成「窗口判定 + 占位」。share_file 工具是 concurrentSafe，调度器会
+   * 并行执行多个调用；若沿用 allows() 判定 + 事后 record()，并行调用会在彼此落账前
+   * 全部通过判定（TOCTOU），绕过窗口上限。预留必须在任何 IO 之前发生。
+   */
+  reserve(botId: string, peerKey: string, now: number): boolean;
+  /** 释放一个具体预留时间戳：投递失败时归还占位，保持「只有成功投递消耗配额」的可观测语义。 */
+  release(botId: string, peerKey: string, at: number): void;
 }
 
 /** tool 来源配额：滚动窗口 10 分钟 3 次 AND 1 小时 20 次（specs Phase B §4）。 */
@@ -863,23 +871,46 @@ export function createBotShareFileQuotaTracker(): BotShareFileQuotaTracker {
   const buildKey = (botId: string, peerKey: string): string => `${botId}::${peerKey}`;
   const longestWindowMs =
     BOT_SHARE_FILE_QUOTA_WINDOWS[BOT_SHARE_FILE_QUOTA_WINDOWS.length - 1]!.windowMs;
-  return {
-    allows(botId, peerKey, now) {
-      const timestamps = deliveriesByKey.get(buildKey(botId, peerKey));
-      if (!timestamps) return true;
-      for (const { limit, windowMs } of BOT_SHARE_FILE_QUOTA_WINDOWS) {
-        if (timestamps.filter((at) => now - at < windowMs).length >= limit) {
-          return false;
-        }
+  const allows = (botId: string, peerKey: string, now: number): boolean => {
+    const timestamps = deliveriesByKey.get(buildKey(botId, peerKey));
+    if (!timestamps) return true;
+    for (const { limit, windowMs } of BOT_SHARE_FILE_QUOTA_WINDOWS) {
+      if (timestamps.filter((at) => now - at < windowMs).length >= limit) {
+        return false;
       }
+    }
+    return true;
+  };
+  const record = (botId: string, peerKey: string, now: number): void => {
+    const key = buildKey(botId, peerKey);
+    const timestamps = [...(deliveriesByKey.get(key) ?? []), now].filter(
+      (at) => now - at < longestWindowMs,
+    );
+    deliveriesByKey.set(key, timestamps);
+  };
+  return {
+    allows,
+    record,
+    // Review 修复（并行 share_file TOCTOU）：share_file 是 concurrentSafe 工具，调度器
+    // 并行执行多个调用；原实现 allows() 判定在 IO 之前、record() 落账在投递完成之后，
+    // 并发调用在彼此落账前全部通过判定，可无限绕过窗口上限。reserve() 同步完成
+    // 判定 + 占位（JS 单线程内不可分割），每个在途调用各占一个槽位。
+    reserve(botId, peerKey, now) {
+      if (!allows(botId, peerKey, now)) return false;
+      record(botId, peerKey, now);
       return true;
     },
-    record(botId, peerKey, now) {
+    release(botId, peerKey, at) {
       const key = buildKey(botId, peerKey);
-      const timestamps = [...(deliveriesByKey.get(key) ?? []), now].filter(
-        (at) => now - at < longestWindowMs,
-      );
-      deliveriesByKey.set(key, timestamps);
+      const timestamps = deliveriesByKey.get(key);
+      if (!timestamps) return;
+      const index = timestamps.indexOf(at);
+      if (index >= 0) {
+        timestamps.splice(index, 1);
+      }
+      if (timestamps.length === 0) {
+        deliveriesByKey.delete(key);
+      }
     },
   };
 }
@@ -1474,6 +1505,17 @@ export function createBotsService(
     const auth = await withAuthorizedContext(message, "file");
     if (!auth.ok) {
       return auth.reply;
+    }
+    // Review 修复（/file 回复漂移）：还原 Alpha 0 的门槛顺序 adapter → 远程 → 空路径。
+    // Phase B 抽出 deliverWorkspaceFile 时这两道前置检查被并入了投递核心且排在空路径
+    // 检查之后，导致同一份输入在 feishu/远程渠道下回复文案偏离已发布行为。这里只是
+    // 恢复回复优先级；deliverWorkspaceFile 内部仍逐项重评（双保险不变）。
+    const adapter = providers[auth.bot.provider];
+    if (!adapter?.sendAttachment) {
+      return [createOutbound(message.actor, msg(auth.locale, "fileCommandUnsupported"))];
+    }
+    if (auth.context.workspaceIdentity) {
+      return [createOutbound(message.actor, msg(auth.locale, "fileRemoteWorkspaceUnsupported"))];
     }
     const requestedPath = value.trim();
     if (!requestedPath) {
@@ -5257,6 +5299,9 @@ export function createBotsService(
         const userFacingMessage = formatUserFacingBotError(error, locale);
         runningTasks.delete(taskId);
         stopTyping(taskId);
+        // Review 修复（stale registry）：sendPrompt 失败即任务终态，注册表必须遗忘该
+        // taskId——终态任务不再有投递目标，晚到的 share_file RPC 只能按 no-target 拒绝。
+        taskDeliveryRegistry.forget(taskId);
         await broadcastTaskListChange(context, taskId, "error", {
           error: message,
         });
@@ -5606,6 +5651,10 @@ export function createBotsService(
       // 且尚未观察到终态的 task 才阻止 /task、/new 等上下文切换。
       runningTasks.delete(context.activeTaskId);
       stopTyping(context.activeTaskId);
+      // Review 修复（stale registry）：这里检测到「本进程以为在跑、持久化状态已是终态」，
+      // 说明流终态事件已丢失——taskDeliveryRegistry 里的投递目标同样必须失效，终态任务
+      // 不能继续应答 share_file（晚到 RPC 按 no-target 拒绝）。
+      taskDeliveryRegistry.forget(context.activeTaskId);
       return false;
     }
     return true;
@@ -5911,33 +5960,63 @@ export function createBotsService(
       }
       const actor = entry.actor;
       const peerKey = actor.chatId?.trim() || actor.providerUserId.trim();
-      // 配额在任何文件 IO 之前判定（specs Phase B §4）。
-      if (peerKey && !shareFileQuota.allows(entry.botId, peerKey, Date.now())) {
+      // Review 修复（并行 share_file TOCTOU）：配额必须在任何文件 IO 之前「原子预留」。
+      // share_file 是 concurrentSafe 工具，调度器并行执行多个调用；原先 allows() 判定与
+      // 投递完成后的 record() 落账之间存在窗口，N 个并行调用会在彼此落账前全部通过判定，
+      // 绕过窗口上限。现在每个在途调用先占一个槽位（reserve 同步完成判定 + 占位），
+      // 投递失败时按预留时间戳精确释放（release），对外语义保持「只有成功投递消耗配额」。
+      const reservedAt = Date.now();
+      if (peerKey && !shareFileQuota.reserve(entry.botId, peerKey, reservedAt)) {
         botsLogger.warn(
           undefined,
           `bot file delivery rejected bot=${entry.botId} peer=${peerKey} file=${params.path} size=0 outcome=quota-exceeded source=tool task=${params.taskId} path=${params.path}`,
         );
         return { ok: false, reason: "quota-exceeded" };
       }
-      const config = await repo.readConfig();
-      const bot = findBot(config, entry.botId);
-      if (!bot) {
-        return { ok: false, reason: "not-allowed" };
+      const releaseReservedQuota = (): void => {
+        if (peerKey) {
+          shareFileQuota.release(entry.botId, peerKey, reservedAt);
+        }
+      };
+      try {
+        const config = await repo.readConfig();
+        const bot = findBot(config, entry.botId);
+        if (!bot) {
+          releaseReservedQuota();
+          return { ok: false, reason: "not-allowed" };
+        }
+        const delivered = await deliverWorkspaceFile(
+          bot,
+          actor,
+          {
+            workspacePath: entry.workspacePath,
+            ...(entry.workspaceIdentity ? { workspaceIdentity: entry.workspaceIdentity } : {}),
+          },
+          params.path.trim(),
+          { source: "tool", taskId: params.taskId },
+        );
+        if (!delivered.ok) {
+          // 失败投递不消耗配额：预留槽位归还（sendAttachment 失败、路径/体积拒绝等全部适用）。
+          releaseReservedQuota();
+        }
+        return delivered;
+      } catch (error) {
+        // Review 修复（honest failure prose）：deliverWorkspaceFile 只守卫 sendAttachment
+        // await；repo.readConfig 等投递前置阶段的 Host 侧异常（如配置 IO 失败）会原样
+        // 抛出到这里——它们从未触达 provider，必须如实标注为投递前的 Host 错误，
+        // 不能让 CLI 侧把 -32602/-32603 传输错误误读成 provider 侧失败。
+        releaseReservedQuota();
+        const reasonText = error instanceof Error ? error.message : String(error);
+        botsLogger.warn(
+          undefined,
+          `bot file delivery failed bot=${entry.botId} peer=${peerKey} file=${params.path} size=0 outcome=send-failed source=tool task=${params.taskId} path=${params.path}: host error before delivery: ${reasonText}`,
+        );
+        return {
+          ok: false,
+          reason: "send-failed",
+          detail: `host error before delivery: ${reasonText}`,
+        };
       }
-      const delivered = await deliverWorkspaceFile(
-        bot,
-        actor,
-        {
-          workspacePath: entry.workspacePath,
-          ...(entry.workspaceIdentity ? { workspaceIdentity: entry.workspaceIdentity } : {}),
-        },
-        params.path.trim(),
-        { source: "tool", taskId: params.taskId },
-      );
-      if (delivered.ok && peerKey) {
-        shareFileQuota.record(entry.botId, peerKey, Date.now());
-      }
-      return delivered;
     },
     async handleInboundMessage(message: BotInboundMessage) {
       return enqueueInboundProcessing(message.actor, async () => {

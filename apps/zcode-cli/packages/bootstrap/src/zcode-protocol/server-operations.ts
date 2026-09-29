@@ -69,6 +69,7 @@ import {
   zcodeWorkspaceGenerateTextParamsSchema,
   getConversationMessageProjectionPolicy,
   parseRemoteWorkspaceIdentity,
+  botShareFileDeliveryTargetQualifies,
   SHARE_FILE_TOOL_NAME,
   type ZCodeAutomationBotDeliveryTarget,
   type ZCodeSessionCreateParams,
@@ -2501,13 +2502,13 @@ function buildPromptTurnToolDisallowlist(
   // Phase B 披露（specs/bot-file-delivery.md）：share_file 只在 weixin 私聊 bot turn 且
   // 非 automation/off-peak 派发轮允许；其余 turn 一律加入 deny（subtract-only 机制）。
   // 非 bot 轮从此携带单项 deny 列表——share_file 是全新工具名，对旧工具面是语义 no-op（additive）。
+  // Review 修复：判定收敛为 shared 纯谓词（三处 deny 镜像同源），矩阵测试见
+  // packages/shared/test/botsShareFile.test.ts；此处仅保留各 turn 自己的身份解析。
   if (
-    !(
-      params.botDeliveryTarget?.provider === "weixin" &&
-      params.botDeliveryTarget?.chatType === "private" &&
-      !activeAutomationId &&
-      !activeOffPeakTaskId
-    )
+    !botShareFileDeliveryTargetQualifies(params.botDeliveryTarget, {
+      automationId: activeAutomationId,
+      offPeakTaskId: activeOffPeakTaskId,
+    })
   ) {
     tools.add(SHARE_FILE_TOOL_NAME);
   }

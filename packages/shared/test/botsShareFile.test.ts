@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 import {
   SHARE_FILE_TOOL_NAME,
+  botShareFileDeliveryTargetQualifies,
   botShareFileFailureReasonSchema,
   botShareFileResultSchema,
   type BotShareFileFailureReason,
@@ -113,5 +114,63 @@ test("share_file 工具名与方法名常量对齐契约", async () => {
     protocolSource.includes("export {\n  zcodeBotsShareFileParamsSchema"),
     true,
     "barrel 必须再导出 bots-share-file 叶子模块的 schema",
+  );
+});
+
+/**
+ * Review 修复（FIX 2）：注入判定矩阵。deny 条件原先三处手抄（CLI legacy/v4 per-turn
+ * 禁用名单 + services adapter 镜像），apps/zcode-cli 无测试基建——矩阵测试必须落在
+ * shared，三处消费同一谓词，这里就是它们共同的回归锚点。
+ */
+const WEIXIN_PRIVATE_TARGET = {
+  provider: "weixin",
+  botId: "bot-1",
+  providerUserId: "wx-user-1",
+  chatType: "private",
+} as const;
+
+test("botShareFileDeliveryTargetQualifies：完整判定矩阵", () => {
+  // weixin + private + 无派发身份 → 允许。
+  assert.equal(botShareFileDeliveryTargetQualifies(WEIXIN_PRIVATE_TARGET), true);
+  assert.equal(
+    botShareFileDeliveryTargetQualifies(WEIXIN_PRIVATE_TARGET, {
+      automationId: undefined,
+      offPeakTaskId: undefined,
+    }),
+    true,
+  );
+  // target 缺失 → 拒绝。
+  assert.equal(botShareFileDeliveryTargetQualifies(undefined), false);
+  // feishu（或 lark）→ 拒绝。
+  assert.equal(
+    botShareFileDeliveryTargetQualifies({ ...WEIXIN_PRIVATE_TARGET, provider: "feishu" }),
+    false,
+  );
+  assert.equal(
+    botShareFileDeliveryTargetQualifies({ ...WEIXIN_PRIVATE_TARGET, provider: "lark" }),
+    false,
+  );
+  // weixin 群聊 → 拒绝。
+  assert.equal(
+    botShareFileDeliveryTargetQualifies({ ...WEIXIN_PRIVATE_TARGET, chatType: "group" }),
+    false,
+  );
+  // automation 派发轮 → 拒绝。
+  assert.equal(
+    botShareFileDeliveryTargetQualifies(WEIXIN_PRIVATE_TARGET, { automationId: "cron-1" }),
+    false,
+  );
+  // off-peak 派发轮 → 拒绝。
+  assert.equal(
+    botShareFileDeliveryTargetQualifies(WEIXIN_PRIVATE_TARGET, { offPeakTaskId: "offpeak-1" }),
+    false,
+  );
+  // 两个派发身份同时存在 → 拒绝。
+  assert.equal(
+    botShareFileDeliveryTargetQualifies(WEIXIN_PRIVATE_TARGET, {
+      automationId: "cron-1",
+      offPeakTaskId: "offpeak-1",
+    }),
+    false,
   );
 });

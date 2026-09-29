@@ -109,6 +109,7 @@ import {
   type ZCodeUserInputRequestParams,
   type ZCodeUserInputResponse,
   type ZCodeAgentMcpServer,
+  botShareFileDeliveryTargetQualifies,
   SHARE_FILE_TOOL_NAME,
 } from "@zcode/shared";
 import type {
@@ -319,13 +320,13 @@ export function createZCodeTaskServiceAdapter(
     // Phase B 披露（specs/bot-file-delivery.md）：share_file 只在 weixin 私聊 bot turn 且
     // 非 automation/off-peak 派发轮允许；与 CLI 侧两条 per-turn 禁用名单同值镜像，
     // 防止绕过 host adapter 直连路径注入。subtract-only，对旧工具面是语义 no-op（additive）。
+    // Review 修复：判定收敛为 shared 纯谓词（三处 deny 镜像同源），矩阵测试见
+    // packages/shared/test/botsShareFile.test.ts；此处沿用本函数入参的 automationId/offPeakTaskId。
     if (
-      !(
-        params.botDeliveryTarget?.provider === "weixin" &&
-        params.botDeliveryTarget?.chatType === "private" &&
-        !params.automationId &&
-        !params.offPeakTaskId
-      )
+      !botShareFileDeliveryTargetQualifies(params.botDeliveryTarget, {
+        automationId: params.automationId,
+        offPeakTaskId: params.offPeakTaskId,
+      })
     ) {
       toolDenylist.add(SHARE_FILE_TOOL_NAME);
     }

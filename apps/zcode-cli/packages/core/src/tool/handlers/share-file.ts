@@ -146,7 +146,10 @@ function formatShareFileModelContent(output: unknown): string {
     case "quota-exceeded":
       return "The file-sending quota for this chat is exhausted, so nothing was sent. Suggest the user request the file with the /file command, which is not quota-bound.";
     case "send-failed":
-      return `Sending failed on the provider side, so the user did not receive the file.${detail}`;
+      // Review 修复（honest prose）：-32602/-32603 等 Host 侧错误（如投递前配置 IO 失败）
+      // 从未触达 provider——不能断言失败发生在哪一侧。只陈述结局，引导模型如实报告
+      // 并转介 /file（/file 不受 tool 配额限制）。
+      return `The delivery attempt failed and the user did not receive the file. Tell the user the file could not be delivered, and suggest requesting it with the /file command instead.${detail}`;
     case "unsupported-method":
       return "The host does not support file sharing yet (it returned method not found), so nothing was sent.";
     case "unknown-outcome":

@@ -116,6 +116,11 @@ the deployed rig; 8 additionally covered by the full pre-existing bot regression
 4. **Tool-only quota.** Max 3 deliveries per rolling 10 minutes AND max 20 per rolling 1 hour
    per (botId, peerKey), applied only to source "tool". `/file` is never quota-bound.
    In-memory, host-side; no persistence (avoids the writeContext token-map revert race).
+   The quota slot is reserved atomically before any file IO and released on delivery failure
+   (review fix: `share_file` is a concurrentSafe tool whose parallel invocations would
+   otherwise all pass the window check before any of them records — concurrent tool calls
+   cannot bypass the window caps; observable semantics stay "only successful deliveries
+   consume quota").
 5. **Honest result semantics.** The tool returns the REAL outcome to the model:
    `BotShareFileResult` = `{ok: true; filename; sizeBytes}` | `{ok: false; reason; detail?}`
    with reasons: `no-target` (registry miss/terminal task, turn without botDeliveryTarget,
@@ -128,12 +133,20 @@ the deployed rig; 8 additionally covered by the full pre-existing bot regression
    above the provider upload/send margin so a timeout never maps to false success/failure).
 6. **Audit enrichment.** Per attempt: existing fields (bot, peer, file, size, kind) plus
    `source=command|tool`, `task=<taskId when tool>`, `path=<workspace relative>`.
+   Field precision (matches implementation): `kind=` is present only on successful sends;
+   pre-resolution failure and quota-exceeded lines omit `kind` and carry `size=0` placeholders
+   (real sizes appear only after path/size resolution, e.g. `too-large` and `send-failed`).
 7. **UI = toolCall row + chip renderer.** The share renders as the existing toolCall row plus
    a name-based chip renderer (`packages/ui/src/ToolCallBlocks/resolveRenderer.ts`; the chip
    derives the file path from the tool input and the status from the output prose) and a
    compact summary line (`packages/shared/src/tool-call-summary.ts`). No new protocol display
    types (structured filename/size display deferred). Both desktop-continuous and
-   web-remote-replayable links render it.
+   web-remote-replayable links render it. The WeChat text-mode tool summary line
+   (`packages/services/src/bots/replyFormatter.ts`) shows honest status words for
+   `share_file` — 已发送 / 未发送 / 结果未知 — derived from the output prose with the same
+   three-way logic as the UI renderer (prose-derived until structured display lands; a
+   failed delivery is a normal completed tool result, so the generic 完成 word must not
+   appear for it).
 
 ### Invariants
 
@@ -152,15 +165,23 @@ the deployed rig; 8 additionally covered by the full pre-existing bot regression
 
 Coverage: 1, 9, 13 (incl. chip reload + phone replay) are owner-rig manual E2E per current
 plan; the rest are unit/integration — protocol zod tests (packages/shared), services tests
-extending `packages/services/test/botFileDelivery.test.ts` (guard matrix, quota,
-single-writer, no-context-mutation, audit), CLI injection-matrix tests (apps/zcode-cli).
+extending `packages/services/test/botFileDelivery.test.ts` (guard matrix, quota incl.
+parallel-call TOCTOU + reserve/release, stale-registry terminal paths, single-writer,
+no-context-mutation, audit), and the shared deny-predicate matrix tests
+(packages/shared/test/botsShareFile.test.ts, `botShareFileDeliveryTargetQualifies`) consumed
+by all three per-turn deny sites (CLI legacy + v4 prompt-turn builders and the services
+`zcodeTaskServiceAdapter` mirror). apps/zcode-cli has NO test harness — the CLI builders are
+covered only via the shared predicate plus each layer's fail-closed behavior and manual rig
+spot checks, not CLI tests.
 
 1. Happy path: "发给我" in an active local WeChat private chat → media arrives and opens on the
    phone; model text confirms; desktop renders the chip; chip survives history reload; phone
    replay shows the chip. [manual rig]
 2. Injection matrix: tool injected iff the current send has weixin+private `botDeliveryTarget`
    and no automationId/offPeakTaskId; NOT injected for automation turns, off-peak turns,
-   desktop/UI turns, feishu/lark turns, group turns, subagent children. [CLI tests]
+   desktop/UI turns, feishu/lark turns, group turns, subagent children. [shared predicate
+   tests + manual rig — no CLI harness exists; the three deny sites consume
+   `botShareFileDeliveryTargetQualifies` from packages/shared]
 3. Automation run reusing a bot-born session (targetTaskId): tool absent AND RPC denies
    (registry deleted by `watchAutomationRun`); zero deliveries. [services tests]
 4. Strict schema: RPC rejects any client-supplied target/provider/peer field; delivery goes
@@ -176,7 +197,8 @@ single-writer, no-context-mutation, audit), CLI injection-matrix tests (apps/zco
    reaches the model via the tool result; mid-task user ping refreshes the persisted token and
    next attempt succeeds. [manual rig]
 10. RPC timeout → `unknown-outcome`; the turn does not crash; no false success/failure.
-    [CLI tests]
+    [code-verified + manual rig — the -32022 timeout → unknown-outcome mapping in the
+    bootstrap port has no automated harness; disclosed]
 11. Remote workspace context → `remote-workspace` honest failure; no local read fallback.
     [services tests]
 12. Mid-task revocation (bot disabled / `allowedCommands.file: false` while the task runs) →

@@ -57,6 +57,28 @@ export type ZCodeAutomationBotDeliveryTarget = z.infer<
  */
 export const SHARE_FILE_TOOL_NAME = "share_file";
 
+/**
+ * share_file 注入判定的单一事实来源（specs/bot-file-delivery.md Phase B §1）：
+ * turn 携带 weixin 私聊 botDeliveryTarget 且非 automation/off-peak 派发轮。
+ * Review 修复：此前该条件在 CLI legacy/v4 两条 per-turn 禁用名单与 services adapter
+ * 镜像里三处手抄，apps/zcode-cli 又没有测试基建——判定条件漂移无法被任何 harness 捕获。
+ * 收敛为 shared 纯谓词后由三处消费，矩阵测试落在 packages/shared/test。
+ * 注意：各消费方保留自己的入参解析（v4 的 resolveTurnAutomationId inputId 前缀兜底更严，
+ * 解析结果作为 automationId/offPeakTaskId 传入，而不是在这里重做解析）。
+ */
+export function botShareFileDeliveryTargetQualifies(
+  target: ZCodeAutomationBotDeliveryTarget | undefined,
+  context?: { automationId?: string; offPeakTaskId?: string },
+): boolean {
+  return (
+    target !== undefined &&
+    target.provider === "weixin" &&
+    target.chatType === "private" &&
+    !context?.automationId &&
+    !context?.offPeakTaskId
+  );
+}
+
 export const botShareFileFailureReasonSchema = z.enum([
   "no-target",
   "not-allowed",
