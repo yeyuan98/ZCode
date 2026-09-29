@@ -22,6 +22,8 @@ Covers: (A) app auto-update, (B) remote-asset downloads, (C) plugin marketplace 
 4. `allowPrerelease` floor rule (D-P5.1): `allowPrerelease = receivePreviewUpdates === true ||
 currentVersion has prerelease components`. Never below the electron-updater ctor default —
    while no stable release exists, `/releases/latest` 404s and every check would error.
+   **[P8 修订撤销：prerelease 分量下限已作废，现行规则仅为
+   `receivePreviewUpdates === true`（外加 dev 覆盖下限），见文末 P8 修订；本段保留为历史。]**
    `autoUpdater.channel` must NEVER be written (leftover channel values stall GitHubProvider's
    atom walk; guarded by test).
 5. The three P0-guarded update paths re-enable (flag

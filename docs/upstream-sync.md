@@ -1,4 +1,4 @@
-# 上游同步账本（Upstream Sync Ledger)
+# 上游同步账本（Upstream Sync Ledger）
 
 每次把上游 ZCode 变更合并进 Zodex 时在此追加一行。流程与规则见
 [versioning.md](versioning.md)；CHANGELOG 的 Upstream 分节只保留单行记录，细节以本表为准。

@@ -10,14 +10,15 @@ Status: implemented-by P0. Owner: desktop main process (`packages/desktop/src/ma
 2. **No vendor telemetry.** Alibaba ARMS RUM (`@arms/rum-electron`) and the 数仓 event pipeline
    (`ZCODE_TELEMETRY_REPORT_ENDPOINT`) are removed, along with every sender, bridge, patch,
    dependency, notice entry, and the desktop `device_mid` persistent identifier.
-3. **Update feed: vendor-manifest guard superseded by P5.** The P0 three-path disable (flag
+3. Update feed: vendor-manifest guard superseded by P5.\*\* The P0 three-path disable (flag
    `packages/shared/src/updateFeedPolicy.ts`) was a transitional guard for the vendor manifest
    feed: semver `3.14.3 > 3.14.3-alpha.N`, so the vendor feed would treat every alpha as
    outdated and auto-migrate/hard-block testers onto vendor builds. P5 deletes the vendor
-   provider, the force-update gate, AND the flag (see `specs/distribution-and-updates.md` §A
-   for the replacement design: GitHub provider, single `latest.yml` channel, allowPrerelease
-   floor rule). This section is retained as history; the live update policy lives in
-   `specs/distribution-and-updates.md`.
+   provider, the force-update gate, AND the flag (see
+   `specs/distribution-and-updates.md` §A for the replacement design: GitHub provider, single
+   `latest.yml` channel, allowPrerelease floor rule — the floor clause was later revoked by
+   the P8 修订 in that spec). This section is retained as history; the live update policy lives
+   in `specs/distribution-and-updates.md`.
 
 ## Ownership & invariants
 

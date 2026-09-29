@@ -195,8 +195,9 @@ function applyDevAutoUpdateRuntimeOverrides(): void {
     // currentVersion 改成产品版本，否则 3.3.1 -> 3.3.2 这类流程无法复现。
     mutableAutoUpdater.currentVersion = parsedVersion;
     // P5（D-P5.1）：ctor 已按改写前的运行壳版本计算 allowPrerelease；
-    // dev 覆盖版本是 alpha 时必须显式抬高（P8：init 随后的重算会叠加同一 dev 下限，
-    // 见 isDevPrereleaseAutoUpdateOverrideActive）。
+    // dev 覆盖版本是 alpha 时必须显式抬高（P8：init 随后的重算仅对 prerelease 覆盖
+    // 叠加同一 dev 下限——stable 覆盖会被重算按偏好收回，属预期行为——见
+    // isDevPrereleaseAutoUpdateOverrideActive）。
     mutableAutoUpdater.allowPrerelease = true;
   }
 
