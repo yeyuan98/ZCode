@@ -23,6 +23,10 @@ import { ResumeWorkflowRunToolCallBlock } from "@/ToolCallBlocks/renderers/resum
 import { ResolveWorkflowQuestionToolCallBlock } from "@/ToolCallBlocks/renderers/resolve-workflow-question.js";
 import { SaveWorkflowToolCallBlock } from "@/ToolCallBlocks/renderers/save-workflow.js";
 import {
+  ShareFileToolCallBlock,
+  isShareFileToolCall,
+} from "@/ToolCallBlocks/renderers/share-file.js";
+import {
   isEscalateToolCall,
   isEvalWorkflowSnippetToolCall,
   isGetWorkflowRunToolCall,
@@ -113,6 +117,13 @@ export function resolveToolCallRenderer(context: ToolCallBlockRenderContext) {
   }
   if (isResolveWorkflowQuestionToolCall(context.toolCallNode.toolCall)) {
     return ResolveWorkflowQuestionToolCallBlock;
+  }
+
+  // share_file（bot 会话文件投递）同款按名分流、排在 family 之前：它不在已知工具表里
+  // （identity 回 unknown → raw JSON 兜底卡）。chip 的路径读输入、结局读输出散文，
+  // 不解析结构化字段（结构化 filename/size 展示按 Alpha 1 契约延后）。
+  if (isShareFileToolCall(context.toolCallNode.toolCall)) {
+    return ShareFileToolCallBlock;
   }
 
   // 宿主 Node REPL 也通过 MCP 注册，因此同样带有 mcp_tool presentation。
