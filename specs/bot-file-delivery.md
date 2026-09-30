@@ -1,11 +1,13 @@
 # Spec: Bot Outbound File Delivery (Alpha 0 — WeChat `/file`; Alpha 1 — conversational `share_file`)
 
-Status: Alpha 0 **shipped** in `3.14.4-alpha.0` (PR #2, merge `a399b22`, tag `v3.14.4-alpha.0`;
-first alpha of the 3.14.4 train per docs/versioning.md); owner manual smoke on the deployed
-Windows rig passed 2026-09-29. Alpha 1 (Phase B, conversational `share_file`) **in progress** on
-branch `agent/coder/bot-file-delivery-alpha1-conversational` — Phase B implements the design
-contract reviewed & owner-approved 2026-09-29 (two independent subagent review rounds).
-Full-feature playbook: ../ZCode-handoff.md (later: Telegram/Feishu senders + remote workspaces).
+Status: Alpha 0 **shipped** in `3.14.4-alpha.0` (PR #2, merge `a399b22`; owner manual smoke
+2026-09-29). Alpha 1 (Phase B, conversational `share_file`) **shipped** in `3.14.4-alpha.1`
+(PR #4, merge `56312b9`, release commit `d6b9738`, tag `v3.14.4-alpha.1`; all 6 release jobs
+green, asset set + single-channel invariant verified; owner-rig manual validation passed
+2026-09-30). Phase B implements the design contract reviewed & owner-approved 2026-09-29
+(two independent subagent review rounds + one implementation review round).
+Next: Phase C (Telegram/Feishu senders + remote workspaces).
+Full-feature playbook: ../ZCode-handoff.md.
 Owners: bots service (`packages/services/src/bots/botsService.ts`) — command admission, path
 policy, size gates, `taskDeliveryRegistry` + `deliverWorkspaceFile` single writer + tool-source
 quota; weixin provider adapter (`providers/weixinProvider.ts`) — CDN upload + media sendmessage;
@@ -85,7 +87,7 @@ the deployed rig; 8 additionally covered by the full pre-existing bot regression
 7. Stale session (no recent inbound): send fails → retry-without-token → text fallback notice.
 8. All existing bot behavior unchanged (regression: run bots-related flows).
 
-## Phase B — Conversational delivery (share_file)
+## Phase B — Conversational delivery (share_file) — shipped in `3.14.4-alpha.1`
 
 ### Behavior
 
@@ -163,8 +165,10 @@ the deployed rig; 8 additionally covered by the full pre-existing bot regression
 
 ### Acceptance scenarios
 
-Coverage: 1, 9, 13 (incl. chip reload + phone replay) are owner-rig manual E2E per current
-plan; the rest are unit/integration — protocol zod tests (packages/shared), services tests
+Verified 2026-09-30: unit/integration coverage below all green (services 139/139, shared 32/32,
+UI 26/26; PR #4 CI 5/5); owner-rig manual E2E passed 2026-09-30 ("works well") on the released
+`3.14.4-alpha.1`. Coverage: 1, 9, 13 (incl. chip reload + phone replay) are owner-rig manual
+E2E; the rest are unit/integration — protocol zod tests (packages/shared), services tests
 extending `packages/services/test/botFileDelivery.test.ts` (guard matrix, quota incl.
 parallel-call TOCTOU + reserve/release, stale-registry terminal paths, single-writer,
 no-context-mutation, audit), and the shared deny-predicate matrix tests
