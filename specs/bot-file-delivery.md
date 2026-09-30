@@ -233,12 +233,13 @@ Owner decision (approved 2026-09-30): temp-file materialization approach; split 
    deliverWorkspaceFile (sole writer, botsService)
      ├─ admission re-eval (unchanged: bot enabled / bound / allowedCommands.file / private /
      │  adapter sendAttachment)          ← adapter gate runs BEFORE remote branch
-     ├─ quota reserve (tool source only; unchanged semantics)
+     ├─ [tool source only: quota reserve happens in shareFileForTask immediately
+     │  BEFORE entering deliverWorkspaceFile — reserve-before-IO, release-on-failure]
      ├─ remote fetch: bridge.getWorkspaceFileReader → chunked RPC read (≤512KiB/chunk,
      │  cumulative ≤5MB, per-chunk deadline 20s, total fetch budget 120s)
-     ├─ materialize: os.tmpdir()/zcode-bot-outbound/<random>/<filename> (mode 0600)
+     ├─ materialize: os.tmpdir()/zcode-bot-outbound/<random>/<filename> (dir 0700, file 0600)
      ├─ adapter.sendAttachment (unchanged; reads the temp localPath)
-     ├─ unlink temp (best-effort, in finally)
+     ├─ unlink temp (best-effort, in finally — removes the whole random dir)
      └─ quota release on failure (unchanged reserve/release semantics)
    ```
 
@@ -289,8 +290,9 @@ outside-workspace|not-found|too-large|unavailable; detail?}`. The remote CLI gat
    unknown reason fails closed into `send-failed`-style degradation (fail-safe, disclosed).
    Timeout budget: CLI RPC timeout stays 300s; all fetch failures surface as
    `remote-unavailable` far below it.
-8. **Audit.** Remote attempts add `remote=<workspaceIdentity>`; `path=` uses the
-   workspace-relative path from the RPC result (never a locally resolved path).
+8. **Audit.** Remote attempts add `remote=<workspaceIdentity>`; `path=` logs the
+   user-requested path as given (the wire result carries no relativePath; the desktop never
+   re-resolves or normalizes a remote path for logging).
 9. **Zero drift (local).** Local-workspace `/file` and `share_file` replies are byte-identical
    to `3.14.4-alpha.1` (pinned by regression fixtures). The Alpha 0 `/file` reply-order
    invariant (adapter → remote → empty path) is superseded: adapter gate first, then remote
@@ -324,6 +326,11 @@ Unit/integration (services `botFileDelivery.test.ts` + shared zod/policy tests):
 6. Wire schemas strict (unknown keys rejected; limit bounds; absolute `relativePath` →
    outside-workspace); shared path-policy helper matrix (lexical/realpath/symlink escape).
 7. Quota parity on remote tool sends incl. parallel reserve/release.
+8. Desktop bot-only gate: `createScopedBotWorkspaceFileService` matrix (non-bot attachment /
+   local scope / missing factory → no channel; bot-runtime + remote → scope-truth injected,
+   caller-supplied workspace fields ignored, service-level extra keys pass wire projection,
+   base throw and invalid wire input fold to structured unavailable) —
+   `packages/desktop/test/botWorkspaceFileGate.test.ts`.
 
 Manual rig (owner pause phase, blocks the alpha release):
 

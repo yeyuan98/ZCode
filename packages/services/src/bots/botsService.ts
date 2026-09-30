@@ -970,12 +970,13 @@ export async function revalidateWorkspaceFileForDelivery(
   }
 }
 
-/** 纯字符串工具：文件名去控制字符/路径分隔符并截断（入站缓存与出站临时文件共用）。 */
+/** 纯字符串工具：文件名去控制字符/路径分隔符并截断（入站缓存与出站临时文件共用）。
+ *  Review 修复：160 → 120，给 Windows MAX_PATH 留深路径余量（tmpdir + 随机目录 + 文件名）。 */
 function sanitizeAttachmentFilename(filename: string): string {
   const normalized = Array.from(filename.trim())
     .map((char) => (char.charCodeAt(0) < 32 || '\\/:*?"<>|'.includes(char) ? "_" : char))
     .join("");
-  return normalized.length > 0 ? normalized.slice(0, 160) : "attachment";
+  return normalized.length > 0 ? normalized.slice(0, 120) : "attachment";
 }
 
 /** 纯格式化工具：字节数 → 人类可读大小（未知/非正值 → unknown size）。 */
@@ -1141,7 +1142,9 @@ function fetchRemoteWorkspaceFileForDelivery(
     const tempDir = join(tmpdir(), "zcode-bot-outbound", randomBytes(16).toString("hex"));
     const tempFilePath = join(tempDir, safeFilename);
     try {
-      await mkdir(tempDir, { recursive: true });
+      // Review 修复：目录本身也收紧为 0700（recursive mkdir 的默认 0755 会暴露文件名列表；
+      // 文件内容仍由 0600 保护）。0700/0600 仅 POSIX 强制，Windows 忽略 mode。
+      await mkdir(tempDir, { recursive: true, mode: 0o700 });
       await writeFile(tempFilePath, Buffer.concat(chunks, totalBytes), { mode: 0o600 });
     } catch (error) {
       await rm(tempDir, { recursive: true, force: true }).catch(() => undefined);

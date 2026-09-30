@@ -90,7 +90,7 @@ import {
   type ZCodeAutomationRunOutcome,
   type ModelSelection,
 } from "@zcode/shared";
-import { v4BotWorkspaceFileReadParamsSchema } from "@zcode/shared/zcode-protocol-v4";
+import { createScopedBotWorkspaceFileService } from "./botWorkspaceFileGate.js";
 import {
   parseHostIncomingMessageEvent,
   rejectUnavailableAttachedServicePort,
@@ -1965,51 +1965,29 @@ function exposeServicesOnMessagePort(
   // P5 W4：会话分享 attachment connection-scope 覆盖（scopeConversationShareServiceForAttachment）
   // 已随分享服务删除；Agent 的 trusted-carrier 约束仍由上方 connectionScope 统一持有。
   services.exposeOnChannelServer(server, overrides);
-  // Bot-only 锁（Phase C Alpha 2）：bot-workspace-file channel 不进任何
-  // ServiceCollection——renderer/relay/phone attachment 的 exposeOnChannelServer
-  // 结构上注册不到它；只有 main 以 attachmentKind="bot-runtime" 标记的远端
-  // attachment 在这里显式挂上（窄化单方法，workspace 由本 Host 按 scope 注入，
-  // 调用方自报值被忽略）。旧远端 server 无该 channel 时调用方得到结构化
-  // unavailable（见下方包装），不会悬挂。
-  if (attachmentKind === "bot-runtime" && attachmentScope.kind === "remote") {
-    const remoteBotWorkspaceFileService = capabilities?.botWorkspaceFileServiceFactory?.();
-    if (remoteBotWorkspaceFileService) {
-      const scopedBotWorkspaceFileService: IBotWorkspaceFileService = {
-        readWorkspaceFile: async (params) => {
-          // 先按 v4 wire schema 严格校验调用方输入（limit/offset/relativePath），
-          // 再覆盖 workspace 字段为本 attachment 的 scope 真值。
-          const wireParams = v4BotWorkspaceFileReadParamsSchema.parse(params);
-          try {
-            return await remoteBotWorkspaceFileService.readWorkspaceFile({
-              relativePath: wireParams.relativePath,
-              offset: wireParams.offset,
-              limit: wireParams.limit,
-              workspacePath: attachmentScope.workspacePath,
-              workspaceIdentity: attachmentScope.workspaceIdentity,
-            });
-          } catch (error) {
-            // 旧远端 zcode-server 未注册该 channel / SSH 中断：折叠为结构化
-            // unavailable，调用方映射 remote-unavailable，不依赖错误文本。
-            return {
-              ok: false,
-              reason: "unavailable" as const,
-              detail: error instanceof Error ? error.message : String(error),
-            };
-          }
-        },
-      };
-      server.registerChannel(
-        IBotWorkspaceFileService.channelName,
-        ProxyChannel.fromService(scopedBotWorkspaceFileService),
-      );
-      logger.info(
-        `bot workspace file channel exposed, scope=remote, attachmentKind=bot-runtime, clientMode=${clientMode}`,
-      );
-    } else {
-      logger.warn(
-        "bot-runtime attachment without botWorkspaceFileServiceFactory; workspace file reads unavailable",
-      );
-    }
+  // Bot-only 锁（Phase C Alpha 2）：gate 判定 + scope 注入 + wire 校验折叠收敛在
+  // createScopedBotWorkspaceFileService（独立文件，可脱离 Electron MessagePort 单测）。
+  // channel 不进任何 ServiceCollection——renderer/relay/phone attachment 的
+  // exposeOnChannelServer 结构上注册不到它；只有 main 以 attachmentKind="bot-runtime"
+  // 标记的远端 attachment 在这里显式挂上。旧远端 server 无该 channel 时调用方得到
+  // 结构化 unavailable（见包装），不会悬挂。
+  const scopedBotWorkspaceFileService = createScopedBotWorkspaceFileService({
+    attachmentKind,
+    attachmentScope,
+    factory: capabilities?.botWorkspaceFileServiceFactory,
+  });
+  if (scopedBotWorkspaceFileService) {
+    server.registerChannel(
+      IBotWorkspaceFileService.channelName,
+      ProxyChannel.fromService(scopedBotWorkspaceFileService),
+    );
+    logger.info(
+      `bot workspace file channel exposed, scope=remote, attachmentKind=bot-runtime, clientMode=${clientMode}`,
+    );
+  } else if (attachmentKind === "bot-runtime" && attachmentScope.kind === "remote") {
+    logger.warn(
+      "bot-runtime attachment without botWorkspaceFileServiceFactory; workspace file reads unavailable",
+    );
   }
   let disposed = false;
   let flowUpdateChain = Promise.resolve();

@@ -44,7 +44,7 @@ import type { BotProviderAdapter } from "../src/bots/providers/types.js";
 import type { V4BotWorkspaceFileReadResult } from "@zcode/shared/zcode-protocol-v4";
 import { mkdtemp, mkdir, writeFile, symlink, rm, readFile, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, basename, dirname } from "node:path";
 
 // specs/bot-file-delivery.md §5：出站媒体协议不变量（2026-09-29 生产环境实测）。
 
@@ -298,6 +298,8 @@ interface SendAttachmentCall {
   attachment: BotOutboundAttachment;
   /** 调用时刻 localPath 的真实内容（不存在 → null）：远程物料化断言用。 */
   localFileBytes: Buffer | null;
+  /** 调用时刻 localPath 的 mode（不存在 → null；POSIX 才有意义）：Review 修复断言用。 */
+  localFileMode: number | null;
 }
 
 /** Phase C Alpha 2：可注入的远端 workspace 文件 reader fake（结构对齐 IBotWorkspaceFileService）。 */
@@ -525,7 +527,17 @@ async function createHarness(options: HarnessOptions = {}): Promise<Harness> {
         (data) => data,
         () => null,
       );
-      sendAttachmentCalls.push({ botId: bot.id, message, attachment, localFileBytes });
+      const localFileMode = await stat(attachment.localPath).then(
+        (info) => info.mode & 0o777,
+        () => null,
+      );
+      sendAttachmentCalls.push({
+        botId: bot.id,
+        message,
+        attachment,
+        localFileBytes,
+        localFileMode,
+      });
     },
   };
   // feishu 覆盖为无 sendAttachment 能力的 stub：用于 unsupported-provider 判定。
@@ -1579,6 +1591,42 @@ test("远程 tool happy path：分块取回 → 恰好一次 adapter 投递 + �
   }
 });
 
+test("远程物料化卫生：恶意文件名消毒、0600（POSIX）、发送后临时目录整体清理", async () => {
+  // Review 修复：钉住临时文件卫生矩阵——文件名攻击（路径穿越/控制字符/超长）、
+  // 0600 mode、以及 finally 清理的是整个随机目录而不只是文件。
+  const hostileName = `../../evil\u0007:name/<>.png${"x".repeat(200)}`;
+  const harness = await createHarness({
+    remoteReader: createFakeRemoteReader({
+      filename: hostileName,
+      content: Buffer.from("payload"),
+    }),
+  });
+  try {
+    rememberRemoteDeliveryEntry(harness);
+    const result = await harness.service.shareFileForTask({
+      taskId: CONVERSATIONAL_TASK_ID,
+      path: "out/evil.bin",
+    });
+    assert.equal(result.ok, true);
+    assert.equal(harness.sendAttachmentCalls.length, 1);
+    const call = harness.sendAttachmentCalls[0];
+    // localPath 必须留在 tmp 根内；basename 无路径分隔符、截断到 120、穿越段被消毒。
+    assert.ok(call.attachment.localPath.startsWith(join(tmpdir(), "zcode-bot-outbound")));
+    const base = basename(call.attachment.localPath);
+    assert.ok(!base.includes("/") && !base.includes("\\"), "basename 不得含路径分隔符");
+    assert.ok(base.length <= 120, "basename 截断到 120（Windows MAX_PATH 余量）");
+    assert.ok(base.startsWith(".._.._evil"), "穿越段必须被消毒为安全字符");
+    if (process.platform !== "win32") {
+      assert.equal(call.localFileMode, 0o600);
+    }
+    assert.deepEqual(call.localFileBytes, Buffer.from("payload"));
+    // 发送结束后临时目录（不只是文件）被整体清理。
+    await assert.rejects(stat(dirname(call.attachment.localPath)), /ENOENT/);
+  } finally {
+    await harness.dispose();
+  }
+});
+
 test("远程 reader typed 拒绝 1:1 映射：outside-workspace / not-found / too-large，零投递", async () => {
   const control: FakeReaderControl = {};
   const harness = await createHarness({
@@ -1673,12 +1721,15 @@ test("/file 远程失败映射：remote-unavailable 回复新本地化文案", a
 
 test("远程 5MB 硬上限：累积超限 / 分块间增长 → too-large；非 eof 空块 → remote-unavailable", async () => {
   // 1) 累积字节越过 5MB（neverEof 让远端一直喂块）。
+  //    Review 修复：sizeBytesAtChunk 钉在 5MB 上限——否则 fake reader 缺省回传
+  //    content.length=5.5MB，会先触发「单块整文件 stat > 上限」分支，累积分支永远走不到。
   const cumulativeHarness = await createHarness({
     remoteReader: createFakeRemoteReader({
       filename: "big.bin",
       content: Buffer.alloc(5_500_000),
       chunkSize: 524_288,
       neverEof: true,
+      sizeBytesAtChunk: () => 5 * 1024 * 1024,
     }),
   });
   // 2) 分块间增长：第 2 块回传的整文件大小已越过上限（读取时刻 stat 增长）。
