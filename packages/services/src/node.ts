@@ -248,6 +248,11 @@ import { IZCodeAgentService } from "./zcode-agent/zcodeAgent.js";
 import type { CuaOperationStateReporter } from "./zcode-agent/cuaOperationTurnTracker.js";
 import { IZCodeSessionService } from "./zcode-session/zcodeSession.js";
 import { IBotsService } from "./bots/bots.js";
+import {
+  createBotWorkspaceFileService,
+  IBotWorkspaceFileService,
+  type BotWorkspaceFileV4Forwarder,
+} from "./bots/botWorkspaceFileService.js";
 import { IFileWatcherService } from "./fileWatcher/fileWatcher.js";
 import { IUsageStatsService } from "./usage-stats/usageStats.js";
 // P5 D-P5.4：IClientScenesService 已随 endpoint web / clientScenes 链删除。
@@ -1764,6 +1769,10 @@ export function createLocalServices(options: {
   // bots/shareFile（Phase B 对话式 share_file）：IBotsService 单例同样在下方注册链创建
   // （晚于 agent service），沿用 OffPeak 的前向引用模式；协议请求只会发生在装配完成后。
   let botsServiceForAgent: Pick<IBotsService, "shareFileForTask"> | undefined;
+  // Bot 出站投递（Phase C Alpha 2）：从 agent service 取走窄化 workspace 文件 v4
+  // 读取闭包（见 CreateZCodeAgentServiceOptions.botWorkspaceFileReaderSink 的暴露
+  // 边界说明）。reader 不挂在 agent service 对象上，杜绝经 agent channel 泄漏。
+  let botWorkspaceFileReader: BotWorkspaceFileV4Forwarder | undefined;
   // desktop-attached-remote 装配不暴露 Off-Peak 工具面（远程不在支持范围）。
   const offPeakToolWiring =
     options?.serviceAuthorityMode === "desktop-attached-remote"
@@ -1804,6 +1813,15 @@ export function createLocalServices(options: {
       botsServiceForAgent
         ? botsServiceForAgent.shareFileForTask(params)
         : Promise.resolve({ ok: false, reason: "no-target" } satisfies BotShareFileResult),
+    // 读取闭包只在 desktop-attached-remote 装配消费（见下方 IBotWorkspaceFileService
+    // 注册）；其余装配不取，agent 侧零成本。
+    ...(isDesktopAttachedRemote
+      ? {
+          botWorkspaceFileReaderSink: (reader: BotWorkspaceFileV4Forwarder) => {
+            botWorkspaceFileReader = reader;
+          },
+        }
+      : {}),
     cuaOperationStateReporter: shouldEnableCuaOperationStateReporter({
       serviceAuthorityMode: options?.serviceAuthorityMode,
       hasReporter: Boolean(options?.cuaOperationStateReporter),
@@ -2223,6 +2241,17 @@ export function createLocalServices(options: {
   // 见 sharedSqliteRepos 声明处注释：登记全部 tasks-index sqlite 句柄，dispose 链统一关闭
   sqliteReposToClose.push(taskIndexRepo);
   sharedSqliteRepos.set(services, sqliteReposToClose);
+  // Bot 出站投递的远端 workspace 文件读取（Phase C Alpha 2）：只在
+  // desktop-attached-remote 装配（远端 zcode-server）注册——desktop-local 集合
+  // 不含本 channel，本地 renderer/relay/phone attachment 的 exposeOnChannelServer
+  // 便结构上不可见（bot-only 锁的一半；另一半在 window Host 的 attachmentKind 门）。
+  // v4 转发复用 zcodeAgentService 的只读 runtime client（单一进程队列，无并行 CLI）。
+  if (isDesktopAttachedRemote && botWorkspaceFileReader) {
+    services.register(
+      IBotWorkspaceFileService,
+      createBotWorkspaceFileService(botWorkspaceFileReader),
+    );
+  }
   return services;
 }
 

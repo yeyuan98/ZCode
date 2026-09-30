@@ -224,6 +224,11 @@ export const hostAttachServicePortMessageSchema = z
     attachmentId: nonEmptyStringSchema,
     clientMode: z.enum(["desktop-continuous", "web-remote-replayable"]),
     scope: windowHostAttachmentScopeSchema,
+    // Bot-only 锁（Phase C Alpha 2）：唯一合法值，仅 desktop main 的
+    // createBotRemoteWorkspaceRuntimePort 设置。window Host 见到该标记才在端口上
+    // 挂 IBotWorkspaceFileService 窄化 channel；renderer/relay/phone attachment
+    // 不携带此字段，结构上看不到该 channel。additive optional，旧 main 不受影响。
+    attachmentKind: z.literal("bot-runtime").optional(),
   })
   .strict();
 

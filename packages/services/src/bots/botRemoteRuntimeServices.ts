@@ -21,6 +21,10 @@ import {
   IModelSelectionService,
   type IModelSelectionService as IModelSelectionServiceShape,
 } from "#src/model-provider/providerFacadeServices.js";
+import {
+  IBotWorkspaceFileService,
+  type IBotWorkspaceFileService as IBotWorkspaceFileServiceShape,
+} from "#src/bots/botWorkspaceFileService.js";
 
 interface PortLike {
   on?(event: "message", listener: (event: { data: MessagePortPayload }) => void): void;
@@ -71,6 +75,12 @@ export interface RemoteBotWorkspaceRuntimeServices {
   zcodeTaskService: IZCodeTaskServiceShape;
   zcodeSessionService: IZCodeSessionServiceShape;
   modelSelectionService: IModelSelectionServiceShape;
+  /**
+   * Bot 出站投递的远端 workspace 文件读取（Phase C Alpha 2）。旧 window Host 的
+   * attachment 端口上没有该 channel——调用会以 RPC 错误拒绝，调用方
+   * （botsService）按 remote-unavailable 映射。
+   */
+  botWorkspaceFileService: IBotWorkspaceFileServiceShape;
 }
 
 export function createRemoteRuntimeServicesFromPort(
@@ -90,6 +100,9 @@ export function createRemoteRuntimeServicesFromPort(
     ),
     modelSelectionService: ProxyChannel.toService<IModelSelectionServiceShape>(
       client.getChannel(IModelSelectionService.channelName),
+    ),
+    botWorkspaceFileService: ProxyChannel.toService<IBotWorkspaceFileServiceShape>(
+      client.getChannel(IBotWorkspaceFileService.channelName),
     ),
   };
 }

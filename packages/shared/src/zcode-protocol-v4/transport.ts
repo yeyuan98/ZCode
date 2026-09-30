@@ -377,6 +377,10 @@ export const V4_METHODS = {
   conversationAttachmentRead: "v4/conversation/attachmentRead",
   // Share 预检 userInput 附件元数据：只做 row/index 授权和 stat，不读取完整文件。
   conversationAttachmentStat: "v4/conversation/attachmentStat",
+  // Bot 出站投递读取远端 workspace 文件（Phase C Alpha 2）：按 ≤512KiB 分块回传，
+  // 路径 containment 完全由远端 CLI（文件系统所有者）裁决；desktop host 侧只在
+  // bot-runtime 标记的 attachment 上经窄化 IBotWorkspaceFileService 触达本方法。
+  botWorkspaceFileRead: "v4/bot-workspace-file/read",
   // Desktop local 已发送视频：只返回经过同一 row/index 授权的本地播放源。
   attachmentPreviewSource: "v4/attachment/previewSource",
   commandsQuery: "v4/commands/query",
@@ -1063,6 +1067,76 @@ export const v4AttachmentReadResultSchema = z
     }
   });
 export type V4AttachmentReadResult = z.infer<typeof v4AttachmentReadResultSchema>;
+
+/**
+ * Bot 出站投递的远端 workspace 文件分块读（specs/bot-file-delivery.md Phase C）。
+ *
+ * `relativePath` 只接受相对路径：绝对路径不在这里被 schema 拒绝，而是透传给远端
+ * CLI，由文件系统所有者按远端 OS 语义判成 `outside-workspace`（结果语义，不是
+ * 协议错误）。路径 containment 的唯一裁决者是远端机器。
+ */
+export const v4BotWorkspaceFileReadParamsSchema = z
+  .object({
+    relativePath: z.string().trim().min(1),
+    offset: z.number().int().nonnegative(),
+    limit: z.number().int().positive().max(PROTOCOL_V4_LIMITS.attachmentChunkMaxBytes),
+  })
+  .strict();
+export type V4BotWorkspaceFileReadParams = z.infer<typeof v4BotWorkspaceFileReadParamsSchema>;
+
+export const v4BotWorkspaceFileReadFailureReasonSchema = z.enum([
+  "outside-workspace",
+  "not-found",
+  "too-large",
+  "unavailable",
+]);
+export type V4BotWorkspaceFileReadFailureReason = z.infer<
+  typeof v4BotWorkspaceFileReadFailureReasonSchema
+>;
+
+/**
+ * ok 分支：`sizeBytes` 是读取时刻的整文件大小；`eof` 表示 offset+chunk 已覆盖到
+ * 文件末尾（含 offset 越过 EOF 的空读终止）。失败分支 reason 与 bots 侧
+ * outside-workspace / not-found / too-large 1:1 映射；`unavailable` 覆盖旧远端
+ * CLI 不认识本方法（-32601）、传输中断等路由层失败——调用方据此归为
+ * remote-unavailable，不依赖错误文本。
+ */
+export const v4BotWorkspaceFileReadResultSchema = z.discriminatedUnion("ok", [
+  z
+    .object({
+      ok: z.literal(true),
+      filename: z.string().min(1),
+      sizeBytes: z.number().int().nonnegative(),
+      dataBase64: z.string(),
+      eof: z.boolean(),
+    })
+    .strict()
+    .superRefine((value, context) => {
+      const decodedBytes = decodedBase64ByteLength(value.dataBase64);
+      if (decodedBytes === null) {
+        context.addIssue({ code: "custom", message: "invalid base64", path: ["dataBase64"] });
+        return;
+      }
+      if (decodedBytes > PROTOCOL_V4_LIMITS.attachmentChunkMaxBytes) {
+        context.addIssue({
+          code: "too_big",
+          maximum: PROTOCOL_V4_LIMITS.attachmentChunkMaxBytes,
+          origin: "string",
+          inclusive: true,
+          message: "workspace file read chunk exceeds decoded byte limit",
+          path: ["dataBase64"],
+        });
+      }
+    }),
+  z
+    .object({
+      ok: z.literal(false),
+      reason: v4BotWorkspaceFileReadFailureReasonSchema,
+      detail: z.string().optional(),
+    })
+    .strict(),
+]);
+export type V4BotWorkspaceFileReadResult = z.infer<typeof v4BotWorkspaceFileReadResultSchema>;
 
 /** Share 读取用户输入附件，允许任意已授权 MIME，不改变媒体预览 read 的语义。 */
 export const v4ConversationAttachmentReadParamsSchema = z

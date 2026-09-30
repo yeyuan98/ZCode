@@ -6,7 +6,8 @@ Status: Alpha 0 **shipped** in `3.14.4-alpha.0` (PR #2, merge `a399b22`; owner m
 green, asset set + single-channel invariant verified; owner-rig manual validation passed
 2026-09-30). Phase B implements the design contract reviewed & owner-approved 2026-09-29
 (two independent subagent review rounds + one implementation review round).
-Next: Phase C (Telegram/Feishu senders + remote workspaces).
+Next: Phase C — Alpha 2 = remote workspaces (spec below, in progress); Alpha 3 =
+Telegram/Feishu outbound senders (not yet spec'd).
 Full-feature playbook: ../ZCode-handoff.md.
 Owners: bots service (`packages/services/src/bots/botsService.ts`) — command admission, path
 policy, size gates, `taskDeliveryRegistry` + `deliverWorkspaceFile` single writer + tool-source
@@ -36,6 +37,8 @@ Related: `docs/versioning.md` (patch 3.14.4 = full bidirectional file sync).
    arrives in a later alpha; it never pretends success and never reads local paths for a remote
    context. (A _disconnected_ remote workspace surfaces the standard `/重连` hint first —
    `blockDisconnectedRemoteWorkspace` runs before the `/file` guard.)
+   **Superseded by Phase C Alpha 2** (below): remote delivery now succeeds; this Alpha 0
+   wording is kept for history only.
 5. **Delivery pipeline (probe-proven 2026-09-29, see ../ZCode-handoff.md §5).**
    `getuploadurl` → AES-128-ECB(+PKCS7) encrypt → CDN ciphertext POST (read
    `x-encrypted-param` response header) → `sendmessage` with `image_item|file_item|video_item`.
@@ -214,3 +217,120 @@ spot checks, not CLI tests.
     [services tests]
 15. Audit per attempt: bot, peer, relative path, size, outcome, taskId, source.
     [services tests]
+
+## Phase C — Alpha 2: remote workspaces (WeChat) — spec'd 2026-09-30, in progress
+
+Owner decision (approved 2026-09-30): temp-file materialization approach; split Alpha 2
+(remote) / Alpha 3 (channels); Alpha 2 targets `3.14.4-alpha.2`.
+
+### Behavior
+
+1. **Remote delivery.** On a remote workspace context (`workspaceIdentity` set) that is
+   connected, both `/file <path>` and conversational `share_file` fetch the file's bytes from
+   the remote machine and deliver it through the unchanged single-writer path. Event order:
+
+   ```text
+   deliverWorkspaceFile (sole writer, botsService)
+     ├─ admission re-eval (unchanged: bot enabled / bound / allowedCommands.file / private /
+     │  adapter sendAttachment)          ← adapter gate runs BEFORE remote branch
+     ├─ quota reserve (tool source only; unchanged semantics)
+     ├─ remote fetch: bridge.getWorkspaceFileReader → chunked RPC read (≤512KiB/chunk,
+     │  cumulative ≤5MB, per-chunk deadline 20s, total fetch budget 120s)
+     ├─ materialize: os.tmpdir()/zcode-bot-outbound/<random>/<filename> (mode 0600)
+     ├─ adapter.sendAttachment (unchanged; reads the temp localPath)
+     ├─ unlink temp (best-effort, in finally)
+     └─ quota release on failure (unchanged reserve/release semantics)
+   ```
+
+2. **New v4 wire method `v4/bot-workspace-file/read`** (desktop host → remote CLI gateway;
+   `V4_METHODS` in `packages/shared/src/zcode-protocol-v4/transport.ts`, strict-zod params/result
+   schemas alongside existing v4 attachment schemas). Params: `{relativePath: string (trimmed,
+min 1 — RELATIVE only; absolute input → outside-workspace), offset: uint, limit: uint
+1..524288}`. Result: `{ok:true; filename; sizeBytes; dataBase64; eof}` | `{ok:false; reason:
+outside-workspace|not-found|too-large|unavailable; detail?}`. The remote CLI gateway handler
+   (`apps/zcode-cli/packages/bootstrap/src/zcode-protocol/server.ts`, mirroring the
+   `attachmentRead` case) owns ALL path semantics with remote-OS rules: lexical resolve →
+   realpath → must sit inside the realpath'd workspace root (its cwd); re-stat per chunk read
+   (growth → too-large); whole-file stat >10MB rejected (defense in depth above the 5MB product
+   cap). Pure path-policy helpers live in `packages/shared` with tests there (apps/zcode-cli has
+   no test harness).
+3. **Bot-only exposure (the security lock).** The read capability is served ONLY on bot runtime
+   attachments: desktop main marks the `AttachServicePort` message with
+   `attachmentKind: "bot-runtime"` in `createBotRemoteWorkspaceRuntimePort`
+   (`desktopRemoteSessions.ts`) — the only caller that sets it — and the desktop host
+   (`packages/desktop/src/host/index.ts` AttachServicePort handler) exposes the narrow
+   `IBotWorkspaceFileService` channel (single method) only when that marker is present. Renderer
+   / relay / phone replay attachments share `IZCodeAgentService` and structurally never see this
+   channel. **Recorded decision: `IZCodeAgentService` is NOT extended with a workspace-file
+   read** — replay clients reach it, so it stays ref-scoped (attachment/conversation/artifact).
+   The channel's host-side impl forwards to the v4 method above.
+4. **Bridge accessor.** `createBotRemoteWorkspaceService` gains
+   `getWorkspaceFileReader({workspacePath, workspaceIdentity})`, reusing the cached
+   `getRuntimeServices` port (same lifecycle/failure modes: throws when no attachable route,
+   60s init timeout). `createRemoteRuntimeServicesFromPort` wraps the new channel via
+   `ProxyChannel.toService`.
+5. **Materialization.** Chunks reassemble in memory (≤5MB) → temp file under
+   `os.tmpdir()/zcode-bot-outbound/<random>/<filename>`, mode 0600, delivered via the unchanged
+   `BotOutboundAttachment.localPath` contract, unlinked best-effort in `finally`. NOT under
+   `~/.zcode/v2` (cleanability "none" there; tmpdir is OS-cleanable). Temp files are outside the
+   workspace → never re-shareable via `/file` (parity with the inbound cache exclusion).
+6. **Failure mapping.** New additive reason `remote-unavailable` (shared enum + CLI mirror +
+   zh/en copy) covers: bridge absent, no attachable route, runtime init failure/timeout, old
+   remote CLI missing the v4 method, mid-read RPC failure, chunk/total budget exceeded.
+   Disconnected remote: `/file` keeps the existing `/重连` hint first
+   (`blockDisconnectedRemoteWorkspace` unchanged); tool path returns `remote-unavailable`.
+   Remote reader's typed rejections map 1:1 to existing `outside-workspace`/`not-found`/
+   `too-large`. `remote-workspace` stays in the enums for old-CLI compatibility but new hosts
+   no longer emit it (adapter gate still yields `unsupported-provider` where applicable).
+   No auto-reconnect inside delivery (never calls `ensureConnected`).
+7. **CLI mirror + prose.** `BOT_SHARE_FILE_FAILURE_REASONS` (contracts) gains
+   `remote-unavailable`; CLI tool-result prose gains the case; stale `remote-workspace` prose
+   ("not available yet") updated to reflect shipped remote delivery. Old CLI + new host:
+   unknown reason fails closed into `send-failed`-style degradation (fail-safe, disclosed).
+   Timeout budget: CLI RPC timeout stays 300s; all fetch failures surface as
+   `remote-unavailable` far below it.
+8. **Audit.** Remote attempts add `remote=<workspaceIdentity>`; `path=` uses the
+   workspace-relative path from the RPC result (never a locally resolved path).
+9. **Zero drift (local).** Local-workspace `/file` and `share_file` replies are byte-identical
+   to `3.14.4-alpha.1` (pinned by regression fixtures). The Alpha 0 `/file` reply-order
+   invariant (adapter → remote → empty path) is superseded: adapter gate first, then remote
+   branch; empty-path check position unchanged.
+
+### Invariants
+
+- `deliverWorkspaceFile` remains the sole media-delivery entry; remote fetch happens inside it,
+  before any adapter call; adapters never learn about remoteness (localPath contract unchanged).
+- The machine that owns the filesystem is the ONLY decider of remote path containment; the
+  desktop never resolves/realpaths remote paths locally and never trusts a remote absolute path.
+- The workspace-file read channel exists only on bot-runtime-marked attachments (structural
+  guarantee, not a role heuristic); replay/renderer/phone attachments cannot call it.
+- Materialized temp file is the only local artifact: outside workspace + `~/.zcode/v2`, 0600,
+  deleted in `finally`; a crash may leak at most one ≤5MB temp file in the OS tmpdir.
+- Quota reserve/release semantics identical for remote and local (tool source only).
+- All wire additions optional/additive; old remote CLI → typed `unavailable` → surfaced as
+  `remote-unavailable`; old host + new CLI unaffected.
+
+### Acceptance scenarios
+
+Unit/integration (services `botFileDelivery.test.ts` + shared zod/policy tests):
+
+1. Remote happy path: fake reader returns 2 chunks → exactly one `adapter.sendAttachment` with
+   the materialized temp path; temp unlinked after; audit carries `remote=`.
+2. Reader typed rejections map 1:1 (outside-workspace / not-found / too-large); nothing sent.
+3. Cumulative >5MB mid-chunk → too-large; chunk deadline / total budget exceeded →
+   remote-unavailable; reader missing/init throw → remote-unavailable.
+4. Disconnected remote: `/file` → reconnect hint (pinned); tool → remote-unavailable.
+5. Zero-drift: local-context `/file` + tool replies identical to pre-Alpha-2 fixtures.
+6. Wire schemas strict (unknown keys rejected; limit bounds; absolute `relativePath` →
+   outside-workspace); shared path-policy helper matrix (lexical/realpath/symlink escape).
+7. Quota parity on remote tool sends incl. parallel reserve/release.
+
+Manual rig (owner pause phase, blocks the alpha release):
+
+1. Local regression: `/file` + conversational share behave exactly as `3.14.4-alpha.1`.
+2. Remote happy path: `/file <path>` and "发给我" both deliver the real file from the remote
+   workspace; chip survives restart.
+3. Trick paths on remote: `../outside.txt`, missing file, >5MB → honest localized refusals.
+4. Disconnect the remote machine: `/file` shows the reconnect hint; conversational share
+   reports the precise unreachable reason; never fake success.
+5. Rapid-fire conversational asks (quota unchanged); temp dir spot check afterwards.

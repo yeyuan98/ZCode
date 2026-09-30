@@ -178,6 +178,7 @@ import type {
   ZCodeAgentAttachmentBeginParams,
   ZCodeAgentAttachmentChunkParams,
   ZCodeAgentAttachmentReadParams,
+  ZCodeAgentBotWorkspaceFileReadParams,
   ZCodeAgentConversationAttachmentReadParams,
   ZCodeAgentConversationAttachmentStatParams,
   ZCodeAgentAttachmentPreviewSourceParams,
@@ -229,6 +230,8 @@ import {
   v4AttachmentPreviewSourceResultSchema,
   v4AttachmentReadParamsSchema,
   v4AttachmentReadResultSchema,
+  v4BotWorkspaceFileReadParamsSchema,
+  v4BotWorkspaceFileReadResultSchema,
   v4ConversationAttachmentReadParamsSchema,
   v4ConversationAttachmentReadResultSchema,
   v4ConversationAttachmentStatParamsSchema,
@@ -262,6 +265,7 @@ import {
   type SessionsIndexTopicWireCandidate,
   type WorkspaceConfigTopicWireCandidate,
   type CommandEnvelope,
+  type V4BotWorkspaceFileReadResult,
 } from "@zcode/shared/zcode-protocol-v4";
 import {
   readTrustedZCodeAgentV4Connection,
@@ -835,6 +839,16 @@ interface CreateZCodeAgentServiceOptions extends Omit<
 > {
   /** 仅供 MCP 状态探测进程使用，不能把空闲回收传给 chat。 */
   mcpStatusIdleTimeoutMs?: number;
+  /**
+   * Bot 出站投递（Phase C Alpha 2）：desktop-attached-remote 装配用它取走窄化的
+   * workspace 文件 v4 读取闭包（复用本 service 的只读 runtime client，单一队列）。
+   * 刻意不放进返回的 service 对象：IZCodeAgentService 接口按已记录决议不扩展
+   * （replay 客户端共享该接口），connection scope 的 catch-all Proxy 也不能把
+   * 该方法漏到 wire 上——bot-only 暴露只在 IBotWorkspaceFileService channel。
+   */
+  botWorkspaceFileReaderSink?: (reader: {
+    readV4(params: ZCodeAgentBotWorkspaceFileReadParams): Promise<V4BotWorkspaceFileReadResult>;
+  }) => void;
   /** Desktop Host 请求 Main 登记 Agent 已授权的精确本地视频路径。 */
   authorizeLocalMediaPreviewPath?: (path: string) => Promise<string>;
   modelSelectionReadinessSource?: ModelSelectionReadinessSource;
@@ -2871,6 +2885,39 @@ export function createZCodeAgentService(
     }
     return envelope;
   }
+
+  // Bot 出站投递（Phase C Alpha 2）：把窄化 v4 读取闭包交给装配方注册成
+  // IBotWorkspaceFileService。reader 绝不进入下方返回的 service 对象——
+  // connection scope 是 catch-all Proxy，任何挂在 service 上的成员都会漏到
+  // agent channel 的 wire 面，破坏「replay 客户端共享 IZCodeAgentService、接口
+  // 不扩展 workspace 文件读取」的已记录决议与 bot-only 结构锁。
+  options?.botWorkspaceFileReaderSink?.({
+    readV4: async (params: ZCodeAgentBotWorkspaceFileReadParams) => {
+      const wireParams = v4BotWorkspaceFileReadParamsSchema.parse({
+        relativePath: params.relativePath,
+        offset: params.offset,
+        limit: params.limit,
+      });
+      const client = await getReadOnlyClient(params);
+      try {
+        return await client.request(
+          V4_METHODS.botWorkspaceFileRead,
+          wireParams,
+          v4BotWorkspaceFileReadResultSchema,
+        );
+      } catch (error) {
+        // 旧远端 CLI 不认识 v4/bot-workspace-file/read（-32601 Method not found）、
+        // 传输中断或响应解析失败，对投递语义都是「本次经该路由读不到」。
+        // 统一折叠为结构化 unavailable：调用方（botsService）据此映射
+        // remote-unavailable，不依赖错误码/文本嗅探，也不改变既有错误路径。
+        return {
+          ok: false,
+          reason: "unavailable",
+          detail: error instanceof Error ? error.message : String(error),
+        };
+      }
+    },
+  });
 
   return {
     async prepareStorage(params) {

@@ -131,6 +131,12 @@ export const ServiceChannels = {
   SettingsSync: "settings-sync",
   /** Bots 远程聊天控制服务 */
   Bots: "bots",
+  /**
+   * Bot 出站投递的远端 workspace 文件读取（Phase C Alpha 2）。窄化单方法 channel：
+   * 只在 desktop-attached-remote 服务集合注册，且 window Host 只把它挂到
+   * bot-runtime 标记的 attachment 端口上（renderer/relay/phone 结构上不可见）。
+   */
+  BotWorkspaceFile: "bot-workspace-file",
   /** Composer 附件在 host-local 与 remote runtime 之间的预传服务 */
   PromptAttachmentTransfer: "prompt-attachment-transfer",
   /** 闲时任务管理服务（与 automation 服务面独立） */
