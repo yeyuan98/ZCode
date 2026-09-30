@@ -83,7 +83,12 @@ export const botShareFileFailureReasonSchema = z.enum([
   "no-target",
   "not-allowed",
   "unsupported-provider",
+  // "remote-workspace" 仅为旧 CLI 兼容保留：Phase C Alpha 2 起新 host 不再产生该
+  // reason（远程已可投递）；新 CLI 仍会为旧 host 的该 reason 渲染散文。
   "remote-workspace",
+  // Phase C Alpha 2：远程取回失败（bridge 缺席/无 attachable route/初始化失败/超时/
+  // 超预算/中途 RPC 失败）统一映射为该 reason。
+  "remote-unavailable",
   "outside-workspace",
   "not-found",
   "too-large",

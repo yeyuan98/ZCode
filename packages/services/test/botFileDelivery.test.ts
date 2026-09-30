@@ -41,7 +41,8 @@ import type { IZCodeTaskService } from "../src/session/zcodeTaskService.js";
 import type { ICredentialService } from "../src/credential/credential.js";
 import type { IModelSelectionService } from "../src/model-provider/providerFacadeServices.js";
 import type { BotProviderAdapter } from "../src/bots/providers/types.js";
-import { mkdtemp, mkdir, writeFile, symlink, rm, readFile } from "node:fs/promises";
+import type { V4BotWorkspaceFileReadResult } from "@zcode/shared/zcode-protocol-v4";
+import { mkdtemp, mkdir, writeFile, symlink, rm, readFile, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -295,6 +296,76 @@ interface SendAttachmentCall {
   botId: string;
   message: BotOutboundMessage;
   attachment: BotOutboundAttachment;
+  /** 调用时刻 localPath 的真实内容（不存在 → null）：远程物料化断言用。 */
+  localFileBytes: Buffer | null;
+}
+
+/** Phase C Alpha 2：可注入的远端 workspace 文件 reader fake（结构对齐 IBotWorkspaceFileService）。 */
+interface FakeRemoteWorkspaceFileReader {
+  readWorkspaceFile(params: {
+    workspacePath: string;
+    workspaceIdentity: string;
+    relativePath: string;
+    offset: number;
+    limit: number;
+  }): Promise<V4BotWorkspaceFileReadResult>;
+}
+
+interface FakeReaderControl {
+  /** 让每次 read 直接返回 typed 拒绝（测试中途可翻转）。 */
+  fail?: "outside-workspace" | "not-found" | "too-large" | "unavailable";
+  /** 每次 read 前的人为延迟（deadline/预算测试）。 */
+  delayMs?: number;
+}
+
+interface FakeRemoteReaderOptions {
+  filename: string;
+  content: Buffer;
+  control?: FakeReaderControl;
+  /** 永不置 eof（累积上限/空块守卫测试）。 */
+  neverEof?: boolean;
+  /** 每块返回的字节数（缺省 = 请求 limit；远端允许返回比请求更少的块）。 */
+  chunkSize?: number;
+  /** 覆盖第 N 块（1 起）回传的整文件大小（分块间增长测试）。 */
+  sizeBytesAtChunk?: (chunkIndex: number) => number | undefined;
+  /** 捕获每次 read 的入参（offset/limit/workspaceIdentity 透传断言）。 */
+  calls?: Array<{
+    workspacePath: string;
+    workspaceIdentity: string;
+    relativePath: string;
+    offset: number;
+    limit: number;
+  }>;
+}
+
+function createFakeRemoteReader(options: FakeRemoteReaderOptions): FakeRemoteWorkspaceFileReader {
+  let chunkIndex = 0;
+  return {
+    async readWorkspaceFile(params) {
+      options.calls?.push({ ...params });
+      if (options.control?.delayMs && options.control.delayMs > 0) {
+        await new Promise((resolve) => setTimeout(resolve, options.control!.delayMs));
+      }
+      if (options.control?.fail) {
+        return {
+          ok: false,
+          reason: options.control.fail,
+          ...(options.control.fail === "too-large" ? { detail: "remote stat exceeded cap" } : {}),
+        };
+      }
+      const chunkSize = options.chunkSize ?? params.limit;
+      const end = Math.min(params.offset + chunkSize, options.content.length);
+      const data = options.content.subarray(params.offset, end);
+      chunkIndex += 1;
+      return {
+        ok: true as const,
+        filename: options.filename,
+        sizeBytes: options.sizeBytesAtChunk?.(chunkIndex) ?? options.content.length,
+        dataBase64: Buffer.from(data).toString("base64"),
+        eof: options.neverEof === true ? false : end >= options.content.length,
+      };
+    },
+  };
 }
 
 const WEIXIN_BOT_ID = "bot-wx";
@@ -349,6 +420,12 @@ interface HarnessOptions {
   sendAttachmentDelayMs?: number;
   /** 注入 isConnected=true 的远端服务，模拟「已连接的远程 workspace」。 */
   remoteConnected?: boolean;
+  /** Phase C Alpha 2：注入远端文件 reader；null 表示 getWorkspaceFileReader 返回 null。 */
+  remoteReader?: FakeRemoteWorkspaceFileReader | null;
+  /** 让 getWorkspaceFileReader 本身 throw（runtime 初始化失败 → remote-unavailable）。 */
+  remoteReaderInitThrows?: boolean;
+  /** 缩短远端读取 deadline/总预算，避免测试真实等待 20s/120s。 */
+  remoteFileTimeouts?: { chunkDeadlineMs?: number; totalBudgetMs?: number };
   /** 让 fake zcodeTaskService.sendPrompt 拒绝（sendPromptInBackground 失败终态路径）。 */
   sendPromptError?: Error;
   /** 让 getTaskSnapshot 返回终态 meta（isContextActiveTaskRunning 漏检终态路径）。 */
@@ -443,7 +520,12 @@ async function createHarness(options: HarnessOptions = {}): Promise<Harness> {
         await new Promise((resolve) => setTimeout(resolve, adapterControl.delayMs));
       }
       if (adapterControl.error) throw adapterControl.error;
-      sendAttachmentCalls.push({ botId: bot.id, message, attachment });
+      // 捕获调用时刻 localPath 的文件事实：远程物料化断言（存在 + 内容已重组）依赖它。
+      const localFileBytes = await readFile(attachment.localPath).then(
+        (data) => data,
+        () => null,
+      );
+      sendAttachmentCalls.push({ botId: bot.id, message, attachment, localFileBytes });
     },
   };
   // feishu 覆盖为无 sendAttachment 能力的 stub：用于 unsupported-provider 判定。
@@ -504,6 +586,10 @@ async function createHarness(options: HarnessOptions = {}): Promise<Harness> {
     load: async () => null,
   } as unknown as ICredentialService;
 
+  const needsRemoteService =
+    options.remoteConnected ||
+    options.remoteReader !== undefined ||
+    options.remoteReaderInitThrows === true;
   const service = createBotsService({
     credentialService,
     zcodeTaskService: fakeTaskService as unknown as IZCodeTaskService,
@@ -511,13 +597,26 @@ async function createHarness(options: HarnessOptions = {}): Promise<Harness> {
     runStartupBackgroundTasks: false,
     providerOverrides: { weixin: weixinAdapter, feishu: feishuAdapter },
     taskDeliveryRegistry: registry,
-    ...(options.remoteConnected
+    ...(needsRemoteService
       ? {
           remoteWorkspaceService: {
-            isConnected: async () => true,
+            isConnected: async () => options.remoteConnected === true,
             ensureConnected: async () => ({ ok: true as const }),
+            ...(options.remoteReader !== undefined || options.remoteReaderInitThrows === true
+              ? {
+                  getWorkspaceFileReader: async () => {
+                    if (options.remoteReaderInitThrows) {
+                      throw new Error("remote runtime init failed");
+                    }
+                    return options.remoteReader ?? null;
+                  },
+                }
+              : {}),
           },
         }
+      : {}),
+    ...(options.remoteFileTimeouts
+      ? { remoteFileDeliveryTimeouts: options.remoteFileTimeouts }
       : {}),
   });
 
@@ -924,7 +1023,7 @@ test("shareFileForTask 守卫矩阵：adapter 无 sendAttachment（feishu/lark�
   }
 });
 
-test("shareFileForTask 守卫矩阵：远程 workspace → remote-workspace，无本地读取兜底", async () => {
+test("shareFileForTask 守卫矩阵：远程 workspace 且 bridge 缺席 → remote-unavailable，无本地读取兜底", async () => {
   const harness = await createHarness();
   try {
     harness.registry.remember(CONVERSATIONAL_TASK_ID, {
@@ -937,7 +1036,12 @@ test("shareFileForTask 守卫矩阵：远程 workspace → remote-workspace，�
       taskId: CONVERSATIONAL_TASK_ID,
       path: "out/result.txt",
     });
-    assert.deepEqual(result, { ok: false, reason: "remote-workspace" });
+    // Phase C Alpha 2 取代 remote-workspace 拒绝：远程已连接时走远端取回；bridge 缺席
+    // （未注入 remoteWorkspaceService）如实映射 remote-unavailable，绝不回退读本地路径。
+    assert.equal(result.ok, false);
+    if (!result.ok) {
+      assert.equal(result.reason, "remote-unavailable");
+    }
     assert.equal(harness.sendAttachmentCalls.length, 0);
   } finally {
     await harness.dispose();
@@ -1168,18 +1272,47 @@ test("/file 门槛顺序（review 修复）：feishu 渠道门槛先于路径解
   }
 });
 
-test("/file 门槛顺序（review 修复）：已连接远程 workspace 门槛先于路径解析", async () => {
+test("/file 远程 happy path（Phase C Alpha 2）：已连接远程取回分块并投递临时文件", async () => {
+  const content = Buffer.from("remote-file-payload-0123456789");
+  const readerCalls: Parameters<FakeRemoteWorkspaceFileReader["readWorkspaceFile"]>[0][] = [];
+  const reader = createFakeRemoteReader({
+    filename: "remote-result.bin",
+    content,
+    chunkSize: 10,
+    calls: readerCalls,
+  });
   const harness = await createHarness({
     workspaceIdentity: "remote-identity-1",
     remoteConnected: true,
+    remoteReader: reader,
   });
   try {
-    const replies = await harness.sendFileCommand("no-such-file.bin");
-    assert.equal(
-      replies[0].text,
-      "远端 workspace 的文件发送将在后续版本支持，当前仅支持本地 workspace。",
+    const replies = await harness.sendFileCommand("out/remote-result.bin");
+    assert.match(replies[0].text, /^已发送 remote-result\.bin（\d+B）。$/);
+    assert.equal(harness.sendAttachmentCalls.length, 1);
+    const call = harness.sendAttachmentCalls[0];
+    // 调用时刻临时文件存在且内容按序重组。
+    assert.ok(call.localFileBytes, "sendAttachment 执行时临时文件必须存在");
+    assert.deepEqual(call.localFileBytes, content);
+    // 临时文件在 OS tmpdir 的 zcode-bot-outbound 下，且不在 workspace 内（不可经 /file 再见）。
+    assert.ok(
+      call.attachment.localPath.startsWith(join(tmpdir(), "zcode-bot-outbound")),
+      `temp path should live under tmpdir/zcode-bot-outbound: ${call.attachment.localPath}`,
     );
-    assert.equal(harness.sendAttachmentCalls.length, 0);
+    assert.ok(!call.attachment.localPath.startsWith(harness.workspacePath));
+    assert.equal(call.attachment.sizeBytes, content.length);
+    assert.equal(call.attachment.kind, "file");
+    // 3 块（chunkSize=10 < 内容 30 字节）按 offset 顺序取回，limit 是 wire 上限 512KiB。
+    assert.deepEqual(
+      readerCalls.map((item) => item.offset),
+      [0, 10, 20],
+    );
+    assert.ok(readerCalls.every((item) => item.limit === 512 * 1024));
+    assert.ok(readerCalls.every((item) => item.workspaceIdentity === "remote-identity-1"));
+    assert.ok(readerCalls.every((item) => item.workspacePath === harness.workspacePath));
+    assert.ok(readerCalls.every((item) => item.relativePath === "out/remote-result.bin"));
+    // 投递后临时目录被清理（文件 + 随机目录）。
+    await assert.rejects(stat(call.attachment.localPath), /ENOENT/);
   } finally {
     await harness.dispose();
   }
@@ -1382,6 +1515,340 @@ test("disposeAllAndWait 清空投递注册表（Host 关闭后 fail-closed）", 
     assert.ok(harness.registry.get(CONVERSATIONAL_TASK_ID));
     await harness.service.disposeAllAndWait();
     assert.equal(harness.registry.size, 0);
+  } finally {
+    await harness.dispose();
+  }
+});
+
+// ---- Phase C Alpha 2：远程 workspace 投递（specs/bot-file-delivery.md Phase C）----
+
+function rememberRemoteDeliveryEntry(harness: Awaited<ReturnType<typeof createHarness>>) {
+  harness.registry.remember(CONVERSATIONAL_TASK_ID, {
+    botId: WEIXIN_BOT_ID,
+    actor: harness.conversationalActor,
+    workspacePath: harness.workspacePath,
+    workspaceIdentity: "remote-identity-1",
+  });
+}
+
+test("远程 tool happy path：分块取回 → 恰好一次 adapter 投递 + 审计 remote= + 临时文件清理", async () => {
+  const content = Buffer.alloc(700_000);
+  content.fill("z");
+  const reader = createFakeRemoteReader({
+    filename: "remote-tool.bin",
+    content,
+    chunkSize: 524_288,
+  });
+  const harness = await createHarness({ remoteReader: reader });
+  const originalLog = console.log;
+  const originalWarn = console.warn;
+  const captured: string[] = [];
+  console.log = (...args: unknown[]) => {
+    captured.push(args.map((item) => String(item)).join(" "));
+  };
+  console.warn = (...args: unknown[]) => {
+    captured.push(args.map((item) => String(item)).join(" "));
+  };
+  try {
+    rememberRemoteDeliveryEntry(harness);
+    const result = await harness.service.shareFileForTask({
+      taskId: CONVERSATIONAL_TASK_ID,
+      path: "out/remote-tool.bin",
+    });
+    assert.deepEqual(result, { ok: true, filename: "remote-tool.bin", sizeBytes: content.length });
+    // 恰好一次 adapter 调用；sizeBytes 用 RPC 回传值；本地临时文件在调用时刻存在且重组正确。
+    assert.equal(harness.sendAttachmentCalls.length, 1);
+    const call = harness.sendAttachmentCalls[0];
+    assert.ok(call.localFileBytes);
+    assert.deepEqual(call.localFileBytes, content);
+    assert.equal(call.attachment.sizeBytes, content.length);
+    // 2 块（524288 + 175712）。
+    assert.ok(call.attachment.localPath.startsWith(join(tmpdir(), "zcode-bot-outbound")));
+    await assert.rejects(stat(call.attachment.localPath), /ENOENT/);
+    // 审计：remote=<identity> + path= 用 workspace 相对路径（请求原样），不是本地绝对路径。
+    const auditLine = captured.find((line) => line.includes("bot file delivery"));
+    assert.ok(auditLine, "必须留下投递审计日志");
+    assert.match(auditLine, /outcome=ok/);
+    assert.match(auditLine, /remote=remote-identity-1/);
+    assert.match(auditLine, /path=out\/remote-tool\.bin/);
+    assert.ok(!auditLine?.includes(harness.workspacePath));
+  } finally {
+    console.log = originalLog;
+    console.warn = originalWarn;
+    await harness.dispose();
+  }
+});
+
+test("远程 reader typed 拒绝 1:1 映射：outside-workspace / not-found / too-large，零投递", async () => {
+  const control: FakeReaderControl = {};
+  const harness = await createHarness({
+    remoteReader: createFakeRemoteReader({
+      filename: "a.bin",
+      content: Buffer.from("abc"),
+      control,
+    }),
+  });
+  try {
+    rememberRemoteDeliveryEntry(harness);
+    const fails = ["outside-workspace", "not-found", "too-large"] as const;
+    for (const fail of fails) {
+      control.fail = fail;
+      const result = await harness.service.shareFileForTask({
+        taskId: CONVERSATIONAL_TASK_ID,
+        path: "out/remote-tool.bin",
+      });
+      assert.equal(result.ok, false, `fail=${fail}`);
+      if (!result.ok) {
+        assert.equal(result.reason, fail, `fail=${fail}`);
+      }
+    }
+    assert.equal(harness.sendAttachmentCalls.length, 0);
+  } finally {
+    await harness.dispose();
+  }
+});
+
+test("远程不可用矩阵：reader null / 初始化 throw / 读取 throw / unavailable → remote-unavailable，零投递", async () => {
+  // 1) getWorkspaceFileReader 返回 null（无 attachable route）。
+  const nullReaderHarness = await createHarness({ remoteReader: null });
+  // 2) getWorkspaceFileReader 本身 throw（runtime 初始化失败/超时）。
+  const initThrowHarness = await createHarness({ remoteReaderInitThrows: true });
+  // 3) readWorkspaceFile 中途 throw（mid-read RPC 失败）。
+  const throwingReader: FakeRemoteWorkspaceFileReader = {
+    readWorkspaceFile: async () => {
+      throw new Error("rpc broken mid-read");
+    },
+  };
+  const readThrowHarness = await createHarness({ remoteReader: throwingReader });
+  // 4) reader typed unavailable（含旧远端 CLI 不认识 v4 方法）。
+  const unavailableHarness = await createHarness({
+    remoteReader: createFakeRemoteReader({
+      filename: "a.bin",
+      content: Buffer.from("abc"),
+      control: { fail: "unavailable" },
+    }),
+  });
+  try {
+    for (const harness of [
+      nullReaderHarness,
+      initThrowHarness,
+      readThrowHarness,
+      unavailableHarness,
+    ]) {
+      rememberRemoteDeliveryEntry(harness);
+      const result = await harness.service.shareFileForTask({
+        taskId: CONVERSATIONAL_TASK_ID,
+        path: "out/remote-tool.bin",
+      });
+      assert.equal(result.ok, false);
+      if (!result.ok) {
+        assert.equal(result.reason, "remote-unavailable");
+      }
+      assert.equal(harness.sendAttachmentCalls.length, 0);
+    }
+  } finally {
+    await Promise.all([
+      nullReaderHarness.dispose(),
+      initThrowHarness.dispose(),
+      readThrowHarness.dispose(),
+      unavailableHarness.dispose(),
+    ]);
+  }
+});
+
+test("/file 远程失败映射：remote-unavailable 回复新本地化文案", async () => {
+  const harness = await createHarness({
+    workspaceIdentity: "remote-identity-1",
+    remoteConnected: true,
+    remoteReader: null,
+  });
+  try {
+    const replies = await harness.sendFileCommand("out/result.txt");
+    assert.equal(replies[0].text, "远程工作区当前不可用，请稍后重试或先 /重连。");
+    assert.equal(harness.sendAttachmentCalls.length, 0);
+  } finally {
+    await harness.dispose();
+  }
+});
+
+test("远程 5MB 硬上限：累积超限 / 分块间增长 → too-large；非 eof 空块 → remote-unavailable", async () => {
+  // 1) 累积字节越过 5MB（neverEof 让远端一直喂块）。
+  const cumulativeHarness = await createHarness({
+    remoteReader: createFakeRemoteReader({
+      filename: "big.bin",
+      content: Buffer.alloc(5_500_000),
+      chunkSize: 524_288,
+      neverEof: true,
+    }),
+  });
+  // 2) 分块间增长：第 2 块回传的整文件大小已越过上限（读取时刻 stat 增长）。
+  const growthHarness = await createHarness({
+    remoteReader: createFakeRemoteReader({
+      filename: "growing.bin",
+      content: Buffer.from("tiny"),
+      chunkSize: 2,
+      sizeBytesAtChunk: (chunkIndex) => (chunkIndex >= 2 ? 6 * 1024 * 1024 : undefined),
+    }),
+  });
+  // 3) 非 eof 空块（远端协议违约）：守卫按不可用失败，不得死循环。
+  const emptyChunkHarness = await createHarness({
+    remoteReader: createFakeRemoteReader({
+      filename: "stuck.bin",
+      content: Buffer.from("ab"),
+      chunkSize: 2,
+      neverEof: true,
+    }),
+  });
+  try {
+    for (const [harness, expected] of [
+      [cumulativeHarness, "too-large"],
+      [growthHarness, "too-large"],
+      [emptyChunkHarness, "remote-unavailable"],
+    ] as const) {
+      rememberRemoteDeliveryEntry(harness);
+      const result = await harness.service.shareFileForTask({
+        taskId: CONVERSATIONAL_TASK_ID,
+        path: "out/remote.bin",
+      });
+      assert.equal(result.ok, false);
+      if (!result.ok) {
+        assert.equal(result.reason, expected);
+      }
+      assert.equal(harness.sendAttachmentCalls.length, 0);
+    }
+  } finally {
+    await Promise.all([
+      cumulativeHarness.dispose(),
+      growthHarness.dispose(),
+      emptyChunkHarness.dispose(),
+    ]);
+  }
+});
+
+test("远程时限：单块 deadline 超时 / 总预算耗尽 → remote-unavailable（注入缩短时限）", async () => {
+  // 1) 单块 deadline：reader 每块延迟 120ms，注入 chunkDeadlineMs=25。
+  const deadlineHarness = await createHarness({
+    remoteFileTimeouts: { chunkDeadlineMs: 25 },
+    remoteReader: createFakeRemoteReader({
+      filename: "slow.bin",
+      content: Buffer.from("payload"),
+      control: { delayMs: 120 },
+    }),
+  });
+  // 2) 总预算：chunk1（45ms）在 60ms 预算内完成，chunk2 只剩 15ms < 45ms → 判负。
+  const budgetHarness = await createHarness({
+    remoteFileTimeouts: { totalBudgetMs: 60 },
+    remoteReader: createFakeRemoteReader({
+      filename: "slow.bin",
+      content: Buffer.from("payload-payload-payload"),
+      chunkSize: 7,
+      control: { delayMs: 45 },
+    }),
+  });
+  try {
+    for (const harness of [deadlineHarness, budgetHarness]) {
+      rememberRemoteDeliveryEntry(harness);
+      const result = await harness.service.shareFileForTask({
+        taskId: CONVERSATIONAL_TASK_ID,
+        path: "out/remote.bin",
+      });
+      assert.equal(result.ok, false);
+      if (!result.ok) {
+        assert.equal(result.reason, "remote-unavailable");
+        assert.ok(result.detail, "时限失败必须携带诊断 detail");
+      }
+      assert.equal(harness.sendAttachmentCalls.length, 0);
+    }
+  } finally {
+    await Promise.all([deadlineHarness.dispose(), budgetHarness.dispose()]);
+  }
+});
+
+test("断连远程：/file 先回 /重连 提示（pinned）；tool 路径 → remote-unavailable", async () => {
+  // 断连远端不会有 attachable route：bridge 返回 null reader（/file 侧在触达 reader 前
+  // 就被 blockDisconnectedRemoteWorkspace 拦截；tool 侧进入远程分支如实失败）。
+  const harness = await createHarness({
+    workspaceIdentity: "remote-identity-1",
+    remoteConnected: false,
+    remoteReader: null,
+  });
+  try {
+    // /file：blockDisconnectedRemoteWorkspace 先行回复（Alpha 0 起 pinned，Phase C 不变）。
+    const replies = await harness.sendFileCommand("out/remote.bin");
+    assert.equal(
+      replies[0].text,
+      `当前远端项目 ${harness.workspacePath} 未连接。请先发送 **/重连**，连接恢复后再重试。上一条请求未执行。`,
+    );
+    assert.equal(harness.sendAttachmentCalls.length, 0);
+    // tool：shareFileForTask 无断连拦截，走远程分支如实返回 remote-unavailable。
+    rememberRemoteDeliveryEntry(harness);
+    const result = await harness.service.shareFileForTask({
+      taskId: CONVERSATIONAL_TASK_ID,
+      path: "out/remote.bin",
+    });
+    assert.equal(result.ok, false);
+    if (!result.ok) {
+      assert.equal(result.reason, "remote-unavailable");
+    }
+    assert.equal(harness.sendAttachmentCalls.length, 0);
+  } finally {
+    await harness.dispose();
+  }
+});
+
+test("远程 tool 配额 parity：成功消耗配额（第 4 次 quota-exceeded）；typed 失败归还槽位", async () => {
+  const reader = createFakeRemoteReader({
+    filename: "quota.bin",
+    content: Buffer.from("quota-bytes"),
+    control: {},
+  });
+  const harness = await createHarness({ remoteReader: reader });
+  try {
+    rememberRemoteDeliveryEntry(harness);
+    for (let index = 0; index < 3; index += 1) {
+      const result = await harness.service.shareFileForTask({
+        taskId: CONVERSATIONAL_TASK_ID,
+        path: "out/remote.bin",
+      });
+      assert.equal(result.ok, true, `delivery ${index + 1}`);
+    }
+    assert.equal(harness.sendAttachmentCalls.length, 3);
+    const fourth = await harness.service.shareFileForTask({
+      taskId: CONVERSATIONAL_TASK_ID,
+      path: "out/remote.bin",
+    });
+    assert.deepEqual(fourth, { ok: false, reason: "quota-exceeded" });
+    assert.equal(harness.sendAttachmentCalls.length, 3);
+  } finally {
+    await harness.dispose();
+  }
+});
+
+test("远程 tool 配额释放：not-found 失败不消耗槽位，后续远程投递仍可成功", async () => {
+  const readerControl: FakeReaderControl = { fail: "not-found" };
+  const harness = await createHarness({
+    remoteReader: createFakeRemoteReader({
+      filename: "quota.bin",
+      content: Buffer.from("quota-bytes"),
+      control: readerControl,
+    }),
+  });
+  try {
+    rememberRemoteDeliveryEntry(harness);
+    for (let index = 0; index < 3; index += 1) {
+      const result = await harness.service.shareFileForTask({
+        taskId: CONVERSATIONAL_TASK_ID,
+        path: "out/remote.bin",
+      });
+      assert.deepEqual(result, { ok: false, reason: "not-found" }, `failure ${index + 1}`);
+    }
+    readerControl.fail = undefined;
+    const recovered = await harness.service.shareFileForTask({
+      taskId: CONVERSATIONAL_TASK_ID,
+      path: "out/remote.bin",
+    });
+    assert.equal(recovered.ok, true, "失败投递不得消耗配额槽位");
+    assert.equal(harness.sendAttachmentCalls.length, 1);
   } finally {
     await harness.dispose();
   }

@@ -1,7 +1,8 @@
 /* eslint-disable max-lines -- Bots 服务仍复用原 RPC 文件名，先把鉴权、命令路由、ZCode Agent 桥接收口集中在同一服务内。 */
 import { Buffer } from "node:buffer";
 import { createHash, randomBytes } from "node:crypto";
-import { mkdir, readFile, realpath, stat, writeFile } from "node:fs/promises";
+import { mkdir, readFile, realpath, rm, stat, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import type { IDisposable } from "@zcode/rpc";
 import { completeNewModelSelection } from "@zcode/provider";
@@ -59,6 +60,11 @@ import {
   type BotShareFileResult,
 } from "@zcode/shared";
 import type { IZCodeTaskService } from "../session/zcodeTaskService.js";
+import type { IBotWorkspaceFileService } from "./botWorkspaceFileService.js";
+import {
+  PROTOCOL_V4_LIMITS,
+  type V4BotWorkspaceFileReadResult,
+} from "@zcode/shared/zcode-protocol-v4";
 import { resolveProviderModeIdFromConfigOptions } from "#src/session/sessionModeOptions.js";
 import { deriveSessionTitle as deriveTaskTitle } from "#src/session/sessionTitle.js";
 import type { IBroadcastService } from "../broadcast/broadcast.js";
@@ -290,6 +296,8 @@ interface BotsServiceDeps {
   providerOverrides?: Partial<Record<BotProvider, BotProviderAdapter | null>>;
   /** 测试注入：预置/观察 taskDeliveryRegistry；缺省在服务内创建唯一实例（specs Phase B）。 */
   taskDeliveryRegistry?: BotTaskDeliveryRegistry;
+  /** 测试注入：缩短远端文件分块读取的 deadline/总预算，避免测试真实等待 20s/120s。 */
+  remoteFileDeliveryTimeouts?: { chunkDeadlineMs?: number; totalBudgetMs?: number };
 }
 
 interface BotRemoteWorkspaceTarget {
@@ -309,6 +317,10 @@ interface BotRemoteWorkspaceService {
   getModelSelectionService?(
     target: BotRemoteWorkspaceTarget,
   ): Promise<Pick<IModelSelectionService, "getView"> | null>;
+  /** Phase C Alpha 2：远端 workspace 文件读取（与 getZCodeTaskService 同一 lifecycle 约定）。 */
+  getWorkspaceFileReader?(
+    target: BotRemoteWorkspaceTarget,
+  ): Promise<IBotWorkspaceFileService | null>;
   syncAppRuntimePreferences?(preferences: ZCodeAgentAppRuntimePreferences): Promise<void>;
 }
 
@@ -675,6 +687,9 @@ const BOT_WORKSPACE_REFS_CACHE_TTL_MS = 5_000;
 const BOT_MAX_ATTACHMENTS_PER_MESSAGE = 4;
 const BOT_MAX_ATTACHMENT_SIZE_BYTES = 5 * 1024 * 1024;
 const BOT_ATTACHMENT_DOWNLOAD_TIMEOUT_MS = 30_000;
+// Phase C Alpha 2（specs/bot-file-delivery.md Phase C §1）：远端文件分块读取的时限与预算。
+const BOT_REMOTE_FILE_CHUNK_DEADLINE_MS = 20_000;
+const BOT_REMOTE_FILE_FETCH_BUDGET_MS = 120_000;
 const REMOTE_RECONNECT_DEDUPE_TTL_MS = 3_000;
 const REMOTE_RECONNECT_DELIVERY_DEDUPE_TTL_MS = 2 * 60_000;
 const BOT_INBOUND_DELIVERY_DEDUPE_TTL_MS = 2 * 60_000;
@@ -953,6 +968,189 @@ export async function revalidateWorkspaceFileForDelivery(
   } catch {
     return { ok: false, reason: "not-found" };
   }
+}
+
+/** 纯字符串工具：文件名去控制字符/路径分隔符并截断（入站缓存与出站临时文件共用）。 */
+function sanitizeAttachmentFilename(filename: string): string {
+  const normalized = Array.from(filename.trim())
+    .map((char) => (char.charCodeAt(0) < 32 || '\\/:*?"<>|'.includes(char) ? "_" : char))
+    .join("");
+  return normalized.length > 0 ? normalized.slice(0, 160) : "attachment";
+}
+
+/** 纯格式化工具：字节数 → 人类可读大小（未知/非正值 → unknown size）。 */
+function formatAttachmentSize(sizeBytes: number | undefined): string {
+  if (!sizeBytes || sizeBytes <= 0) {
+    return "unknown size";
+  }
+  if (sizeBytes >= 1024 * 1024) {
+    return `${(sizeBytes / (1024 * 1024)).toFixed(1)}MB`;
+  }
+  if (sizeBytes >= 1024) {
+    return `${Math.ceil(sizeBytes / 1024)}KB`;
+  }
+  return `${sizeBytes}B`;
+}
+
+/**
+ * 远端分块读取的 deadline 包装（Phase C Alpha 2）：超时 reject。底层 promise 判负后
+ * 迟到的 reject 由调用方预先挂 no-op catch 吸收，不会变成 unhandledRejection。
+ */
+function withDeadlineMs<T>(
+  promise: Promise<T>,
+  deadlineMs: number,
+  timeoutMessage: string,
+): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(timeoutMessage)), deadlineMs);
+  });
+  return Promise.race([promise, timeout]).finally(() => {
+    if (timer !== undefined) clearTimeout(timer);
+  });
+}
+
+/**
+ * Phase C Alpha 2（specs/bot-file-delivery.md Phase C §1/§5）：远程文件取回 + 临时物料化。
+ * 只被 deliverWorkspaceFile 调用（adapter 门槛已过；tool 来源的 quota 已由
+ * shareFileForTask 在进入前原子预留）。失败 reason 与 wire 协议 1:1：
+ * - reader typed 拒绝透传 outside-workspace / not-found / too-large；
+ * - bridge 缺席、getWorkspaceFileReader 返回 null 或 throw、读取 throw、
+ *   单块 deadline / 总预算超限 → remote-unavailable（unavailable 同映射）。
+ * 不做任何自动重连（specs §6：delivery 内绝不调用 ensureConnected）。
+ */
+function fetchRemoteWorkspaceFileForDelivery(
+  deps: Pick<BotsServiceDeps, "remoteWorkspaceService" | "remoteFileDeliveryTimeouts">,
+  context: { workspacePath: string; workspaceIdentity: string },
+  requestedPath: string,
+): Promise<
+  | { ok: true; filename: string; sizeBytes: number; tempFilePath: string; tempDir: string }
+  | { ok: false; reason: BotShareFileFailureReason; sizeBytes?: number; detail?: string }
+> {
+  const chunkDeadlineMs =
+    deps.remoteFileDeliveryTimeouts?.chunkDeadlineMs ?? BOT_REMOTE_FILE_CHUNK_DEADLINE_MS;
+  const totalBudgetMs =
+    deps.remoteFileDeliveryTimeouts?.totalBudgetMs ?? BOT_REMOTE_FILE_FETCH_BUDGET_MS;
+  const unavailable = (
+    detail: string,
+  ): { ok: false; reason: "remote-unavailable"; detail: string } => ({
+    ok: false,
+    reason: "remote-unavailable",
+    detail,
+  });
+  return (async () => {
+    let reader: IBotWorkspaceFileService | null = null;
+    if (deps.remoteWorkspaceService?.getWorkspaceFileReader) {
+      try {
+        reader = await deps.remoteWorkspaceService.getWorkspaceFileReader({
+          workspacePath: context.workspacePath,
+          workspaceIdentity: context.workspaceIdentity,
+        });
+      } catch (error) {
+        return unavailable(
+          `remote reader init failed: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
+    }
+    if (!reader) {
+      return unavailable("remote workspace file reader unavailable");
+    }
+    const chunks: Buffer[] = [];
+    let filename = "";
+    let sizeBytes = 0;
+    let offset = 0;
+    let totalBytes = 0;
+    const fetchStartedAt = Date.now();
+    // 分块读取：单块 deadline + 总预算双限时；远端每块回传的整文件大小（读取时刻 stat）
+    // 与本地累积字节数都受 5MB 硬上限约束——分块间文件增长同样在读取侧被拒（specs §1）。
+    for (;;) {
+      const remainingBudgetMs = totalBudgetMs - (Date.now() - fetchStartedAt);
+      if (remainingBudgetMs <= 0) {
+        return unavailable(`remote file fetch exceeded total budget ${totalBudgetMs}ms`);
+      }
+      const deadlineMs = Math.min(chunkDeadlineMs, remainingBudgetMs);
+      const readPromise = reader.readWorkspaceFile({
+        workspacePath: context.workspacePath,
+        workspaceIdentity: context.workspaceIdentity,
+        relativePath: requestedPath,
+        offset,
+        limit: PROTOCOL_V4_LIMITS.attachmentChunkMaxBytes,
+      });
+      readPromise.catch(() => undefined);
+      let result: V4BotWorkspaceFileReadResult;
+      try {
+        result = await withDeadlineMs(
+          readPromise,
+          deadlineMs,
+          `remote file chunk read timed out after ${deadlineMs}ms`,
+        );
+      } catch (error) {
+        return unavailable(error instanceof Error ? error.message : String(error));
+      }
+      if (!result.ok) {
+        if (result.reason === "unavailable") {
+          return unavailable(result.detail ?? "remote workspace file read unavailable");
+        }
+        // 远端文件系统所有者给出的 typed 拒绝按协议 1:1 透传，本机不重判远程路径。
+        // too-large 无 detail 时补上 5MB 上限（/file 本地化文案需要 {size} 占位）。
+        return {
+          ok: false,
+          reason: result.reason,
+          detail:
+            result.reason === "too-large"
+              ? (result.detail ?? formatAttachmentSize(BOT_MAX_ATTACHMENT_SIZE_BYTES))
+              : result.detail,
+        };
+      }
+      if (result.sizeBytes > BOT_MAX_ATTACHMENT_SIZE_BYTES) {
+        return {
+          ok: false,
+          reason: "too-large",
+          sizeBytes: result.sizeBytes,
+          detail: formatAttachmentSize(result.sizeBytes),
+        };
+      }
+      const data = Buffer.from(result.dataBase64, "base64");
+      if (chunks.length === 0) {
+        filename = result.filename;
+      }
+      sizeBytes = result.sizeBytes;
+      offset += data.byteLength;
+      totalBytes += data.byteLength;
+      chunks.push(data);
+      if (totalBytes > BOT_MAX_ATTACHMENT_SIZE_BYTES) {
+        return {
+          ok: false,
+          reason: "too-large",
+          sizeBytes: totalBytes,
+          detail: formatAttachmentSize(totalBytes),
+        };
+      }
+      if (result.eof) {
+        break;
+      }
+      if (data.byteLength === 0) {
+        // 非 eof 空分块会让 offset 原地踏步读同一位置：这是远端协议违约，按不可用失败，不能死循环。
+        return unavailable("remote reader returned an empty non-eof chunk");
+      }
+    }
+    // 物料化（specs §5）：OS tmpdir 下的随机目录（系统可清理），绝不落在 workspace 或
+    // ~/.zcode 内；0600 仅 POSIX 强制（Windows 忽略 mode），临时文件在 workspace 之外、
+    // 对 /file 不可再见（与入站缓存排除规则同款 parity）。
+    const safeFilename = sanitizeAttachmentFilename(filename);
+    const tempDir = join(tmpdir(), "zcode-bot-outbound", randomBytes(16).toString("hex"));
+    const tempFilePath = join(tempDir, safeFilename);
+    try {
+      await mkdir(tempDir, { recursive: true });
+      await writeFile(tempFilePath, Buffer.concat(chunks, totalBytes), { mode: 0o600 });
+    } catch (error) {
+      await rm(tempDir, { recursive: true, force: true }).catch(() => undefined);
+      return unavailable(
+        `temp materialization failed: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+    return { ok: true, filename: safeFilename, sizeBytes, tempFilePath, tempDir };
+  })();
 }
 
 export function createBotsService(
@@ -1307,26 +1505,6 @@ export function createBotsService(
     return error instanceof Error ? error.message : String(error);
   }
 
-  function sanitizeAttachmentFilename(filename: string): string {
-    const normalized = Array.from(filename.trim())
-      .map((char) => (char.charCodeAt(0) < 32 || '\\/:*?"<>|'.includes(char) ? "_" : char))
-      .join("");
-    return normalized.length > 0 ? normalized.slice(0, 160) : "attachment";
-  }
-
-  function formatAttachmentSize(sizeBytes: number | undefined): string {
-    if (!sizeBytes || sizeBytes <= 0) {
-      return "unknown size";
-    }
-    if (sizeBytes >= 1024 * 1024) {
-      return `${(sizeBytes / (1024 * 1024)).toFixed(1)}MB`;
-    }
-    if (sizeBytes >= 1024) {
-      return `${Math.ceil(sizeBytes / 1024)}KB`;
-    }
-    return `${sizeBytes}B`;
-  }
-
   function formatAttachmentRejectedReason(error: unknown, locale: Locale | undefined): string {
     const message = error instanceof Error ? error.message : String(error);
     if (/exceeds 5MB/i.test(message)) {
@@ -1403,7 +1581,9 @@ export function createBotsService(
     opts: { source: "command" | "tool"; taskId?: string },
   ): Promise<DeliverWorkspaceFileResult> {
     const peerKey = actor.chatId?.trim() || actor.providerUserId.trim();
-    const auditSuffix = ` source=${opts.source}${opts.taskId ? ` task=${opts.taskId}` : ""}`;
+    // Phase C Alpha 2 spec item 8：远程尝试在审计行追加 remote=<workspaceIdentity>；
+    // path= 一律是 workspace 相对路径——远程侧用请求原样路径，绝不本地 resolve 出绝对路径。
+    const auditSuffix = ` source=${opts.source}${opts.taskId ? ` task=${opts.taskId}` : ""}${context.workspaceIdentity ? ` remote=${context.workspaceIdentity}` : ""}`;
     const auditFailure = (
       reason: BotShareFileFailureReason,
       filename: string,
@@ -1433,44 +1613,71 @@ export function createBotsService(
     if (!adapter?.sendAttachment) {
       return auditFailure("unsupported-provider", requestedPath, 0);
     }
+    let filename: string;
+    let sizeBytes: number;
+    let localPath: string;
+    let auditPath: string;
+    let tempDirToCleanup: string | undefined;
     if (context.workspaceIdentity) {
-      return auditFailure("remote-workspace", requestedPath, 0);
-    }
-    const resolved = await resolveWorkspaceFilePath(context.workspacePath, requestedPath);
-    if (!resolved.ok) {
-      return auditFailure(
-        resolved.reason === "outside" ? "outside-workspace" : "not-found",
+      // Phase C Alpha 2（specs Phase C §1）：adapter 门槛已在上方先行，tool 来源 quota
+      // 已在进入本函数前预留——都先于任何文件 IO。远程分支在唯一写出核心内取回字节
+      // 并物料化临时文件，adapter 不感知 remoteness（localPath 契约不变）。
+      const remote = await fetchRemoteWorkspaceFileForDelivery(
+        deps,
+        {
+          workspacePath: context.workspacePath,
+          workspaceIdentity: context.workspaceIdentity,
+        },
         requestedPath,
-        0,
       );
+      if (!remote.ok) {
+        return auditFailure(remote.reason, requestedPath, remote.sizeBytes ?? 0, remote.detail);
+      }
+      filename = remote.filename;
+      sizeBytes = remote.sizeBytes;
+      localPath = remote.tempFilePath;
+      auditPath = requestedPath;
+      tempDirToCleanup = remote.tempDir;
+    } else {
+      const resolved = await resolveWorkspaceFilePath(context.workspacePath, requestedPath);
+      if (!resolved.ok) {
+        return auditFailure(
+          resolved.reason === "outside" ? "outside-workspace" : "not-found",
+          requestedPath,
+          0,
+        );
+      }
+      const rechecked = await revalidateWorkspaceFileForDelivery(
+        context.workspacePath,
+        resolved.absolutePath,
+      );
+      if (!rechecked.ok) {
+        return rechecked.reason === "too-large"
+          ? auditFailure(
+              "too-large",
+              requestedPath,
+              rechecked.sizeBytes ?? 0,
+              formatAttachmentSize(rechecked.sizeBytes ?? 0),
+            )
+          : auditFailure(rechecked.reason, requestedPath, 0);
+      }
+      filename = basename(rechecked.absolutePath);
+      sizeBytes = rechecked.sizeBytes;
+      localPath = rechecked.absolutePath;
+      auditPath = relative(context.workspacePath, rechecked.absolutePath);
     }
-    const rechecked = await revalidateWorkspaceFileForDelivery(
-      context.workspacePath,
-      resolved.absolutePath,
-    );
-    if (!rechecked.ok) {
-      return rechecked.reason === "too-large"
-        ? auditFailure(
-            "too-large",
-            requestedPath,
-            rechecked.sizeBytes ?? 0,
-            formatAttachmentSize(rechecked.sizeBytes ?? 0),
-          )
-        : auditFailure(rechecked.reason, requestedPath, 0);
-    }
-    const filename = basename(rechecked.absolutePath);
     const kind = inferOutboundAttachmentKind(filename);
     const attachment: BotOutboundAttachment = {
       kind,
       filename,
       mimeType: inferOutboundAttachmentMime(filename, kind),
-      sizeBytes: rechecked.sizeBytes,
-      localPath: rechecked.absolutePath,
+      sizeBytes,
+      localPath,
     };
     // Bot 会话强制 yolo，无交互权限；workspace-only 路径策略 + 审计日志 + 5MB 上限是出站防泄露边界。
     botsLogger.info(
       undefined,
-      `bot file delivery bot=${authorizedBot.id} peer=${peerKey} file=${filename} size=${rechecked.sizeBytes} kind=${kind} outcome=ok${auditSuffix} path=${relative(context.workspacePath, rechecked.absolutePath)}`,
+      `bot file delivery bot=${authorizedBot.id} peer=${peerKey} file=${filename} size=${sizeBytes} kind=${kind} outcome=ok${auditSuffix} path=${auditPath}`,
     );
     const providerContextToken =
       opts.source === "tool"
@@ -1491,10 +1698,16 @@ export function createBotsService(
         },
         attachment,
       );
-      return { ok: true, filename, sizeBytes: rechecked.sizeBytes };
+      return { ok: true, filename, sizeBytes };
     } catch (error) {
       const reason = error instanceof Error ? error.message : String(error);
-      return auditFailure("send-failed", filename, rechecked.sizeBytes, reason);
+      return auditFailure("send-failed", filename, sizeBytes, reason);
+    } finally {
+      if (tempDirToCleanup) {
+        // 远程临时文件删除是 best-effort（specs §5）：崩溃最多在 OS tmpdir 残留一个
+        // ≤5MB 文件；正常路径（含 send-failed）都在投递后立即清理。
+        await rm(tempDirToCleanup, { recursive: true, force: true }).catch(() => undefined);
+      }
     }
   }
 
@@ -1506,16 +1719,13 @@ export function createBotsService(
     if (!auth.ok) {
       return auth.reply;
     }
-    // Review 修复（/file 回复漂移）：还原 Alpha 0 的门槛顺序 adapter → 远程 → 空路径。
-    // Phase B 抽出 deliverWorkspaceFile 时这两道前置检查被并入了投递核心且排在空路径
-    // 检查之后，导致同一份输入在 feishu/远程渠道下回复文案偏离已发布行为。这里只是
-    // 恢复回复优先级；deliverWorkspaceFile 内部仍逐项重评（双保险不变）。
+    // Phase C Alpha 2（specs Phase C §9）取代 Alpha 0 的回复顺序注释：adapter 渠道门槛
+    // 仍最先回复；远程 workspace 不再前置拒绝——已连接时 /file 进入 deliverWorkspaceFile
+    // 的远程分支正常投递（字节从远端取回），断连仍由 withAuthorizedContext 内的
+    // blockDisconnectedRemoteWorkspace 先回复 /重连 提示（顺序不变）。空路径检查位置不变。
     const adapter = providers[auth.bot.provider];
     if (!adapter?.sendAttachment) {
       return [createOutbound(message.actor, msg(auth.locale, "fileCommandUnsupported"))];
-    }
-    if (auth.context.workspaceIdentity) {
-      return [createOutbound(message.actor, msg(auth.locale, "fileRemoteWorkspaceUnsupported"))];
     }
     const requestedPath = value.trim();
     if (!requestedPath) {
@@ -1545,8 +1755,11 @@ export function createBotsService(
     switch (delivered.reason) {
       case "unsupported-provider":
         return [createOutbound(message.actor, msg(auth.locale, "fileCommandUnsupported"))];
-      case "remote-workspace":
-        return [createOutbound(message.actor, msg(auth.locale, "fileRemoteWorkspaceUnsupported"))];
+      case "remote-unavailable":
+        // Phase C Alpha 2：远程取回失败（bridge 缺席/无路由/初始化失败/超预算）的
+        // 如实文案；旧 reason "remote-workspace" 已不再由本 host 产生（enum 保留仅为
+        // 旧 CLI 兼容），故不再映射。
+        return [createOutbound(message.actor, msg(auth.locale, "fileRemoteUnavailable"))];
       case "outside-workspace":
         return [
           createOutbound(

@@ -136,7 +136,13 @@ function formatShareFileModelContent(output: unknown): string {
     case "unsupported-provider":
       return "This chat provider cannot receive file messages yet, so nothing was sent.";
     case "remote-workspace":
-      return "This session runs in a remote workspace; file delivery from remote workspaces is not available yet, so nothing was sent.";
+      // Phase C Alpha 2 后新 host 已支持远程投递；该 reason 只会来自旧 host——如实说明
+      // 是宿主版本问题，升级宿主即可获得远程投递。
+      return "This session runs in a remote workspace and this host version does not support fetching files from remote workspaces yet, so nothing was sent. Updating the host app adds remote file delivery.";
+    case "remote-unavailable":
+      // 远程取回失败（不可达/初始化失败/超时/超预算/中途 RPC 失败）：只陈述结局并引导
+      // 用户重连或稍后重试，不臆测具体故障点。
+      return `The remote workspace could not be reached to fetch the file, so nothing was sent. Ask the user to reconnect the remote workspace (e.g. send /重连) or retry later.${detail}`;
     case "outside-workspace":
       return `The path is outside the workspace, so nothing was sent. Use a workspace-relative path.${detail}`;
     case "not-found":
