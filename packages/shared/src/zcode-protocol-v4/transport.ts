@@ -1071,9 +1071,10 @@ export type V4AttachmentReadResult = z.infer<typeof v4AttachmentReadResultSchema
 /**
  * Bot 出站投递的远端 workspace 文件分块读（specs/bot-file-delivery.md Phase C）。
  *
- * `relativePath` 只接受相对路径：绝对路径不在这里被 schema 拒绝，而是透传给远端
- * CLI，由文件系统所有者按远端 OS 语义判成 `outside-workspace`（结果语义，不是
- * 协议错误）。路径 containment 的唯一裁决者是远端机器。
+ * `relativePath` 是「请求路径」：写作相对（相对 workspace root）或绝对均可（Alpha 3
+ * 起与本地 resolver 平价；字段名保留 `relativePath`，重命名会破坏旧远端 CLI）。schema
+ * 不区分两者，也不在此裁决 containment——绝对/相对统一透传给远端 CLI，由文件系统所有者
+ * 按远端 OS 语义判成放行或 `outside-workspace`（结果语义，不是协议错误）。
  */
 export const v4BotWorkspaceFileReadParamsSchema = z
   .object({

@@ -9,7 +9,9 @@
 // harness，可测逻辑全部留在 shared，本文件只做 fs IO 编排）。
 //
 // 判定顺序（缺一不可）：
-//   ① 词法：绝对路径 / `..` 逃逸 → outside-workspace（shared 纯 helper）
+//   ① 词法：请求路径写作相对（join 到 root）或绝对（normalize 后必须落在 root 内，
+//      与本地 resolver 平价——Alpha 3 起 root 内绝对路径放行）；`..` 逃逸与
+//      root 外绝对路径 → outside-workspace（shared 纯 helper）
 //   ② realpath：文件与 root 都 realpath，containment 不成立（symlink escape）
 //      → outside-workspace
 //   ③ 打开 + fd stat：非常规文件 → not-found；>10MB 硬上限 → too-large
@@ -55,7 +57,7 @@ export async function readBotWorkspaceFile(
   const params = v4BotWorkspaceFileReadParamsSchema.parse(rawParams);
   const root = WORKSPACE_ROOT();
 
-  // ① 词法判定：绝对路径与 `..` 逃逸在触碰 fs 之前拒绝。
+  // ① 词法判定：root 外绝对路径与 `..` 逃逸在触碰 fs 之前拒绝（root 内绝对路径放行）。
   const lexical = evaluateBotWorkspaceFilePath({
     pathOps: path,
     workspaceRoot: root,

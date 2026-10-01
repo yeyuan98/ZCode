@@ -248,9 +248,15 @@ Owner decision (approved 2026-09-30): temp-file materialization approach; split 
 2. **New v4 wire method `v4/bot-workspace-file/read`** (desktop host → remote CLI gateway;
    `V4_METHODS` in `packages/shared/src/zcode-protocol-v4/transport.ts`, strict-zod params/result
    schemas alongside existing v4 attachment schemas). Params: `{relativePath: string (trimmed,
-min 1 — RELATIVE only; absolute input → outside-workspace), offset: uint, limit: uint
+min 1 — the requested path written RELATIVE or ABSOLUTE; the wire field name stays
+`relativePath`, renaming would break old remote CLIs), offset: uint, limit: uint
 1..524288}`. Result: `{ok:true; filename; sizeBytes; dataBase64; eof}` | `{ok:false; reason:
-outside-workspace|not-found|too-large|unavailable; detail?}`. The remote CLI gateway handler
+outside-workspace|not-found|too-large|unavailable; detail?}`. **Path parity with the local
+   resolver (Alpha 3 fix; previously the remote policy rejected ALL absolute paths —
+   owner-observed):** absolute-inside input is normalized as-is and accepted, relative input
+   joins the root, exactly like `resolveWorkspaceFilePath`. Containment is adjudicated by the
+   remote owner (lexical under-root + realpath, unchanged): absolute-outside and `..` escapes
+   (relative or absolute form) → outside-workspace. The remote CLI gateway handler
    (`apps/zcode-cli/packages/bootstrap/src/zcode-protocol/server.ts`, mirroring the
    `attachmentRead` case) owns ALL path semantics with remote-OS rules: lexical resolve →
    realpath → must sit inside the realpath'd workspace root (its cwd); re-stat per chunk read
@@ -325,14 +331,22 @@ Unit/integration (services `botFileDelivery.test.ts` + shared zod/policy tests):
    remote-unavailable; reader missing/init throw → remote-unavailable.
 4. Disconnected remote: `/file` → reconnect hint (pinned); tool → remote-unavailable.
 5. Zero-drift: local-context `/file` + tool replies identical to pre-Alpha-2 fixtures.
-6. Wire schemas strict (unknown keys rejected; limit bounds; absolute `relativePath` →
-   outside-workspace); shared path-policy helper matrix (lexical/realpath/symlink escape).
+6. Wire schemas strict (unknown keys rejected; limit bounds; absolute `relativePath` passes the
+   schema — result semantics are the remote CLI's); shared path-policy helper matrix
+   (relative + absolute-inside forms resolve to the SAME file, parity with the local resolver;
+   absolute-outside, lexical `..` escape in relative or absolute form, realpath/symlink escape
+   → outside-workspace; cross-OS drive-style inputs stay coherent with the injected pathOps).
 7. Quota parity on remote tool sends incl. parallel reserve/release.
 8. Desktop bot-only gate: `createScopedBotWorkspaceFileService` matrix (non-bot attachment /
    local scope / missing factory → no channel; bot-runtime + remote → scope-truth injected,
    caller-supplied workspace fields ignored, service-level extra keys pass wire projection,
    base throw and invalid wire input fold to structured unavailable) —
    `packages/desktop/test/botWorkspaceFileGate.test.ts`.
+9. Absolute-path parity (Alpha 3 fix): `/file` with an absolute-inside requestedPath on a
+   connected remote workspace → the reader receives the absolute path VERBATIM (desktop never
+   rewrites remote paths; wire field stays `relativePath`) and delivery succeeds;
+   absolute-outside requestedPath → the remote reader's outside-workspace verdict maps 1:1 →
+   honest refusal, zero deliveries.
 
 Manual rig (owner pause phase, blocks the alpha release):
 
