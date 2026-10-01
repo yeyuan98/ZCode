@@ -224,6 +224,9 @@ async function connectRemoteUnchecked(
   // 5. Wrap into RPC channel
   // If there's remaining data from handshake, push it back to the stream
   // so it gets picked up by wrapStdioStream's data listener
+  // ⚠ 潜在同款丢帧隐患（评审标注，当前不可达）：远端 hello 与其反向 Initialize 相隔
+  // 数十 ms 不会合包；若未来两端改成同 tick 背靠背写，这里的 flowing 态 unshift 会走
+  // direct-emit 丢帧——参见 entry-stdio 的 pause/resume 交接修复再动此处。
   if (remaining && remaining.length > 0) {
     (stream.stdout as NodeJS.ReadableStream & { unshift(chunk: Buffer): void }).unshift(remaining);
   }

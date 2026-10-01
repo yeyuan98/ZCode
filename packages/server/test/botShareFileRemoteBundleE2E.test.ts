@@ -2,9 +2,19 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { existsSync } from "node:fs";
-import { copyFile, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import {
+  copyFile,
+  mkdir,
+  mkdtemp,
+  readFile,
+  readdir,
+  rm,
+  stat,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { ProxyChannel } from "@zcode/rpc";
 import { connectRemote } from "@zcode/server/remote/connect.js";
@@ -35,6 +45,7 @@ import { ZCODE_AGENT_PROVIDER, type BotActor, type BotOutboundAttachment } from 
 // （桌面侧装配件），且其 test runner 已注册 TS loader。
 
 const SERVER_PKG_DIR = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const repoRoot = resolve(SERVER_PKG_DIR, "..", "..");
 const REMOTE_SERVER_BUNDLE = join(SERVER_PKG_DIR, "dist", "remote", "zcode-server.cjs");
 const BUNDLE_BUILD_TIMEOUT_MS = 300_000;
 const E2E_PHASE_BUDGET_MS = 60_000;
@@ -197,12 +208,22 @@ function buildFakeAgentSource(): string {
   ].join("\n");
 }
 
-/** bundle 缺失时有界按需构建（CI 每次 run 最多构建一次；本地命中即跳过）。 */
+/** bundle 缺失或过期（src mtime 新于产物）时有界按需构建。
+ * 评审修复（stale bundle 掩护）：本地存在旧产物时原逻辑直接复用——一次失败的按需
+ * 构建、watcher 半写或长期不重建都会让测试跑在与源码不符的部署形状上，静默丢掉
+ * 守卫能力（也曾最可能解释构建后首跑偶发失败）。改为 mtime 比对：server/services/
+ * shared 三处 src 任一 .ts 比产物新就重建（重建仅 ~2s）。CI 每次 fresh checkout
+ * 本就走构建分支，不受影响。 */
 async function ensureRemoteServerBundle(): Promise<void> {
-  if (existsSync(REMOTE_SERVER_BUNDLE)) {
+  const staleReason = await resolveBundleStaleReason();
+  if (!staleReason) {
     return;
   }
-  console.log(`[bundle-e2e] ${REMOTE_SERVER_BUNDLE} 缺失，按需执行 pnpm build:remote …`);
+  if (existsSync(REMOTE_SERVER_BUNDLE)) {
+    console.log(`[bundle-e2e] 产物过期（${staleReason}），重建 …`);
+  } else {
+    console.log(`[bundle-e2e] ${REMOTE_SERVER_BUNDLE} 缺失，按需执行 pnpm build:remote …`);
+  }
   await new Promise<void>((resolvePromise, rejectPromise) => {
     const child = spawn("pnpm", ["--dir", SERVER_PKG_DIR, "build:remote"], {
       stdio: ["ignore", "inherit", "inherit"],
@@ -233,9 +254,99 @@ async function ensureRemoteServerBundle(): Promise<void> {
   }
 }
 
+/** 产物缺失 → "missing"；任一 src .ts 比产物新 → 具体过期原因；否则 null（可复用）。 */
+async function resolveBundleStaleReason(): Promise<string | null> {
+  if (!existsSync(REMOTE_SERVER_BUNDLE)) {
+    return "missing";
+  }
+  const bundleMtime = (await stat(REMOTE_SERVER_BUNDLE)).mtimeMs;
+  const srcRoots = [
+    join(SERVER_PKG_DIR, "src"),
+    join(repoRoot, "packages", "services", "src"),
+    join(repoRoot, "packages", "shared", "src"),
+  ];
+  let newestSrcMtime = 0;
+  let newestSrcPath = "";
+  for (const root of srcRoots) {
+    const entries = await readdir(root, { recursive: true, withFileTypes: true });
+    for (const entry of entries) {
+      if (!entry.isFile() || !entry.name.endsWith(".ts") || entry.name.endsWith(".d.ts")) {
+        continue;
+      }
+      const filePath = join(entry.parentPath, entry.name);
+      const mtime = (await stat(filePath)).mtimeMs;
+      if (mtime > newestSrcMtime) {
+        newestSrcMtime = mtime;
+        newestSrcPath = filePath;
+      }
+    }
+  }
+  if (newestSrcMtime > bundleMtime) {
+    return `src 较新：${relative(repoRoot, newestSrcPath)}`;
+  }
+  return null;
+}
+
 interface LocalPosixBackendOptions {
   tempHome: string;
   execEnv: Record<string, string>;
+  /** 评审修复（合并块窗口）：把同一事件循环 tick 内的 stdin 写入合并成一次 write——
+   *  复刻 ssh2 对同 tick 背靠背写（hello-ack + 反向 Initialize）合包后的远端读取形状。 */
+  coalesceStdinWrites?: boolean;
+}
+
+/**
+ * 同 tick 写入合并器：write 只入队，setImmediate（事件循环下一 phase，必然晚于所有
+ * 微任务级联）统一 flush——保证 ack 与紧随其后的 Initialize 帧落进同一个 data 块，
+ * 精确复现生产 SSH 的合包形态。end/destroy 前先冲刷，保证帧序与生命周期不变。
+ */
+function createCoalescingStdin(
+  raw: ChildProcessWithoutNullStreams["stdin"],
+): NodeJS.WritableStream {
+  let queue: Buffer[] = [];
+  let flushScheduled = false;
+  const flush = () => {
+    flushScheduled = false;
+    if (queue.length === 0) {
+      return;
+    }
+    const merged = Buffer.concat(queue);
+    queue = [];
+    raw.write(merged);
+  };
+  const schedule = () => {
+    if (flushScheduled) {
+      return;
+    }
+    flushScheduled = true;
+    setImmediate(flush);
+  };
+  const toBuffer = (chunk: unknown): Buffer => {
+    if (Buffer.isBuffer(chunk)) {
+      return chunk;
+    }
+    if (chunk instanceof Uint8Array) {
+      return Buffer.from(chunk);
+    }
+    return Buffer.from(String(chunk));
+  };
+  const coalescing = {
+    write(chunk: unknown): boolean {
+      queue.push(toBuffer(chunk));
+      schedule();
+      return true;
+    },
+    end(...args: unknown[]): void {
+      flush();
+      (raw.end as (...rest: unknown[]) => void)(...args);
+    },
+    destroy(...args: unknown[]): NodeJS.WritableStream {
+      queue = [];
+      (raw.destroy as (...rest: unknown[]) => void)(...args);
+      return coalescing;
+    },
+  };
+  return coalescing as unknown as NodeJS.WritableStream;
 }
 
 /**
@@ -272,7 +383,7 @@ function createLocalPosixBackend(options: LocalPosixBackendOptions) {
           for (const listener of stderrListeners) listener(chunk);
         });
         return {
-          stdin: child.stdin,
+          stdin: options.coalesceStdinWrites ? createCoalescingStdin(child.stdin) : child.stdin,
           stdout: child.stdout,
           stderr: child.stderr,
           onClose: closeEvent.event,
@@ -339,193 +450,212 @@ interface ShareFileOutcomeFrame {
   error?: { code?: unknown; message?: unknown };
 }
 
+async function runRehearsal(
+  t: Parameters<Parameters<typeof test>[2]>[0],
+  options: { coalesceStdinWrites: boolean; label: string },
+): Promise<void> {
+  if (process.platform === "win32") {
+    t.skip("启动命令与 TEMP HOME 布局依赖 POSIX shell（/bin/sh -c、~ 展开），Windows 跳过");
+    return;
+  }
+  await ensureRemoteServerBundle();
+
+  const e2eStartedAt = Date.now();
+  const workspaceParent = await mkdtemp(join(tmpdir(), "zcode-bundle-e2e-ws-"));
+  const tempHome = await mkdtemp(join(tmpdir(), "zcode-bundle-e2e-home-"));
+  const desktopDataRoot = await mkdtemp(join(tmpdir(), "zcode-bundle-e2e-desktop-"));
+  // 远端 workspace（假 Agent 的 cwd / 注册表投递目标路径，对桌面侧不透明）。
+  const remoteWorkspacePath = join(workspaceParent, "remote-project");
+  const payloadFile = join(workspaceParent, "payload.md");
+  const fakeAgentScript = join(workspaceParent, "fake-agent.mjs");
+  const outcomeFile = join(workspaceParent, "share-file-outcome.ndjson");
+
+  let connection: Awaited<ReturnType<typeof connectRemote>> | undefined;
+  let desktopService: ReturnType<typeof createBotsService> | undefined;
+  const desktopAdapterCalls: CapturedAttachment[] = [];
+
+  try {
+    // ---- 远端部署布局（与 SSH deploy 后的 ~/.zcode/server 同构）----
+    await mkdir(join(tempHome, ".zcode", "server"), { recursive: true });
+    await symlink(process.execPath, join(tempHome, ".zcode", "server", "node"), "file");
+    await copyFile(REMOTE_SERVER_BUNDLE, join(tempHome, ".zcode", "server", "zcode-server.cjs"));
+    await mkdir(remoteWorkspacePath, { recursive: true });
+    await writeFile(payloadFile, REMOTE_PAYLOAD);
+    await writeFile(fakeAgentScript, buildFakeAgentSource());
+
+    // Agent 命令注入走生产链路本身：resolveDefaultZCodeAgentCommand 的 env 分支
+    // （ZCODE_AGENT_SERVER_COMMAND/ARGS_JSON）是文档化的自定义命令机制，bundle 内
+    // entry-stdio 无法注入测试用 zcodeAgentCommandResolver，env 覆盖反而覆盖了
+    // 「真实 resolver 链」这一事实。fake agent 所需参数经 server 进程 env 透传。
+    const backendHarness = createLocalPosixBackend({
+      tempHome,
+      coalesceStdinWrites: options.coalesceStdinWrites,
+      execEnv: {
+        PATH: process.env.PATH ?? "/usr/local/bin:/usr/bin:/bin",
+        ZCODE_AGENT_SERVER_COMMAND: process.execPath,
+        ZCODE_AGENT_SERVER_ARGS_JSON: JSON.stringify([fakeAgentScript, "app-server", "--stdio"]),
+        FAKE_AGENT_TASK_ID: TASK_ID,
+        FAKE_AGENT_SHARE_PATH: SHARE_RELATIVE_PATH,
+        FAKE_AGENT_PAYLOAD_FILE: payloadFile,
+        FAKE_AGENT_OUTCOME_FILE: outcomeFile,
+        FAKE_AGENT_FILENAME: REMOTE_FILENAME,
+      },
+    });
+
+    // ---- 桌面侧 harness：真实窗口 Host 装配件（botsService + forward channel）----
+    setDataBaseDir(desktopDataRoot);
+    const desktopConfigDir = getAppConfigDir();
+    await mkdir(desktopConfigDir, { recursive: true });
+    // 与 services 包内 bots config loader 的文件名/结构一致（BOTS_CONFIG_FILE 未公开导出）。
+    await writeFile(
+      join(desktopConfigDir, "bot-config.v3.json"),
+      JSON.stringify({ version: 3, bots: [buildWeixinBotConfig()] }),
+    );
+    const taskDeliveryRegistry = createLocalTaskDeliveryRegistry();
+
+    connection = await connectRemote(backendHarness.backend, {
+      skipDeploy: true,
+      // 生产只有桌面窗口 Host 传 true（web/http 模式不构造 desktop-serving
+      // ChannelServer）；缺了它远端 forwarder 会折叠 unsupported-method —— 这正是
+      // 本测试要钉住的生产语义。
+      serveDesktopChannels: true,
+      appVersion: "bundle-e2e-test",
+      handshakeTimeout: 20_000,
+    });
+    assert.ok(
+      connection.desktopChannelServer,
+      "serveDesktopChannels=true 必须构造 desktopChannelServer",
+    );
+
+    await backendHarness.waitForServerReady();
+
+    // 远端文件读取腿用真 channel 代理（生产 botRemoteRuntimeBridge 最终交给
+    // botsService 的就是 IBotWorkspaceFileService 形状），不 stub 桌面侧 reader。
+    const botWorkspaceFileProxy = ProxyChannel.toService<IBotWorkspaceFileService>(
+      connection.client.getChannel(IBotWorkspaceFileService.channelName),
+    );
+    type BotsServiceDeps = Parameters<typeof createBotsService>[0];
+    desktopService = createBotsService({
+      credentialService: {
+        load: async () => null,
+      } as unknown as BotsServiceDeps["credentialService"],
+      zcodeTaskService: {
+        listDeletedTaskIds: async () => [],
+      } as unknown as BotsServiceDeps["zcodeTaskService"],
+      modelSelectionService: {
+        getView: async () => ({
+          revision: 1,
+          providers: [],
+          preferredSelection: { providerId: ZCODE_AGENT_PROVIDER, modelId: "glm-test" },
+          effectiveSelection: { providerId: ZCODE_AGENT_PROVIDER, modelId: "glm-test" },
+        }),
+      },
+      runStartupBackgroundTasks: false,
+      providerOverrides: { weixin: createCaptureAdapter(desktopAdapterCalls) },
+      taskDeliveryRegistry,
+      remoteWorkspaceService: {
+        isConnected: async () => false,
+        ensureConnected: async () => ({ ok: true }),
+        getWorkspaceFileReader: async () => botWorkspaceFileProxy,
+      },
+    });
+
+    // 与生产 window Host 相同的注册点（desktop/src/host/index.ts）：远端→桌面反向
+    // channel 上注册窄化 forward handler，作用域钉扎由桌面事实决定。
+    connection.desktopChannelServer.registerChannel(
+      IBotShareFileForwardService.channelName,
+      ProxyChannel.fromService(
+        createDesktopBotShareFileForwardService({
+          botsService: desktopService,
+          resolveWorkspaceScopes: () => [
+            { workspacePath: remoteWorkspacePath, workspaceIdentity: REMOTE_WORKSPACE_IDENTITY },
+          ],
+        }),
+      ),
+    );
+
+    // 模拟对话式入站已登记投递目标（botFileDelivery.test.ts 单独钉住入站链，此处
+    // 只预置注册表事实，与生产 remember() 同形状）。
+    taskDeliveryRegistry.remember(TASK_ID, {
+      botId: WEIXIN_BOT_ID,
+      actor: ACTOR,
+      workspacePath: remoteWorkspacePath,
+      workspaceIdentity: REMOTE_WORKSPACE_IDENTITY,
+    });
+
+    // ---- 触发 AGENT-PROTOCOL dispatch 腿：真实 v4 只读方法让 bundle spawn 假 Agent ----
+    // listSessions → getReadOnlyClient(start-if-needed) → 真实 spawn（env resolver）→
+    // server 发 session/list；假 Agent 收到后先发 bots/shareFile 反向请求并等结局。
+    const sessions = await connection.services.zcodeAgentService.listSessions({
+      workspacePath: remoteWorkspacePath,
+      workspaceIdentity: REMOTE_WORKSPACE_IDENTITY,
+    });
+    assert.deepEqual(sessions, []);
+
+    // ---- 断言 1：假 Agent 侧拿到的必须是 ok 结果，且绝不是 -32601/unsupported-method ----
+    const outcomeRaw = await readFile(outcomeFile, "utf8");
+    const outcome = JSON.parse(outcomeRaw.trim()) as ShareFileOutcomeFrame;
+    if (outcome.error) {
+      // 负向钉子：bundle 内 executor/forwarder wiring 被 tree-shake 或装配错配时，
+      // 这里会是 -32601 "bots/shareFile is unavailable on this host"（Chain X-a）或
+      // forwarder 折叠的 unsupported-method（Chain Y）；两者都必须在此显形。
+      assert.fail(
+        `bots/shareFile 反向请求被远端 bundle 以协议错误拒绝：code=${String(outcome.error.code)} message=${String(outcome.error.message)}` +
+          `（-32601 = bundle 内 wiring 丢失；server stderr 尾部：${backendHarness.readStderrTail()}）`,
+      );
+    }
+    assert.ok(outcome.result, "反向请求应答必须携带 result");
+    assert.equal(
+      outcome.result.ok,
+      true,
+      `share_file 结局必须是 ok，实际 ${JSON.stringify(outcome.result)}`,
+    );
+    assert.equal(outcome.result.filename, REMOTE_FILENAME);
+    assert.equal(outcome.result.sizeBytes, REMOTE_PAYLOAD.length);
+
+    // ---- 断言 2：桌面侧恰好一次投递，字节与假 Agent 回传的远端文件一致 ----
+    assert.equal(desktopAdapterCalls.length, 1, "桌面单一写出核心必须恰好投递一次");
+    const delivery = desktopAdapterCalls[0];
+    assert.equal(delivery.botId, WEIXIN_BOT_ID);
+    assert.ok(delivery.localFileBytes, "sendAttachment 执行时临时文件必须存在");
+    assert.deepEqual(delivery.localFileBytes, REMOTE_PAYLOAD);
+    assert.equal(delivery.attachment.sizeBytes, REMOTE_PAYLOAD.length);
+
+    const e2eElapsedMs = Date.now() - e2eStartedAt;
+    assert.ok(
+      e2eElapsedMs < E2E_PHASE_BUDGET_MS,
+      `E2E 阶段耗时 ${e2eElapsedMs}ms 超出预算 ${E2E_PHASE_BUDGET_MS}ms`,
+    );
+    console.log(`[bundle-e2e] ${options.label} 全链路耗时 ${e2eElapsedMs}ms（不含 bundle 构建）`);
+  } finally {
+    if (connection) {
+      await connection.disposeAndWait({ timeoutMs: 8_000 }).catch(() => undefined);
+    }
+    if (desktopService) {
+      await desktopService.disposeAllAndWait().catch(() => undefined);
+    }
+    setDataBaseDir(null);
+    await rm(workspaceParent, { recursive: true, force: true }).catch(() => undefined);
+    await rm(tempHome, { recursive: true, force: true }).catch(() => undefined);
+    await rm(desktopDataRoot, { recursive: true, force: true }).catch(() => undefined);
+  }
+}
+
 test(
-  "全装彩排：真实构建的 remote server bundle 端到端投递 conversational share_file",
+  "全装彩排（分离块）：真实构建的 remote server bundle 端到端投递 conversational share_file",
   { timeout: BUNDLE_BUILD_TIMEOUT_MS + 120_000 },
   async (t) => {
-    if (process.platform === "win32") {
-      t.skip("启动命令与 TEMP HOME 布局依赖 POSIX shell（/bin/sh -c、~ 展开），Windows 跳过");
-      return;
-    }
-    await ensureRemoteServerBundle();
+    await runRehearsal(t, { coalesceStdinWrites: false, label: "separate-chunks" });
+  },
+);
 
-    const e2eStartedAt = Date.now();
-    const workspaceParent = await mkdtemp(join(tmpdir(), "zcode-bundle-e2e-ws-"));
-    const tempHome = await mkdtemp(join(tmpdir(), "zcode-bundle-e2e-home-"));
-    const desktopDataRoot = await mkdtemp(join(tmpdir(), "zcode-bundle-e2e-desktop-"));
-    // 远端 workspace（假 Agent 的 cwd / 注册表投递目标路径，对桌面侧不透明）。
-    const remoteWorkspacePath = join(workspaceParent, "remote-project");
-    const payloadFile = join(workspaceParent, "payload.md");
-    const fakeAgentScript = join(workspaceParent, "fake-agent.mjs");
-    const outcomeFile = join(workspaceParent, "share-file-outcome.ndjson");
-
-    let connection: Awaited<ReturnType<typeof connectRemote>> | undefined;
-    let desktopService: ReturnType<typeof createBotsService> | undefined;
-    const desktopAdapterCalls: CapturedAttachment[] = [];
-
-    try {
-      // ---- 远端部署布局（与 SSH deploy 后的 ~/.zcode/server 同构）----
-      await mkdir(join(tempHome, ".zcode", "server"), { recursive: true });
-      await symlink(process.execPath, join(tempHome, ".zcode", "server", "node"), "file");
-      await copyFile(REMOTE_SERVER_BUNDLE, join(tempHome, ".zcode", "server", "zcode-server.cjs"));
-      await mkdir(remoteWorkspacePath, { recursive: true });
-      await writeFile(payloadFile, REMOTE_PAYLOAD);
-      await writeFile(fakeAgentScript, buildFakeAgentSource());
-
-      // Agent 命令注入走生产链路本身：resolveDefaultZCodeAgentCommand 的 env 分支
-      // （ZCODE_AGENT_SERVER_COMMAND/ARGS_JSON）是文档化的自定义命令机制，bundle 内
-      // entry-stdio 无法注入测试用 zcodeAgentCommandResolver，env 覆盖反而覆盖了
-      // 「真实 resolver 链」这一事实。fake agent 所需参数经 server 进程 env 透传。
-      const backendHarness = createLocalPosixBackend({
-        tempHome,
-        execEnv: {
-          PATH: process.env.PATH ?? "/usr/local/bin:/usr/bin:/bin",
-          ZCODE_AGENT_SERVER_COMMAND: process.execPath,
-          ZCODE_AGENT_SERVER_ARGS_JSON: JSON.stringify([fakeAgentScript, "app-server", "--stdio"]),
-          FAKE_AGENT_TASK_ID: TASK_ID,
-          FAKE_AGENT_SHARE_PATH: SHARE_RELATIVE_PATH,
-          FAKE_AGENT_PAYLOAD_FILE: payloadFile,
-          FAKE_AGENT_OUTCOME_FILE: outcomeFile,
-          FAKE_AGENT_FILENAME: REMOTE_FILENAME,
-        },
-      });
-
-      // ---- 桌面侧 harness：真实窗口 Host 装配件（botsService + forward channel）----
-      setDataBaseDir(desktopDataRoot);
-      const desktopConfigDir = getAppConfigDir();
-      await mkdir(desktopConfigDir, { recursive: true });
-      // 与 services 包内 bots config loader 的文件名/结构一致（BOTS_CONFIG_FILE 未公开导出）。
-      await writeFile(
-        join(desktopConfigDir, "bot-config.v3.json"),
-        JSON.stringify({ version: 3, bots: [buildWeixinBotConfig()] }),
-      );
-      const taskDeliveryRegistry = createLocalTaskDeliveryRegistry();
-
-      connection = await connectRemote(backendHarness.backend, {
-        skipDeploy: true,
-        // 生产只有桌面窗口 Host 传 true（web/http 模式不构造 desktop-serving
-        // ChannelServer）；缺了它远端 forwarder 会折叠 unsupported-method —— 这正是
-        // 本测试要钉住的生产语义。
-        serveDesktopChannels: true,
-        appVersion: "bundle-e2e-test",
-        handshakeTimeout: 20_000,
-      });
-      assert.ok(
-        connection.desktopChannelServer,
-        "serveDesktopChannels=true 必须构造 desktopChannelServer",
-      );
-
-      await backendHarness.waitForServerReady();
-
-      // 远端文件读取腿用真 channel 代理（生产 botRemoteRuntimeBridge 最终交给
-      // botsService 的就是 IBotWorkspaceFileService 形状），不 stub 桌面侧 reader。
-      const botWorkspaceFileProxy = ProxyChannel.toService<IBotWorkspaceFileService>(
-        connection.client.getChannel(IBotWorkspaceFileService.channelName),
-      );
-      type BotsServiceDeps = Parameters<typeof createBotsService>[0];
-      desktopService = createBotsService({
-        credentialService: {
-          load: async () => null,
-        } as unknown as BotsServiceDeps["credentialService"],
-        zcodeTaskService: {
-          listDeletedTaskIds: async () => [],
-        } as unknown as BotsServiceDeps["zcodeTaskService"],
-        modelSelectionService: {
-          getView: async () => ({
-            revision: 1,
-            providers: [],
-            preferredSelection: { providerId: ZCODE_AGENT_PROVIDER, modelId: "glm-test" },
-            effectiveSelection: { providerId: ZCODE_AGENT_PROVIDER, modelId: "glm-test" },
-          }),
-        },
-        runStartupBackgroundTasks: false,
-        providerOverrides: { weixin: createCaptureAdapter(desktopAdapterCalls) },
-        taskDeliveryRegistry,
-        remoteWorkspaceService: {
-          isConnected: async () => false,
-          ensureConnected: async () => ({ ok: true }),
-          getWorkspaceFileReader: async () => botWorkspaceFileProxy,
-        },
-      });
-
-      // 与生产 window Host 相同的注册点（desktop/src/host/index.ts）：远端→桌面反向
-      // channel 上注册窄化 forward handler，作用域钉扎由桌面事实决定。
-      connection.desktopChannelServer.registerChannel(
-        IBotShareFileForwardService.channelName,
-        ProxyChannel.fromService(
-          createDesktopBotShareFileForwardService({
-            botsService: desktopService,
-            resolveWorkspaceScopes: () => [
-              { workspacePath: remoteWorkspacePath, workspaceIdentity: REMOTE_WORKSPACE_IDENTITY },
-            ],
-          }),
-        ),
-      );
-
-      // 模拟对话式入站已登记投递目标（botFileDelivery.test.ts 单独钉住入站链，此处
-      // 只预置注册表事实，与生产 remember() 同形状）。
-      taskDeliveryRegistry.remember(TASK_ID, {
-        botId: WEIXIN_BOT_ID,
-        actor: ACTOR,
-        workspacePath: remoteWorkspacePath,
-        workspaceIdentity: REMOTE_WORKSPACE_IDENTITY,
-      });
-
-      // ---- 触发 AGENT-PROTOCOL dispatch 腿：真实 v4 只读方法让 bundle spawn 假 Agent ----
-      // listSessions → getReadOnlyClient(start-if-needed) → 真实 spawn（env resolver）→
-      // server 发 session/list；假 Agent 收到后先发 bots/shareFile 反向请求并等结局。
-      const sessions = await connection.services.zcodeAgentService.listSessions({
-        workspacePath: remoteWorkspacePath,
-        workspaceIdentity: REMOTE_WORKSPACE_IDENTITY,
-      });
-      assert.deepEqual(sessions, []);
-
-      // ---- 断言 1：假 Agent 侧拿到的必须是 ok 结果，且绝不是 -32601/unsupported-method ----
-      const outcomeRaw = await readFile(outcomeFile, "utf8");
-      const outcome = JSON.parse(outcomeRaw.trim()) as ShareFileOutcomeFrame;
-      if (outcome.error) {
-        // 负向钉子：bundle 内 executor/forwarder wiring 被 tree-shake 或装配错配时，
-        // 这里会是 -32601 "bots/shareFile is unavailable on this host"（Chain X-a）或
-        // forwarder 折叠的 unsupported-method（Chain Y）；两者都必须在此显形。
-        assert.fail(
-          `bots/shareFile 反向请求被远端 bundle 以协议错误拒绝：code=${String(outcome.error.code)} message=${String(outcome.error.message)}` +
-            `（-32601 = bundle 内 wiring 丢失；server stderr 尾部：${backendHarness.readStderrTail()}）`,
-        );
-      }
-      assert.ok(outcome.result, "反向请求应答必须携带 result");
-      assert.equal(
-        outcome.result.ok,
-        true,
-        `share_file 结局必须是 ok，实际 ${JSON.stringify(outcome.result)}`,
-      );
-      assert.equal(outcome.result.filename, REMOTE_FILENAME);
-      assert.equal(outcome.result.sizeBytes, REMOTE_PAYLOAD.length);
-
-      // ---- 断言 2：桌面侧恰好一次投递，字节与假 Agent 回传的远端文件一致 ----
-      assert.equal(desktopAdapterCalls.length, 1, "桌面单一写出核心必须恰好投递一次");
-      const delivery = desktopAdapterCalls[0];
-      assert.equal(delivery.botId, WEIXIN_BOT_ID);
-      assert.ok(delivery.localFileBytes, "sendAttachment 执行时临时文件必须存在");
-      assert.deepEqual(delivery.localFileBytes, REMOTE_PAYLOAD);
-      assert.equal(delivery.attachment.sizeBytes, REMOTE_PAYLOAD.length);
-
-      const e2eElapsedMs = Date.now() - e2eStartedAt;
-      assert.ok(
-        e2eElapsedMs < E2E_PHASE_BUDGET_MS,
-        `E2E 阶段耗时 ${e2eElapsedMs}ms 超出预算 ${E2E_PHASE_BUDGET_MS}ms`,
-      );
-      console.log(`[bundle-e2e] 全链路耗时 ${e2eElapsedMs}ms（不含 bundle 构建）`);
-    } finally {
-      if (connection) {
-        await connection.disposeAndWait({ timeoutMs: 8_000 }).catch(() => undefined);
-      }
-      if (desktopService) {
-        await desktopService.disposeAllAndWait().catch(() => undefined);
-      }
-      setDataBaseDir(null);
-      await rm(workspaceParent, { recursive: true, force: true }).catch(() => undefined);
-      await rm(tempHome, { recursive: true, force: true }).catch(() => undefined);
-      await rm(desktopDataRoot, { recursive: true, force: true }).catch(() => undefined);
-    }
+test(
+  "全装彩排（合并块/SSH 合包形态）：ack+Initialize 同一 data 块仍必须完成反向 forward",
+  { timeout: BUNDLE_BUILD_TIMEOUT_MS + 120_000 },
+  async (t) => {
+    // 评审实证（Node 22/24 独立复现）：waitForAck 在 flowing 态对 remainder unshift 会
+    // 走 direct-emit 丢帧；生产 SSH 恰好把 hello-ack 与反向 Initialize 合包成一次读。
+    // 本腿用同 tick 合并写入复刻该形态，钉住 pause/resume 交接修复（entry-stdio）。
+    await runRehearsal(t, { coalesceStdinWrites: true, label: "coalesced-chunks" });
   },
 );

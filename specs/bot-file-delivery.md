@@ -482,17 +482,35 @@ desktopChannelServer absent) would otherwise stay silent.
 The full-dress rehearsal test (`packages/server/test/botShareFileRemoteBundleE2E.test.ts`)
 reproduced Chain Y deterministically against the BUILT remote server bundle
 (`dist/remote/zcode-server.cjs`) and pinned the root cause: `waitForAck` removes the only
-stdin `data` listener while stdin stays in flowing mode; during the subsequent
-`await ensureRemoteServerDeviceMid(...)` window, any desktop frame — including the
-desktop-serving ChannelServer's `Initialize`, written back-to-back with the ack in the
-desktop's same tick — is silently discarded. The remote reverse `ChannelClient` stays
+stdin `data` listener while stdin stays in flowing mode, so desktop frames arriving in the
+listener-less window are silently discarded. The remote reverse `ChannelClient` stays
 `Uninitialized` forever and every forward folds to `unsupported-method` ("desktop
-reverse channel never initialized"). Fix (entry-stdio): construct the persistent
-socket/protocol/reverse `ChannelClient` immediately after `waitForAck` resolves, BEFORE
-any post-ack await — the promise continuation runs in the same microtask chain, so no
-I/O event can slip into a listener-less window. The rehearsal test is the standing CI
-guard: it execs the real bundle via the real `connectRemote` + a POSIX temp-HOME stub
-backend, registers the real desktop forward channel exactly as the window Host does,
-drives the agent-protocol dispatch leg with a minimal ndjson fake agent, and asserts
-`ok` + exactly one desktop adapter delivery while explicitly failing on any `-32601` /
-`unsupported-method` shape (bundle wiring losses become visible forever).
+reverse channel never initialized"). TWO discard windows exist, and the fix closes both
+(review-verified empirically on Node 22 + 24):
+
+1. **Separate chunks**: ack and `Initialize` in different `data` chunks — closed by
+   constructing the persistent socket/protocol/reverse `ChannelClient` immediately after
+   `waitForAck` resolves, BEFORE any post-ack await (the continuation runs in the same
+   microtask chain, so no new I/O event can intervene).
+2. **Coalesced chunk** (the likely SSH production shape — ssh2 batches same-tick writes):
+   ack + `Initialize` in ONE `data` chunk — `waitForAck`'s `unshift()` of the remainder
+   happens while flowing with no listener and an empty buffer, which takes Node's
+   direct-emit path and discards the bytes before the continuation attaches. Closed by
+   `process.stdin.pause()` after `removeListener` / before `unshift`, with
+   `process.stdin.resume()` in `main()` after the protocol listener is attached
+   (explicit pause disables `on('data')` auto-resume).
+3. **Binary remainder corruption** (found by the coalescing E2E leg itself): the old
+   handshake accumulated stdin as a UTF-8 _string_ and re-encoded the remainder — RPC
+   frames are binary and invalid-UTF-8 sequences were replaced, corrupting the first
+   frame so the reverse client's deserializer crashed. Closed by buffer-only scanning:
+   locate the ack line by `0x0A` byte, UTF-8-decode ONLY the ack line (JSON, safe),
+   unshift the remainder as raw bytes — never through a string round-trip.
+   The rehearsal test runs BOTH transport shapes (separate-chunk and a same-tick coalescing
+   stub backend mirroring SSH batching), execs the real bundle via the real `connectRemote`
+
+- a POSIX temp-HOME stub backend, registers the real desktop forward channel exactly as
+  the window Host does, drives the agent-protocol dispatch leg with a minimal ndjson fake
+  agent, and asserts `ok` + exactly one desktop adapter delivery while explicitly failing
+  on any `-32601` / `unsupported-method` shape (bundle wiring losses become visible
+  forever). Bundle freshness guard: the test rebuilds when any server/services/shared
+  src file is newer than the bundle (stale local artifacts no longer mask regressions).
