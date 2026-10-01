@@ -374,6 +374,7 @@ function createFakeRemoteReader(options: FakeRemoteReaderOptions): FakeRemoteWor
 const WEIXIN_BOT_ID = "bot-wx";
 const FEISHU_BOT_ID = "bot-fs";
 const TELEGRAM_BOT_ID = "bot-tg";
+const WEBHOOK_BOT_ID = "bot-wh";
 const CONVERSATIONAL_TASK_ID = "task-conv-1";
 
 function baseAllowedCommands() {
@@ -429,11 +430,28 @@ function buildTelegramBotConfig() {
   };
 }
 
+function buildWebhookBotConfig() {
+  return {
+    id: WEBHOOK_BOT_ID,
+    name: "Webhook Bot",
+    provider: "webhook",
+    enabled: true,
+    providerUserId: "wh-user-1",
+    allowedWorkspaces: ["*"],
+    allowedCommands: baseAllowedCommands(),
+    currentOptions: {},
+    replyMode: "assistant_changes",
+  };
+}
+
 interface HarnessOptions {
   weixinBot?: ReturnType<typeof buildWeixinBotConfig>;
   feishuBot?: ReturnType<typeof buildFeishuBotConfig> | null;
   /** Phase C Alpha 5：可选注入 telegram bot（默认不含，producer 目标产出测试需要）。 */
   telegramBot?: ReturnType<typeof buildTelegramBotConfig> | null;
+  /** Phase C Alpha 5 场景 5：可选注入 webhook bot——真实 webhook adapter 没有
+   * sendAttachment，unsupported-provider 负例自 feishu re-base 到这里。 */
+  webhookBot?: ReturnType<typeof buildWebhookBotConfig> | null;
   workspaceIdentity?: string;
   sendAttachmentError?: Error;
   /** 故意放慢 adapter.sendAttachment（quota TOCTOU 并发测试需要在途重叠窗口）。 */
@@ -472,11 +490,11 @@ interface Harness {
     token?: string;
     messageId?: string;
     chatType?: "private" | "group";
-    provider?: "weixin" | "feishu" | "telegram";
+    provider?: "weixin" | "feishu" | "telegram" | "webhook";
   }): Promise<BotOutboundMessage[]>;
   sendFileCommand(
     value: string,
-    options?: { token?: string; messageId?: string; provider?: "weixin" | "feishu" },
+    options?: { token?: string; messageId?: string; provider?: "weixin" | "feishu" | "webhook" },
   ): Promise<BotOutboundMessage[]>;
   readRawConfig(): Promise<string>;
   readRawState(): Promise<string>;
@@ -501,6 +519,7 @@ async function createHarness(options: HarnessOptions = {}): Promise<Harness> {
     options.weixinBot ?? buildWeixinBotConfig(),
     ...(options.feishuBot === null ? [] : [options.feishuBot ?? buildFeishuBotConfig()]),
     ...(options.telegramBot ? [options.telegramBot] : []),
+    ...(options.webhookBot ? [options.webhookBot] : []),
   ];
   await writeFile(join(configDir, BOTS_CONFIG_FILE), JSON.stringify({ version: 3, bots }));
   await writeFile(
@@ -541,6 +560,18 @@ async function createHarness(options: HarnessOptions = {}): Promise<Harness> {
               },
             }
           : {}),
+        // webhook 上下文（Alpha 5 场景 5）：/file 渠道门槛负例需要已绑定 workspace 的会话。
+        ...(options.webhookBot
+          ? {
+              [WEBHOOK_BOT_ID]: {
+                botId: WEBHOOK_BOT_ID,
+                workspacePath: workspace,
+                mode: "task",
+                activeTaskId: null,
+                updatedAt: 1,
+              },
+            }
+          : {}),
       },
     }),
   );
@@ -577,7 +608,10 @@ async function createHarness(options: HarnessOptions = {}): Promise<Harness> {
       });
     },
   };
-  // feishu 覆盖为无 sendAttachment 能力的 stub：用于 unsupported-provider 判定。
+  // feishu/telegram 覆盖为惰性 stub：producer 目标产出与解绑守卫测试不触发出站媒体，
+  // 避免真实 adapter 触碰网络路径。Alpha 5 场景 5 起 unsupported-provider 负例已
+  // re-base 到 webhook（真实 feishu/telegram adapter 已具备 sendAttachment，各自的
+  // 出站媒体行为由 botFileDeliveryFeishu/Telegram.test.ts 直接锁定）。
   const feishuAdapter: BotProviderAdapter = {
     test: async () => ({ ok: true, message: "stub" }),
     send: async () => undefined,
@@ -585,6 +619,12 @@ async function createHarness(options: HarnessOptions = {}): Promise<Harness> {
   // telegram 同样覆盖为惰性 stub：producer 测试只关心 sendPrompt 的目标产出，
   // 避免真实 adapter 触碰网络路径。
   const telegramAdapter: BotProviderAdapter = {
+    test: async () => ({ ok: true, message: "stub" }),
+    send: async () => undefined,
+  };
+  // webhook 是当前真实没有 sendAttachment 的 provider（discord/wecom 为 null 注册）：
+  // unsupported-provider 判定负例以它为载体，stub 只保证零网络。
+  const webhookAdapter: BotProviderAdapter = {
     test: async () => ({ ok: true, message: "stub" }),
     send: async () => undefined,
   };
@@ -670,6 +710,7 @@ async function createHarness(options: HarnessOptions = {}): Promise<Harness> {
       weixin: weixinAdapter,
       feishu: feishuAdapter,
       telegram: telegramAdapter,
+      webhook: webhookAdapter,
     },
     taskDeliveryRegistry: registry,
     ...(needsRemoteService
@@ -709,7 +750,7 @@ async function createHarness(options: HarnessOptions = {}): Promise<Harness> {
       token?: string;
       messageId?: string;
       chatType?: "private" | "group";
-      provider?: "weixin" | "feishu" | "telegram";
+      provider?: "weixin" | "feishu" | "telegram" | "webhook";
     } = {},
   ) => {
     const provider = overrides.provider ?? "weixin";
@@ -721,12 +762,26 @@ async function createHarness(options: HarnessOptions = {}): Promise<Harness> {
           ? TELEGRAM_BOT_ID
           : provider === "feishu"
             ? FEISHU_BOT_ID
-            : WEIXIN_BOT_ID,
+            : provider === "webhook"
+              ? WEBHOOK_BOT_ID
+              : WEIXIN_BOT_ID,
       providerUserId:
-        provider === "telegram" ? "tg-user-1" : provider === "feishu" ? "fs-user-1" : "wx-user-1",
+        provider === "telegram"
+          ? "tg-user-1"
+          : provider === "feishu"
+            ? "fs-user-1"
+            : provider === "webhook"
+              ? "wh-user-1"
+              : "wx-user-1",
       chatType: overrides.chatType ?? "private",
       chatId:
-        provider === "telegram" ? "tg-chat-1" : provider === "feishu" ? "fs-chat-1" : "wx-chat-1",
+        provider === "telegram"
+          ? "tg-chat-1"
+          : provider === "feishu"
+            ? "fs-chat-1"
+            : provider === "webhook"
+              ? "wh-chat-1"
+              : "wx-chat-1",
       providerMessageId: overrides.messageId ?? `msg-${inboundMessageCounter}`,
       ...(overrides.token === undefined ? {} : { providerContextToken: overrides.token }),
     };
@@ -1125,15 +1180,17 @@ test("shareFileForTask 守卫矩阵：群聊 actor → not-allowed", async () =>
   }
 });
 
-test("shareFileForTask 守卫矩阵：adapter 无 sendAttachment（feishu/lark）→ unsupported-provider", async () => {
-  const harness = await createHarness();
+test("shareFileForTask 守卫矩阵：adapter 无 sendAttachment（webhook）→ unsupported-provider", async () => {
+  // Alpha 5 场景 5：真实 feishu adapter 已具备 sendAttachment，unsupported-provider
+  // 负例 re-base 到 webhook——当前真实没有 sendAttachment 的 provider。
+  const harness = await createHarness({ webhookBot: buildWebhookBotConfig() });
   try {
     harness.registry.remember(CONVERSATIONAL_TASK_ID, {
-      botId: FEISHU_BOT_ID,
+      botId: WEBHOOK_BOT_ID,
       actor: {
-        provider: "feishu",
-        botId: FEISHU_BOT_ID,
-        providerUserId: "fs-user-1",
+        provider: "webhook",
+        botId: WEBHOOK_BOT_ID,
+        providerUserId: "wh-user-1",
         chatType: "private",
       },
       workspacePath: harness.workspacePath,
@@ -1386,11 +1443,12 @@ test("isContextActiveTaskRunning 漏检终态（review 修复）：registry 遗�
   }
 });
 
-test("/file 门槛顺序（review 修复）：feishu 渠道门槛先于路径解析", async () => {
-  const harness = await createHarness();
+test("/file 门槛顺序（review 修复）：webhook 渠道门槛先于路径解析", async () => {
+  // Alpha 5 场景 5：负例自 feishu re-base 到 webhook（真实 feishu 已支持文件投递）。
+  // 即使路径不存在，webhook 也必须回复渠道不支持（Alpha 0 优先级：adapter → 远程 → 路径）。
+  const harness = await createHarness({ webhookBot: buildWebhookBotConfig() });
   try {
-    // 即使路径不存在，feishu 也必须回复渠道不支持（Alpha 0 优先级：adapter → 远程 → 路径）。
-    const replies = await harness.sendFileCommand("no-such-file.bin", { provider: "feishu" });
+    const replies = await harness.sendFileCommand("no-such-file.bin", { provider: "webhook" });
     assert.equal(replies[0].text, "该渠道暂不支持发送文件，会在后续版本提供。");
     assert.equal(harness.sendAttachmentCalls.length, 0);
   } finally {
