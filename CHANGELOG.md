@@ -1,5 +1,27 @@
 # Changelog
 
+## [3.14.4-alpha.4](https://github.com/yeyuan98/zodex/compare/v3.14.4-alpha.3...v3.14.4-alpha.4) (2026-10-01)
+
+### Features
+
+* **bots:** alpha4 诊断足迹——生产 unsupported-method 链路自宣 ([f00a638](https://github.com/yeyuan98/zodex/commit/f00a638788988942bc391e5dfa1f2be3d5cf4d41))
+  * [R2] share_file unsupported-method 散文补上 ${detail}（与 send-failed 同款），
+  * [R5] 远端 forwarder 就绪门折叠携带稳定 detail 签名
+  * [R1] CLI bot-file-share-port 每次尝试留日志：结构化结局（无 rpc 错误）显式一行；
+  * [R8] entry-stdio 装配足迹一行：authority=<mode> forwarder=ready|absent(client=absent)
+  * [A4] connect.ts 记录 desktop ChannelServer 构造决策（含 serveDesktopChannels 原值）；
+  * spec：bot-file-delivery.md Phase C Alpha 3 增补 Instrumentation 足迹段
+  * 测试：旧桌面折叠用例断言稳定 detail 字符串并经共享 schema 钉住 detail 保真
+
+
+### Bug Fixes
+
+* **server:** review-round fixes — coalesced-frame windows + bundle freshness (Alpha 4) ([70dbb02](https://github.com/yeyuan98/zodex/commit/70dbb0226b9accec41783c7d51df94b377bad5e7))
+  * BLOCKER（评审在 Node 22/24 实证）：合包形态下 waitForAck 对 remainder 的
+  * 新发现三段 Bug（合并块 E2E 腿首跑即崩）：握手把 stdin 累积为 UTF-8 字符串
+  * E2E 新增合并块腿（同 tick 写入合并器复刻 ssh2 合包形态）+ 分离块腿并跑；
+  * 诊断日志修正：entry 装配行去掉不可达分支；connect.ts 握手 unshift 补同款
+
 ## [3.14.4-alpha.3](https://github.com/yeyuan98/zodex/compare/v3.14.4-alpha.2...v3.14.4-alpha.3) (2026-10-01)
 
 ### Bug Fixes
