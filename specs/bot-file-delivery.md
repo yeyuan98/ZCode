@@ -7,7 +7,9 @@ green, asset set + single-channel invariant verified; owner-rig manual validatio
 2026-09-30). Phase B implements the design contract reviewed & owner-approved 2026-09-29
 (two independent subagent review rounds + one implementation review round).
 Next: Phase C — Alpha 2 = remote workspaces (spec below, in progress); Alpha 3 =
-Telegram/Feishu outbound senders (not yet spec'd).
+cross-host recipient resolution (spec below; supersedes the earlier "Alpha 3 =
+Telegram/Feishu outbound senders" placeholder — channel senders move to a later
+alpha and stay unspec'd).
 Full-feature playbook: ../ZCode-handoff.md.
 Owners: bots service (`packages/services/src/bots/botsService.ts`) — command admission, path
 policy, size gates, `taskDeliveryRegistry` + `deliverWorkspaceFile` single writer + tool-source
@@ -246,9 +248,15 @@ Owner decision (approved 2026-09-30): temp-file materialization approach; split 
 2. **New v4 wire method `v4/bot-workspace-file/read`** (desktop host → remote CLI gateway;
    `V4_METHODS` in `packages/shared/src/zcode-protocol-v4/transport.ts`, strict-zod params/result
    schemas alongside existing v4 attachment schemas). Params: `{relativePath: string (trimmed,
-min 1 — RELATIVE only; absolute input → outside-workspace), offset: uint, limit: uint
+min 1 — the requested path written RELATIVE or ABSOLUTE; the wire field name stays
+`relativePath`, renaming would break old remote CLIs), offset: uint, limit: uint
 1..524288}`. Result: `{ok:true; filename; sizeBytes; dataBase64; eof}` | `{ok:false; reason:
-outside-workspace|not-found|too-large|unavailable; detail?}`. The remote CLI gateway handler
+outside-workspace|not-found|too-large|unavailable; detail?}`. **Path parity with the local
+   resolver (Alpha 3 fix; previously the remote policy rejected ALL absolute paths —
+   owner-observed):** absolute-inside input is normalized as-is and accepted, relative input
+   joins the root, exactly like `resolveWorkspaceFilePath`. Containment is adjudicated by the
+   remote owner (lexical under-root + realpath, unchanged): absolute-outside and `..` escapes
+   (relative or absolute form) → outside-workspace. The remote CLI gateway handler
    (`apps/zcode-cli/packages/bootstrap/src/zcode-protocol/server.ts`, mirroring the
    `attachmentRead` case) owns ALL path semantics with remote-OS rules: lexical resolve →
    realpath → must sit inside the realpath'd workspace root (its cwd); re-stat per chunk read
@@ -323,14 +331,22 @@ Unit/integration (services `botFileDelivery.test.ts` + shared zod/policy tests):
    remote-unavailable; reader missing/init throw → remote-unavailable.
 4. Disconnected remote: `/file` → reconnect hint (pinned); tool → remote-unavailable.
 5. Zero-drift: local-context `/file` + tool replies identical to pre-Alpha-2 fixtures.
-6. Wire schemas strict (unknown keys rejected; limit bounds; absolute `relativePath` →
-   outside-workspace); shared path-policy helper matrix (lexical/realpath/symlink escape).
+6. Wire schemas strict (unknown keys rejected; limit bounds; absolute `relativePath` passes the
+   schema — result semantics are the remote CLI's); shared path-policy helper matrix
+   (relative + absolute-inside forms resolve to the SAME file, parity with the local resolver;
+   absolute-outside, lexical `..` escape in relative or absolute form, realpath/symlink escape
+   → outside-workspace; cross-OS drive-style inputs stay coherent with the injected pathOps).
 7. Quota parity on remote tool sends incl. parallel reserve/release.
 8. Desktop bot-only gate: `createScopedBotWorkspaceFileService` matrix (non-bot attachment /
    local scope / missing factory → no channel; bot-runtime + remote → scope-truth injected,
    caller-supplied workspace fields ignored, service-level extra keys pass wire projection,
    base throw and invalid wire input fold to structured unavailable) —
    `packages/desktop/test/botWorkspaceFileGate.test.ts`.
+9. Absolute-path parity (Alpha 3 fix): `/file` with an absolute-inside requestedPath on a
+   connected remote workspace → the reader receives the absolute path VERBATIM (desktop never
+   rewrites remote paths; wire field stays `relativePath`) and delivery succeeds;
+   absolute-outside requestedPath → the remote reader's outside-workspace verdict maps 1:1 →
+   honest refusal, zero deliveries.
 
 Manual rig (owner pause phase, blocks the alpha release):
 
@@ -341,3 +357,104 @@ Manual rig (owner pause phase, blocks the alpha release):
 4. Disconnect the remote machine: `/file` shows the reconnect hint; conversational share
    reports the precise unreachable reason; never fake success.
 5. Rapid-fire conversational asks (quota unchanged); temp dir spot check afterwards.
+
+## Phase C — Alpha 3: cross-host recipient resolution — spec'd 2026-10-01
+
+Rig-confirmed bug this alpha fixes: conversational `share_file` on a REMOTE workspace
+always returned `{ok:false, reason:"no-target"}`. Root cause (reproduced twice,
+including a topology reproduction test): the remote CLI's reverse RPC `bots/shareFile`
+terminates at the REMOTE machine's zcode-server (desktop-attached-remote assembly),
+whose `botsShareFileExecutor` delegated to THAT assembly's own botsService — whose
+`taskDeliveryRegistry` is permanently empty because registries are only populated by
+the window-host desktop-local botsService when bot inbound arrives, and the remote
+assembly never receives bot inbound.
+
+### Behavior
+
+1. **Forward, never self-answer.** In the desktop-attached-remote assembly the
+   `botsShareFileExecutor` forwards `{taskId, path}` to the window-host desktop-local
+   botsService (the single writer) over a narrow desktop-served channel on the SAME
+   stdio connection that links the two processes. The remote assembly NEVER resolves
+   recipients itself. Event order:
+
+   ```text
+   remote CLI share_file tool
+     → reverse RPC bots/shareFile (remote zcodeAgentService, strict schema — unchanged)
+     → botsShareFileExecutor = forwarder (remote assembly)
+     → IBotShareFileForwardService.forward({taskId, path})  ← narrow channel, no recipient fields
+     → desktop window Host forward handler
+         ├─ strict schema re-check (unknown keys rejected → error → send-failed on remote side)
+         ├─ connection workspace scopes = online logical sessions on THIS connection's target
+         │  (desktop registry facts; caller-supplied workspace fields are ignored — none exist)
+         └─ botsService.shareFileForTask({taskId, path}, {restrictToWorkspaces: scopes})
+             ├─ taskDeliveryRegistry lookup (unchanged single writer)
+             ├─ workspace-identity pin (below) → not-allowed on mismatch
+             └─ unchanged Alpha-2 delivery core (quota → adapter gate → remote fetch →
+                materialize → sendAttachment → cleanup)
+   ```
+
+2. **Channel.** `IBotShareFileForwardService` — single method
+   `forward({taskId, path}) → BotShareFileResult` — channel name
+   `ServiceChannels.BotShareFileForward` (`"bot-share-file-forward"`). Params reuse the
+   strict `zcodeBotsShareFileParamsSchema` (unknown keys rejected; NO recipient/
+   provider/peer/workspace fields — the desktop derives the workspace from the
+   connection scope, never from the caller). Served by a desktop-side `ChannelServer`
+   on the same `SocketProtocol` as the existing desktop `ChannelClient`
+   (`RequestType`/`ResponseType` value ranges are disjoint, so both directions share
+   one stdio stream); the remote side calls it via a `ChannelClient` on the same
+   protocol. Precedent: `IBotWorkspaceFileService` (Alpha 2), opposite direction.
+
+3. **Workspace-identity pin.** The desktop forward handler passes the connection's
+   workspace scopes as `restrictToWorkspaces` into `shareFileForTask`, enforced inside
+   the single writer right after the registry lookup, before quota reserve and any
+   file IO: the registry entry's `(workspacePath, workspaceIdentity)` must equal one
+   of the scopes of online logical sessions bound on this connection's remote target.
+   A compromised remote must not borrow another workspace's or another machine's
+   session. Empty scope set (no online session for the target) → fail-closed
+   `not-allowed`. Local-workspace entries (no identity) never match a remote scope.
+
+4. **Failure matrix (remote executor mapping).**
+
+   | Condition                                                               | Result                                     | Notes                                                                                                                                                                                                                                            |
+   | ----------------------------------------------------------------------- | ------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+   | Desktop channel absent (old desktop never initializes desktop channels) | `{ok:false, reason:"unsupported-method"}`  | Same honest semantics as an old host: CLI renders the existing capability prose. Detected via missing `Initialize`; never queues (a queued request would hang for the whole budget).                                                             |
+   | Forward transport error / desktop handler error                         | `{ok:false, reason:"send-failed", detail}` | Includes malformed desktop result (strict result schema re-check fails).                                                                                                                                                                         |
+   | Forward sub-timeout 280 s                                               | `{ok:false, reason:"send-failed", detail}` | Inside the CLI port's 300 s budget so the CLI gets a definitive answer instead of `unknown-outcome`. Honest caveat: the desktop may still complete the delivery after the timeout; the prose states failure of the request, not of the delivery. |
+   | Pin mismatch / empty scopes (desktop)                                   | `{ok:false, reason:"not-allowed"}`         | Nothing delivered.                                                                                                                                                                                                                               |
+   | Registry miss on the desktop                                            | `{ok:false, reason:"no-target"}`           | Now the truthful owner answers.                                                                                                                                                                                                                  |
+
+5. **Unchanged assemblies.** desktop-local and standalone-server (HTTP entry without
+   a desktop channel client) keep today's local resolution semantics exactly,
+   including the fail-closed `no-target` before assembly completion. Old remote +
+   new desktop: remote never learns the channel exists; zero cost. Old desktop + new
+   remote: `unsupported-method` (above). New desktop + new remote: full fix.
+
+### Invariants
+
+- The remote assembly's botsService never resolves a `bots/shareFile` recipient;
+  its registry stays unused for tool delivery (it is still armed by nothing and
+  cleared on dispose — unchanged).
+- No recipient/workspace/provider fields are added to ANY wire (protocol RPC,
+  forward channel, v4 fetch) — recipient truth stays desktop-owned.
+- `deliverWorkspaceFile` and the Alpha-2 remote fetch path are untouched; the pin is
+  enforced in `shareFileForTask` before quota and IO.
+- One stdio connection carries both directions; the desktop-serving ChannelServer
+  registers only the narrow forward channel and is disposed with the connection.
+- All changes additive; every old/new desktop/remote combination degrades honestly
+  per the matrix above.
+
+### Acceptance scenarios
+
+Unit/integration (`packages/services/test/botShareFileRemoteTopology.test.ts`):
+
+1. Topology reproduction flipped green: the production executor wiring (forward over
+   a real ChannelServer/ChannelClient pair with the REAL desktop forward handler)
+   returns `ok` and delivers exactly once via the desktop adapter, while the same
+   params to a self-answering stand-in (today's semantics, kept by standalone-server)
+   still return `no-target` — the only difference is the termination point.
+2. Identity pin: forward with mismatched connection workspace scopes → `not-allowed`,
+   zero deliveries; empty scopes → `not-allowed`.
+3. Channel absent: forwarder against a client with no desktop server (no
+   `Initialize`) → `unsupported-method`, zero deliveries, no queueing.
+4. Control asymmetry: the desktop instance asked directly still delivers exactly
+   once with materialization and cleanup (Phase-1 coverage kept).

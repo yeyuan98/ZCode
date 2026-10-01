@@ -83,6 +83,7 @@ import type {
   BotCreateBindCodeParams,
   BotListWorkspaceRefsParams,
   BotSaveBotParams,
+  BotShareFileTaskDeliveryOptions,
   BotTestResult,
   BotUserConfigOptionsParams,
   IBotsService,
@@ -6169,10 +6170,34 @@ export function createBotsService(
      * （未知/终态/automation 复用任务）→ no-target。quota 只作用于该 tool 路径，
      * /file 命令不走这里、永不受配额限制。
      */
-    async shareFileForTask(params: { taskId: string; path: string }): Promise<BotShareFileResult> {
+    async shareFileForTask(
+      params: { taskId: string; path: string },
+      opts?: BotShareFileTaskDeliveryOptions,
+    ): Promise<BotShareFileResult> {
       const entry = taskDeliveryRegistry.get(params.taskId);
       if (!entry) {
         return { ok: false, reason: "no-target" };
+      }
+      // Phase C Alpha 3 跨 Host 钉扎：桌面窗口 Host 的 forward handler 传入连接作用域
+      // （来自连接注册表的事实，绝非远端自报）。注册表条目的 (workspacePath,
+      // workspaceIdentity) 必须落在该连接服务的 workspace 集合内——被入侵的远端不能
+      // 借本连接投递别的 workspace / 别的机器的会话。判定先于配额预留与任何文件 IO，
+      // 按 not-allowed fail-closed；本地 workspace 条目（无 identity）永不匹配远程作用域。
+      const restrictToWorkspaces = opts?.restrictToWorkspaces;
+      if (
+        restrictToWorkspaces &&
+        !restrictToWorkspaces.some(
+          (scope) =>
+            scope.workspacePath === entry.workspacePath &&
+            (scope.workspaceIdentity ?? undefined) === (entry.workspaceIdentity ?? undefined),
+        )
+      ) {
+        botsLogger.warn(
+          undefined,
+          // Review 修复：去掉与 path= 重复的 file= 字段（同一值打印两次）。
+          `bot file delivery rejected bot=${entry.botId} size=0 outcome=not-allowed source=forward-pin task=${params.taskId} path=${params.path}: registry entry workspace is not served by the forwarding connection`,
+        );
+        return { ok: false, reason: "not-allowed" };
       }
       const actor = entry.actor;
       const peerKey = actor.chatId?.trim() || actor.providerUserId.trim();

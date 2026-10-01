@@ -28,6 +28,7 @@ import {
   ServiceCollection,
   IBotsService,
   IBotWorkspaceFileService,
+  IBotShareFileForwardService,
   IFileService,
   // P3 C5 供应商 client/configs 拉取删除：IClientConfigService 已随服务移除。
   IMediaPreviewService,
@@ -59,6 +60,7 @@ import {
   createSettingService,
   OffPeakModelUnavailableError,
   OffPeakPermanentDispatchError,
+  createDesktopBotShareFileForwardService,
   type HostApiNetworkTransport,
 } from "@zcode/services/node";
 import { createHostResourceUsageResponder } from "./hostResourceUsage.js";
@@ -91,6 +93,7 @@ import {
   type ModelSelection,
 } from "@zcode/shared";
 import { createScopedBotWorkspaceFileService } from "./botWorkspaceFileGate.js";
+import { resolveOnlineRemoteWorkspaceScopes } from "./botShareFileForwardScopes.js";
 import {
   parseHostIncomingMessageEvent,
   rejectUnavailableAttachedServicePort,
@@ -1656,6 +1659,30 @@ async function createWindowRemoteConnectionHandle(params: {
     ProxyChannel.toService<IBotWorkspaceFileService>(
       connection.client.getChannel(IBotWorkspaceFileService.channelName),
     );
+  // Bot 对话式 share_file 的远端→桌面 forward（Phase C Alpha 3）：远端 zcode-server 的
+  // botsShareFileExecutor 经同一条 stdio 连接上的反向 channel 把 {taskId, path} 交回本
+  // 窗口 Host 的单一写出核心（桌面实例的 taskDeliveryRegistry 是唯一投递事实源；远端
+  // 自己的注册表恒空）。钉扎作用域 = 本连接 target 上在线 logical session 绑定的
+  // workspace 集合（连接 registry 的桌面事实，绝非远端自报）——被入侵的远端不能借本
+  // 连接投递别的 workspace / 别的机器的会话；无在线 session 时作用域为空，fail-closed。
+  const localBotsService = activeServices.getOptional(IBotsService);
+  if (localBotsService && connection.desktopChannelServer) {
+    connection.desktopChannelServer.registerChannel(
+      IBotShareFileForwardService.channelName,
+      ProxyChannel.fromService(
+        createDesktopBotShareFileForwardService({
+          botsService: localBotsService,
+          // Review 修复：安全关键过滤收敛为纯函数 resolveOnlineRemoteWorkspaceScopes
+          //（独立文件，可脱离 Electron 单测）；这里只提供注册表事实与连接 target。
+          resolveWorkspaceScopes: () =>
+            resolveOnlineRemoteWorkspaceScopes(
+              windowRemoteConnectionRegistry.listSessions(),
+              params.target,
+            ),
+        }),
+      ),
+    );
+  }
   const remoteMediaPreviewFactory = !remoteMediaRangePreviewEnabled
     ? undefined
     : (scope: Extract<WindowHostAttachmentScope, { kind: "remote" }>) =>
@@ -2887,6 +2914,9 @@ async function setupRemoteConnection(
     remoteAssetNetwork,
     remoteRuntimeNetwork,
     signal,
+    // Phase C Alpha 3：本窗口 Host 是唯一 botsService 持有方，也只有它需要
+    // desktop-serving 反向 channel（远端→桌面 bot-share-file-forward）。
+    serveDesktopChannels: true,
     // SSH/Docker 远端 server 由 host process 单独启动，不能依赖桌面 main 的环境继承。
     // 这里显式透传编译期版本，避免漏导入后生成裸 ZCODE_VERSION 引用导致 SSH 初始化直接 ReferenceError。
     appVersion: ZCODE_VERSION,

@@ -55,9 +55,22 @@ export function wrapStdio(): ISocket {
   };
 }
 
-export function createStdioServer(services: ServiceCollection) {
-  const socket = wrapStdio();
-  const protocol = new SocketProtocol(socket);
+/**
+ * 预构建的 stdio RPC transport。Phase C Alpha 3：entry 需要在 services 创建前就拿到
+ * 同一 protocol 上的反向 ChannelClient（远端→桌面 forward），因此 socket/protocol 的
+ * 所有权上移到 entry，由这里复用；缺省时维持旧行为（自建 wrapStdio）。
+ */
+export interface StdioServerTransport {
+  socket: ISocket;
+  protocol: SocketProtocol;
+}
+
+export function createStdioServer(
+  services: ServiceCollection,
+  options?: { transport?: StdioServerTransport },
+) {
+  const socket = options?.transport?.socket ?? wrapStdio();
+  const protocol = options?.transport?.protocol ?? new SocketProtocol(socket);
   const channelServer = new ChannelServer(protocol, "stdio");
   const agentService = services.getOptional(IZCodeAgentService);
   const connectionScope = agentService

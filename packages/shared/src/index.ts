@@ -42,7 +42,7 @@ export type {
   SSHConnectOptions,
   WSLConnectOptions,
 } from "./remoteTarget.js";
-export { stripRemoteTargetSecrets } from "./remoteTarget.js";
+export { stripRemoteTargetSecrets, isSameRemoteTarget } from "./remoteTarget.js";
 export { buildSshRemoteHostKey } from "./remoteSshHostKey.js";
 export { buildRemoteEnvironmentKey } from "./remoteEnvironmentKey.js";
 export type {

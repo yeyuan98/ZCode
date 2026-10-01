@@ -22,9 +22,10 @@ import { hostAttachServicePortMessageSchema } from "../src/validation.ts";
  *
  * 1. `v4/bot-workspace-file/read` 的 params/result 是 strict zod——未知键拒绝、
  *    limit 落在 1..524288、result ok 分块的 base64 解码 ≤512KiB。
- *    绝对 relativePath 不被 schema 拒绝：它是 outside-workspace **结果**，
- *    由远端 CLI（文件系统所有者）裁决，不是协议错误。
- * 2. 纯路径策略矩阵：绝对路径 / 词法 `..` 逃逸 / realpath 逃逸 / 跨 OS 语义。
+ *    绝对 relativePath 不被 schema 拒绝：containment 裁决（放行或 outside-workspace
+ *    结果）归远端 CLI（文件系统所有者），不是协议错误。
+ * 2. 纯路径策略矩阵：相对/绝对-inside 平价（同文件）、绝对-outside / 词法 `..` 逃逸 /
+ *    realpath 逃逸 / 跨 OS 语义。
  * 3. AttachServicePort 的 attachmentKind 是 additive 的 bot-only 标记。
  */
 
@@ -79,7 +80,7 @@ test("params schema trim relativePath 但不拒绝绝对路径（结果语义归
   assert.equal(trimmed.success, true);
   assert.equal(trimmed.success && trimmed.data.relativePath, "a.txt");
 
-  // 绝对路径必须能通过 schema：拒绝它的职责在远端 CLI（outside-workspace 结果）。
+  // 绝对路径必须能通过 schema：containment 裁决（放行或拒绝）的职责在远端 CLI。
   assert.equal(
     v4BotWorkspaceFileReadParamsSchema.safeParse({
       relativePath: "/etc/passwd",
@@ -184,9 +185,15 @@ test("result schema：四个 failure reason 原样往返且拒绝未知键", () 
   );
 });
 
-test("路径策略矩阵（POSIX 远端）：绝对路径与词法逃逸 → outside-workspace", () => {
+test("路径策略矩阵（POSIX 远端）：绝对路径按 containment 裁决，root 内与相对形式同文件", () => {
   const cases: Array<{ input: string; expected: "outside-workspace" | "ok" }> = [
+    // 绝对-outside / 绝对形式的 `..` 逃逸 / 前缀相同但非分隔符边界 → 拒绝。
     { input: "/etc/passwd", expected: "outside-workspace" },
+    { input: "/ws/../outside.txt", expected: "outside-workspace" },
+    { input: "/ws-outside/file", expected: "outside-workspace" },
+    // 绝对-inside：Alpha 3 起与本地 resolver 平价——放行（realpath 层仍兜底）。
+    { input: "/ws/reports/result.png", expected: "ok" },
+    { input: "/ws/sub/../file.txt", expected: "ok" },
     { input: "../outside.txt", expected: "outside-workspace" },
     { input: "sub/../../outside.txt", expected: "outside-workspace" },
     { input: "..", expected: "outside-workspace" },
@@ -197,6 +204,9 @@ test("路径策略矩阵（POSIX 远端）：绝对路径与词法逃逸 → out
     // POSIX 远端把反斜杠当普通文件名字符：词法上不逃逸（真实 containment 由
     // realpath 层兜底；不存在即 not-found），这是「远端 OS 语义」的刻意行为。
     { input: "sub\\..\\..\\etc", expected: "ok" },
+    // Windows 盘符绝对路径在 POSIX 远端 isAbsolute=false：整串是普通文件名，词法上
+    // 不逃逸（join 成 /ws/C:\ws\file.txt，fs 层归 not-found）——跨 OS 语义保持一致。
+    { input: "C:\\ws\\file.txt", expected: "ok" },
   ];
   for (const { input, expected } of cases) {
     const decision = evaluateBotWorkspaceFilePath({
@@ -217,12 +227,35 @@ test("路径策略矩阵（POSIX 远端）：绝对路径与词法逃逸 → out
       );
     }
   }
+  // 平价断言：同一文件写成绝对或相对形式，词法解析结果必须完全一致
+  // （绝对输入是 normalize 原样，不是 join(root, absolute) 的错误拼接）。
+  const absoluteForm = evaluateBotWorkspaceFilePath({
+    pathOps: path.posix,
+    workspaceRoot: "/ws",
+    relativePath: "/ws/reports/result.png",
+  });
+  const relativeForm = evaluateBotWorkspaceFilePath({
+    pathOps: path.posix,
+    workspaceRoot: "/ws",
+    relativePath: "reports/result.png",
+  });
+  assert.ok(absoluteForm.ok && relativeForm.ok);
+  assert.equal(absoluteForm.lexicalPath, "/ws/reports/result.png");
+  assert.equal(absoluteForm.lexicalPath, relativeForm.lexicalPath);
 });
 
-test("路径策略矩阵（Windows 远端）：盘符/UNC 绝对路径 → outside-workspace", () => {
+test("路径策略矩阵（Windows 远端）：盘符/UNC 按 containment 裁决，root 内绝对路径放行", () => {
   const cases: Array<{ input: string; expected: "outside-workspace" | "ok" }> = [
     { input: "C:\\Windows\\system32", expected: "outside-workspace" },
     { input: "\\\\server\\share\\x", expected: "outside-workspace" },
+    // 绝对-inside（含绝对形式 `..` 归一后仍在 root 内）→ 放行。
+    { input: "C:\\ws\\reports\\result.png", expected: "ok" },
+    { input: "C:\\ws\\sub\\..\\file.txt", expected: "ok" },
+    // 绝对形式 `..` 逃逸：normalize 成 C:\\outside.txt 后落在 root 外 → 拒绝。
+    { input: "C:\\ws\\..\\outside.txt", expected: "outside-workspace" },
+    // POSIX 风格绝对路径在 win32 语义下是驱动器相对（\\ws\\file.txt），不在 C:\\ws 内
+    // → 拒绝；跨 OS 语义由注入的 pathOps 决定，不做字符串启发。
+    { input: "/ws/file.txt", expected: "outside-workspace" },
     { input: "..\\outside.txt", expected: "outside-workspace" },
     { input: "sub\\..\\file.txt", expected: "ok" },
     { input: "reports\\result.png", expected: "ok" },
@@ -243,6 +276,20 @@ test("路径策略矩阵（Windows 远端）：盘符/UNC 绝对路径 → outsi
       `relativePath=${input} 期望 ${expected}，实际 ${JSON.stringify(decision)}`,
     );
   }
+  // 平价断言：绝对-inside 与相对形式解析到同一文件。
+  const absoluteForm = evaluateBotWorkspaceFilePath({
+    pathOps: path.win32,
+    workspaceRoot: "C:\\ws",
+    relativePath: "C:\\ws\\reports\\result.png",
+  });
+  const relativeForm = evaluateBotWorkspaceFilePath({
+    pathOps: path.win32,
+    workspaceRoot: "C:\\ws",
+    relativePath: "reports\\result.png",
+  });
+  assert.ok(absoluteForm.ok && relativeForm.ok);
+  assert.equal(absoluteForm.lexicalPath, "C:\\ws\\reports\\result.png");
+  assert.equal(absoluteForm.lexicalPath, relativeForm.lexicalPath);
 });
 
 test("realpath containment：符号链接逃逸与同根判定", () => {

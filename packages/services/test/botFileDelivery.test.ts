@@ -1330,6 +1330,56 @@ test("/file 远程 happy path（Phase C Alpha 2）：已连接远程取回分块
   }
 });
 
+test("/file 远程绝对路径平价（Phase C Alpha 3）：root 内绝对路径原样透传 reader；root 外由 reader 裁决拒绝", async () => {
+  // 场景 1（绝对-inside）：desktop 不解析远端路径——requestedPath 原样进入 reader 的
+  // relativePath（wire 字段名保持不变，additive 规则），containment 由远端机器按新
+  // 词法策略（与本地 resolver 平价）裁决放行后照常投递。
+  const content = Buffer.from("absolute-inside-payload");
+  const readerCalls: Parameters<FakeRemoteWorkspaceFileReader["readWorkspaceFile"]>[0][] = [];
+  const insideHarness = await createHarness({
+    workspaceIdentity: "remote-identity-abs",
+    remoteConnected: true,
+    remoteReader: createFakeRemoteReader({
+      filename: "remote-result.bin",
+      content,
+      calls: readerCalls,
+    }),
+  });
+  try {
+    const absoluteInside = join(insideHarness.workspacePath, "out/remote-result.bin");
+    const replies = await insideHarness.sendFileCommand(absoluteInside);
+    assert.match(replies[0].text, /^已发送 remote-result\.bin（\d+B）。$/);
+    assert.equal(insideHarness.sendAttachmentCalls.length, 1);
+    // 钉住透传不变量：desktop 对远端路径不做任何重写/归一化。
+    assert.ok(readerCalls.length > 0, "reader 必须被调用");
+    assert.ok(readerCalls.every((item) => item.relativePath === absoluteInside));
+    assert.ok(readerCalls.every((item) => item.workspaceIdentity === "remote-identity-abs"));
+  } finally {
+    await insideHarness.dispose();
+  }
+
+  // 场景 2（绝对-outside）：desktop 同样不预判（远端机器是 containment 的唯一裁决
+  // 者）；reader fake 模拟远端新策略的 outside-workspace 裁决 → typed 拒绝 1:1 透传，
+  // 如实拒绝、零投递。
+  const outsideHarness = await createHarness({
+    workspaceIdentity: "remote-identity-abs",
+    remoteConnected: true,
+    remoteReader: createFakeRemoteReader({
+      filename: "a.bin",
+      content: Buffer.from("abc"),
+      control: { fail: "outside-workspace" },
+    }),
+  });
+  try {
+    const absoluteOutside = join(tmpdir(), "outside-secret.bin");
+    const replies = await outsideHarness.sendFileCommand(absoluteOutside);
+    assert.equal(outsideHarness.sendAttachmentCalls.length, 0);
+    assert.equal(replies[0].text, `只能发送当前 workspace 内的文件：${absoluteOutside}`);
+  } finally {
+    await outsideHarness.dispose();
+  }
+});
+
 test("/file 无参数（review 修复附注）：parser 归为未知命令，与 Alpha 0 一致", async () => {
   const harness = await createHarness();
   try {

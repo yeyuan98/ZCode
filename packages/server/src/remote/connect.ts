@@ -1,4 +1,4 @@
-import { SocketProtocol, ChannelClient } from "@zcode/rpc";
+import { SocketProtocol, ChannelClient, ChannelServer, type IChannelServer } from "@zcode/rpc";
 import type { IServiceAccessor } from "@zcode/services";
 import { RemoteServiceAccess } from "@zcode/client";
 import {
@@ -35,6 +35,14 @@ export interface ConnectOptions extends DeployOptions {
   remoteRuntimeEnv?: Record<string, string | undefined>;
   /** Desktop Host 为 desktop-attached WSL server 提供的显式 Agent 网络配置。 */
   remoteRuntimeNetwork?: RemoteRuntimeNetworkOptions;
+  /**
+   * Review 修复（http web 模式回归）：只有桌面窗口 Host 传 true——它在同一 protocol 上
+   * 构造 desktop-serving ChannelServer（远端→桌面 bot-share-file-forward 的落点）。
+   * web/http 模式的进程没有 botsService，缺省不构造，远端 forwarder 得不到 Initialize
+   * → 立即 unsupported-method，保持诚实即时失败（而不是烧 1s 后暴露 channel 名的
+   * send-failed detail）。
+   */
+  serveDesktopChannels?: boolean;
   /** 远端 stdio 关闭后的回调（用于上层感知断连并触发回收） */
   onDidRemoteClose?: (event: { code: number }) => void;
 }
@@ -49,6 +57,13 @@ export interface RemoteRuntimeNetworkOptions {
 export interface RemoteConnection {
   services: IServiceAccessor;
   client: ChannelClient;
+  /**
+   * Phase C Alpha 3：同一条 stdio protocol 上的桌面侧 ChannelServer，向远端
+   * zcode-server 提供窄化反向 channel（目前仅 bot-share-file-forward；window Host
+   * 负责注册，连接释放时随 client/protocol 一并 dispose）。旧远端 server 不发起
+   * 反向调用，零成本。
+   */
+  desktopChannelServer?: IChannelServer;
   dispose(): void;
   disposeAndWait(options?: { timeoutMs?: number }): Promise<void>;
 }
@@ -216,6 +231,17 @@ async function connectRemoteUnchecked(
   const socket = wrapStdioStream(stream);
   const protocol = new SocketProtocol(socket);
   const client = new ChannelClient(protocol);
+  // Phase C Alpha 3：同一 protocol 上再挂桌面侧 ChannelServer——远端→桌面的反向
+  // forward（bot-share-file-forward）经它回到 window Host。RequestType/ResponseType
+  // 数值域不相交：本 server 只消费远端 ChannelClient 的请求帧，既有 client 只消费
+  // 远端 ChannelServer 的应答帧，互不干扰。构造即向远端回 Initialize（远端反向
+  // client 以是否收到 Initialize 判定「桌面是否提供反向 channel」，旧桌面语义由此
+  // 退化为 unsupported-method 而非挂起）。channel 由调用方（window Host）注册。
+  // Review 修复：仅 serveDesktopChannels（桌面窗口 Host）才构造——web/http 模式没有
+  // botsService，构造了也只能 1s 超时，不如不构造让远端立即 unsupported-method。
+  const desktopChannelServer = options?.serveDesktopChannels
+    ? new ChannelServer(protocol, "desktop")
+    : undefined;
   const services = new RemoteServiceAccess(client);
   let hasReportedRemoteClose = false;
   let hasStreamClosed = false;
@@ -257,6 +283,7 @@ async function connectRemoteUnchecked(
     }
     disposalStarted = true;
     backendDisconnectDisposable?.dispose();
+    desktopChannelServer?.dispose();
     client.dispose();
     protocol.dispose();
     // stdin.end 必须在任何 await 之前同步触发，让远端 stdio server 立即收到 EOF。
@@ -286,6 +313,7 @@ async function connectRemoteUnchecked(
   return {
     services,
     client,
+    desktopChannelServer,
     dispose() {
       beginDisposal();
       disposeBackend();

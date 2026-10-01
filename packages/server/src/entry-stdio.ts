@@ -1,4 +1,5 @@
 import { disposeServiceResourcesAndWait, getAppConfigDir } from "@zcode/services/node";
+import { ChannelClient, SocketProtocol } from "@zcode/rpc";
 import {
   ZCODE_VERSION,
   SERVICE_AUTHORITY_MODE_ENV,
@@ -7,7 +8,7 @@ import {
   helloAckMessageSchema,
 } from "@zcode/shared";
 import type { HelloMessage, HelloAckMessage } from "@zcode/shared";
-import { createStdioServer } from "./stdio.js";
+import { createStdioServer, wrapStdio, type StdioServerTransport } from "./stdio.js";
 import { registerStdioProcessLifecycle } from "./stdio-lifecycle.js";
 import { createStdioServices } from "./stdioServices.js";
 import { ensureRemoteServerDeviceMid } from "./stdioDeviceMid.js";
@@ -56,6 +57,20 @@ async function main() {
   // 生命周期所有者，必须在 services 创建前确保 deviceMid 存在（详见 stdioDeviceMid.ts）。
   await ensureRemoteServerDeviceMid({ log });
 
+  // Phase C Alpha 3：transport 所有权上移到 entry。同一 stdio protocol 上除了既有的
+  // ChannelServer（向桌面暴露服务）外，再挂一个反向 ChannelClient——桌面窗口 Host 会在
+  // 它那一侧的同一 protocol 上构造 desktop-serving ChannelServer（构造即回 Initialize），
+  // 远端经窄化 bot-share-file-forward channel 把 bots/shareFile 裁决 forward 回桌面单一
+  // 写出核心。RequestType/ResponseType 数值域不相交，两个方向共享同一条 stdio 流互不干扰；
+  // 旧桌面不回 Initialize 时 forward 按 unsupported-method 折叠（见 createStdioServices）。
+  const stdioSocket = wrapStdio();
+  const stdioProtocol = new SocketProtocol(stdioSocket);
+  const desktopChannelClient = new ChannelClient(stdioProtocol);
+  const stdioTransport: StdioServerTransport = {
+    socket: stdioSocket,
+    protocol: stdioProtocol,
+  };
+
   // Phase 3: Initialize services and start stdio RPC server
   const zcodeBuiltinProviderConfigFilePath = await materializeBundledZCodeBuiltinProviderConfig({
     environmentConfigRoot: getAppConfigDir(),
@@ -64,13 +79,14 @@ async function main() {
   const { authorityModeParseResult, services } = createStdioServices({
     env: process.env,
     zcodeBuiltinProviderConfigFilePath,
+    desktopChannelClient,
   });
   if (authorityModeParseResult.invalidRawValue) {
     log(
       `${SERVICE_AUTHORITY_MODE_ENV}=${authorityModeParseResult.invalidRawValue} 非法，按默认本机 Environment 权威模式启动`,
     );
   }
-  const stdioServer = createStdioServer(services);
+  const stdioServer = createStdioServer(services, { transport: stdioTransport });
   registerStdioProcessLifecycle({
     stdin: process.stdin,
     signalSource: process,

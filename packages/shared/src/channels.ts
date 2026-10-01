@@ -137,6 +137,13 @@ export const ServiceChannels = {
    * bot-runtime 标记的 attachment 端口上（renderer/relay/phone 结构上不可见）。
    */
   BotWorkspaceFile: "bot-workspace-file",
+  /**
+   * Bot 对话式 share_file 的远端→桌面反向转发（Phase C Alpha 3）。窄化单方法
+   * channel：desktop window Host 在与远端 zcode-server 的 stdio 连接上以独立
+   * ChannelServer 提供，远端装配的 botsShareFileExecutor 经它把 {taskId, path}
+   * 交回桌面单一写出核心裁决；参数绝不携带任何收件人/workspace 字段。
+   */
+  BotShareFileForward: "bot-share-file-forward",
   /** Composer 附件在 host-local 与 remote runtime 之间的预传服务 */
   PromptAttachmentTransfer: "prompt-attachment-transfer",
   /** 闲时任务管理服务（与 automation 服务面独立） */

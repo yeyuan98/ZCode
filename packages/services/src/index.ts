@@ -197,6 +197,10 @@ export type {
 // renderer 经根 index 拉进浏览器包时不会连带 Node 依赖。
 export { IBotWorkspaceFileService } from "./bots/botWorkspaceFileService.js";
 export type { BotWorkspaceFileV4Forwarder } from "./bots/botWorkspaceFileService.js";
+// 对话式 share_file 的远端→桌面反向转发窄化 channel（Phase C Alpha 3）。同样只导出
+// descriptor 与类型；桌面 handler / 远端 forwarder / executor 装配工厂在 node 入口。
+export { IBotShareFileForwardService } from "./bots/botShareFileForwardService.js";
+export type { BotShareFileForwarder } from "./bots/botShareFileForwardService.js";
 
 // Hooks service — IHooksService is both a type (interface) and value (descriptor).
 export { IHooksService } from "./hooks/hooks.js";
