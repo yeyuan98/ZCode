@@ -13,8 +13,9 @@ inputs are dropped by design). Alpha 4 (chain self-announcing diagnostics + thre
 stdio-handshake race fixes, found via the new built-bundle E2E) **shipped** in
 `3.14.4-alpha.4` (PR #8) — **owner-rig validated 2026-10-01**: remote conversational
 `share_file` and `/file` (relative AND absolute-inside paths) all deliver over real SSH.
-Next: **Alpha 5 — Telegram + Feishu/Lark outbound senders (not yet spec'd here; plan in
-../ZCode-handoff.md §4)** — the last milestone before official 3.14.4.
+Next: **Alpha 5 — Telegram + Feishu/Lark outbound senders (spec'd below — Phase C Alpha 5;
+implementation pending; targets `3.14.4-alpha.5`)** — the last milestone before official
+3.14.4.
 Full-feature playbook: ../ZCode-handoff.md.
 Owners: bots service (`packages/services/src/bots/botsService.ts`) — command admission, path
 policy, size gates, `taskDeliveryRegistry` + `deliverWorkspaceFile` single writer + tool-source
@@ -523,3 +524,120 @@ reverse channel never initialized"). TWO discard windows exist, and the fix clos
   on any `-32601` / `unsupported-method` shape (bundle wiring losses become visible
   forever). Bundle freshness guard: the test rebuilds when any server/services/shared
   src file is newer than the bundle (stale local artifacts no longer mask regressions).
+
+## Phase C — Alpha 5: Telegram + Feishu/Lark outbound senders
+
+Spec'd 2026-10-01 from the owner-approved plan (../ZCode-handoff.md §4); implementation
+pending; targets `3.14.4-alpha.5`. The delivery core has been WeChat-only purely because
+only the weixin adapter implements `sendAttachment` — Alpha 5 adds the two remaining
+senders and widens channel qualification; the single writer above them does not change.
+
+### Behavior
+
+1. **Same delivery, more channels.** `/file <path>` and conversational `share_file` work
+   identically on Telegram and Feishu/Lark PRIVATE chats as on WeChat, through the
+   unchanged single writer `deliverWorkspaceFile` (admission gates, workspace-only path
+   policy, 5MB cap, tool-only quota, audit, remote fetch/materialization). Nothing above
+   the adapter layer changes except channel qualification (item 2).
+2. **Channel qualification widening (4 sites).** (a) The shared
+   `zcodeAutomationBotDeliveryTargetSchema.provider` enum gains `"telegram"` (feishu/lark
+   are already members). (b) The shared predicate `botShareFileDeliveryTargetQualifies`
+   accepts weixin/telegram/feishu/lark, still private-only and still
+   non-automation/off-peak. (c) The producer `resolveAutomationBotDeliveryTarget`
+   (botsService) emits telegram targets — **owner decision: telegram PRIVATE chats only;
+   telegram group chats never emit a target**. (d) The three deny-site consumers (CLI
+   legacy + v4 prompt-turn builders and the services `zcodeTaskServiceAdapter` mirror)
+   auto-widen by consuming the shared predicate — no fourth hand-copy.
+3. **Explicit owner-approved side effect of (c): telegram pushback.** Telegram
+   private-chat bots gain scheduled-task completion pushback (text, via the existing
+   automation pushback machinery — telegram was permanently silent before because no
+   target was ever emitted). Telegram group chats gain nothing. Feishu/lark/weixin
+   pushback is unchanged.
+4. **Telegram adapter `sendAttachment`: always `sendDocument`.** Multipart upload via
+   the existing `fetchBotProvider`/`fetchBotProviderJson` helper with an EXPLICIT 60s
+   timeout — the helper default (15s) is too low for 5MB uploads, and the Telegram bot
+   API limit (50MB) sits far above our 5MB cap. The chat target is derived exactly like
+   the existing `sendMessage` path (no new identity plumbing). Documents only — no
+   recompression, no photo special-casing.
+5. **Feishu/Lark adapter `sendAttachment`: upload-then-send, per attachment kind.**
+   `readTenantAccessToken` (existing) gates both upload routes. Kind "image" → upload
+   `im/v1/images` (inline render; 10MB API limit) then send `msg_type: "image"`. Kinds
+   video/file → upload `im/v1/files` (30MB API limit; 0-byte files are rejected by the
+   API — fail honestly BEFORE upload), file_type mapped from filename/mime over
+   pdf/doc/xls/ppt/mp4/opus with "stream" as the fallback for everything else; then send
+   `msg_type: "file"` via the existing `im/v1/messages` machinery. receive_id derives
+   from the existing `resolveFeishuReceiveIdType`; errors surface via the existing
+   `createFeishuMessageError` (code/msg/log_id preserved). Upload calls carry explicit
+   60s timeouts (same rationale as Telegram). `sendAttachment` must NOT interact with
+   the streaming reply card machinery — the media arrives as its own separate message
+   bubble.
+6. **`/help` finally lists `/file` (deferred since Alpha 0).** "file" joins
+   `BOT_MENU_COMMAND_ORDER`; `helpFile` copy lands in BOTH the zh and en catalogs;
+   `telegramCommandNames`/`telegramCommandDescriptions` gain entries so Telegram's
+   native command menu registers it. The per-bot `allowedCommands.file: false` toggle
+   is honored automatically (absent = allowed — unchanged semantics).
+7. **CLI tool description.** The `share_file` tool handler copy (apps/zcode-cli) no
+   longer says "WeChat private chat" only.
+8. **Rollout semantics: default-allow.** Merging instantly enables `/file` +
+   `share_file` (+ telegram private pushback) for ALL existing telegram/feishu bots.
+   Operator rollback is the per-bot `allowedCommands.file: false` toggle — no
+   redeploy.
+
+### Invariants
+
+- `deliverWorkspaceFile` remains the sole media-delivery entry; adapters only upload +
+  send; everything above them is provider-neutral and unchanged.
+- WeChat behavior is byte-identical to `3.14.4-alpha.4` (pinned by the existing
+  zero-drift fixtures).
+- No new identity/target plumbing: adapters derive the chat target from the outbound
+  message exactly like their text-send paths; recipient truth stays host-resolved
+  (`taskDeliveryRegistry`).
+- The shared predicate stays the single qualification source consumed by all three
+  deny sites.
+- Telegram group chats never receive files and never emit delivery targets (locked
+  private-only decision).
+- Feishu `sendAttachment` never touches streaming-card handles or transient card
+  state.
+- All wire additions are additive (enum widening only). **Owner decision (accepted
+  degradation, no retry fallback):** `botDeliveryTarget.provider: "telegram"` on stale
+  peers still running the old provider enum (`["feishu","lark","weixin"]`) fails their
+  strict parse — new desktop + not-yet-reconnected remote runtime + telegram bot prompt
+  → the whole prompt send fails with the structured params error (-32602; honest,
+  user-visible) until reconnect redeploys the matching bundle; the reverse direction
+  (new CLI → old desktop host, `automationCreate` with a telegram target) fails the
+  same honest way. The host's existing omit-retry only covers top-level unrecognized
+  keys and structurally cannot rescue nested enum mismatches — documented, accepted,
+  transient, self-healing after reconnect; do NOT add fallback code for it.
+- Expected breakage beyond that edge: none (additive for all other users).
+
+### Acceptance scenarios
+
+Unit/integration:
+
+1. Predicate matrix widened (`packages/shared/test/botsShareFile.test.ts`):
+   telegram/feishu/lark + private + no automation/off-peak → qualifies; each provider
+   paired with a group chat → not; automationId/offPeakTaskId → not.
+2. Producer tests (services): telegram private actor → target with provider
+   "telegram"; telegram group actor → undefined; feishu/lark/weixin unchanged
+   (including group-emission parity for feishu/lark).
+3. Telegram adapter (fetch-mocked, no real network): happy path sends `sendDocument`
+   multipart with the right chat id, filename, and explicit 60s timeout; API error →
+   throw (maps to `send-failed` upstream).
+4. Feishu adapter (fetch-mocked): image kind → `im/v1/images` upload +
+   `msg_type: "image"` send; file kind → `im/v1/files` with the file_type mapping
+   (pdf/doc/xls/ppt/mp4/opus examples + "stream" fallback for unknown); 0-byte file →
+   honest failure BEFORE upload; API business error (code != 0) → error carries
+   code/msg/log_id.
+5. Unsupported-provider negative cases re-based: existing tests that used feishu as
+   the no-`sendAttachment` stub switch to discord/webhook (feishu now HAS
+   `sendAttachment`).
+6. Zero-drift: weixin local replies identical to the alpha.4 fixtures (existing
+   tests, unmodified).
+7. Help: `/help` output includes the /file line in zh and en;
+   `allowedCommands.file: false` hides it; Telegram `buildTelegramCommands` includes
+   file when allowed, excludes it when explicitly false.
+8. Manual rig checklist (blocks the alpha release): testers with Telegram + Feishu
+   bots ready; the Feishu app needs `im:resource` scope + bot capability; reconnect
+   remote workspaces after the desktop upgrade; Feishu — verify the file bubble
+   coexists sensibly with the streaming reply card; optional — the stale-remote
+   scenario shows the honest error.

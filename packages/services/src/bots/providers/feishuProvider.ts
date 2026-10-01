@@ -1,8 +1,10 @@
 /* eslint-disable max-lines -- Feishu provider 集中承载鉴权、消息解析、卡片发送和 reaction typing 适配，后续按能力拆分。 */
+import { readFile } from "node:fs/promises";
 import type {
   BotInboundAttachment,
   BotConfig,
   BotInboundMessage,
+  BotOutboundAttachment,
   BotOutboundMessage,
   BotProvider,
   SelectionPrompt,
@@ -52,6 +54,22 @@ interface FeishuSendMessageResponse {
   };
 }
 
+/** 飞书 API 错误体的公共形态：createFeishuMessageError 只消费这些字段。 */
+interface FeishuApiErrorPayload {
+  code?: number;
+  msg?: string;
+  error?: {
+    log_id?: string;
+  };
+}
+
+interface FeishuMediaUploadResponse extends FeishuApiErrorPayload {
+  data?: {
+    image_key?: string;
+    file_key?: string;
+  };
+}
+
 interface FeishuReactionResponse {
   code?: number;
   msg?: string;
@@ -61,6 +79,11 @@ interface FeishuReactionResponse {
 }
 
 const FEISHU_ATTACHMENT_DOWNLOAD_TIMEOUT_MS = 30_000;
+
+// 出站媒体上传（5MB 上限）耗时高于普通文本请求；providerRequest 默认 15s 不够。
+// 60s 仍远低于飞书 im/v1/images 的 10MB 与 im/v1/files 的 30MB API 限制
+// （specs/bot-file-delivery.md Phase C Alpha 5）。
+const FEISHU_SEND_ATTACHMENT_TIMEOUT_MS = 60_000;
 
 interface FeishuAppInfoResponse {
   code?: number;
@@ -1098,7 +1121,7 @@ function resolveFeishuReceiveIdType(receiveId: string): "chat_id" | "open_id" {
 function createFeishuMessageError(
   operation: string,
   status: number,
-  payload: FeishuSendMessageResponse | undefined,
+  payload: FeishuApiErrorPayload | undefined,
   responseLogId?: string,
   receiveIdType?: string,
 ): Error {
@@ -1152,6 +1175,133 @@ async function sendFeishuInteractiveCard(
     );
   }
   return payload.data?.message_id ?? null;
+}
+
+// 飞书 im/v1/files 的 file_type 仅接受 opus/mp4/pdf/doc/xls/ppt/stream。
+// 按扩展名精确命中六类；mime 只兜底三个无歧义值，其余一律官方 fallback "stream"
+// （specs/bot-file-delivery.md Phase C Alpha 5 Behavior 5）。
+function mapFeishuUploadFileType(attachment: Pick<BotOutboundAttachment, "filename" | "mimeType">) {
+  const extension = (attachment.filename.split(".").pop() ?? "").toLowerCase();
+  if (extension === "pdf" || extension === "doc" || extension === "xls") {
+    return extension;
+  }
+  if (extension === "ppt" || extension === "mp4" || extension === "opus") {
+    return extension;
+  }
+  switch (attachment.mimeType.split(";")[0]?.trim().toLowerCase()) {
+    case "application/pdf":
+      return "pdf";
+    case "video/mp4":
+      return "mp4";
+    case "audio/opus":
+      return "opus";
+    default:
+      return "stream";
+  }
+}
+
+async function uploadFeishuImage(
+  bot: BotConfig,
+  token: string,
+  bytes: Uint8Array<ArrayBuffer>,
+): Promise<string> {
+  // content-type 不能手工设置：undici FormData 自带 multipart boundary。
+  const form = new FormData();
+  form.append("image_type", "message_type");
+  form.append("image", new Blob([bytes]));
+  const response = await fetchBotProviderJson<FeishuMediaUploadResponse>(
+    `${getFeishuBaseUrl(bot)}/open-apis/im/v1/images`,
+    {
+      method: "POST",
+      headers: { authorization: `Bearer ${token}` },
+      body: form,
+    },
+    FEISHU_SEND_ATTACHMENT_TIMEOUT_MS,
+  );
+  const payload = response.payload ?? {};
+  // 上传端点与 im/v1/messages 同语义：HTTP 成功也可能携带业务拒绝，保留错误码与 log_id。
+  if (!response.ok || payload.code !== 0) {
+    throw createFeishuMessageError(
+      "upload image",
+      response.status,
+      payload,
+      response.responseLogId,
+    );
+  }
+  const imageKey = payload.data?.image_key;
+  if (!imageKey) {
+    throw new Error("Feishu upload image failed: response missing image_key.");
+  }
+  return imageKey;
+}
+
+async function uploadFeishuFile(
+  bot: BotConfig,
+  token: string,
+  attachment: Pick<BotOutboundAttachment, "filename" | "mimeType">,
+  bytes: Uint8Array<ArrayBuffer>,
+): Promise<string> {
+  const form = new FormData();
+  form.append("file_type", mapFeishuUploadFileType(attachment));
+  form.append("file_name", attachment.filename);
+  form.append("file", new Blob([bytes]), attachment.filename);
+  const response = await fetchBotProviderJson<FeishuMediaUploadResponse>(
+    `${getFeishuBaseUrl(bot)}/open-apis/im/v1/files`,
+    {
+      method: "POST",
+      headers: { authorization: `Bearer ${token}` },
+      body: form,
+    },
+    FEISHU_SEND_ATTACHMENT_TIMEOUT_MS,
+  );
+  const payload = response.payload ?? {};
+  if (!response.ok || payload.code !== 0) {
+    throw createFeishuMessageError("upload file", response.status, payload, response.responseLogId);
+  }
+  const fileKey = payload.data?.file_key;
+  if (!fileKey) {
+    throw new Error("Feishu upload file failed: response missing file_key.");
+  }
+  return fileKey;
+}
+
+/**
+ * 媒体气泡消息（specs Phase C Alpha 5）：im/v1/messages 的 msg_type image/file 发送。
+ * 独立于流式回复卡片 / transient 卡片机制——媒体是自己的消息气泡，不触碰任何卡片状态。
+ */
+async function sendFeishuMediaMessage(
+  bot: BotConfig,
+  token: string,
+  receiveId: string,
+  msgType: "image" | "file",
+  content: Record<string, unknown>,
+): Promise<void> {
+  const response = await fetchBotProviderJson<FeishuSendMessageResponse>(
+    `${getFeishuBaseUrl(bot)}/open-apis/im/v1/messages?receive_id_type=${resolveFeishuReceiveIdType(receiveId)}`,
+    {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${token}`,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        receive_id: receiveId,
+        msg_type: msgType,
+        content: JSON.stringify(content),
+      }),
+    },
+    FEISHU_SEND_ATTACHMENT_TIMEOUT_MS,
+  );
+  const payload = response.payload ?? {};
+  if (!response.ok || payload.code !== 0) {
+    throw createFeishuMessageError(
+      `send ${msgType} message`,
+      response.status,
+      payload,
+      response.responseLogId,
+      resolveFeishuReceiveIdType(receiveId),
+    );
+  }
 }
 
 async function updateFeishuInteractiveMessage(
@@ -1679,6 +1829,34 @@ export function createFeishuBotProvider(deps: FeishuProviderDeps): BotProviderAd
           }),
         );
       }
+    },
+
+    async sendAttachment(bot, message, attachment) {
+      // 出站文件投递（specs/bot-file-delivery.md Phase C Alpha 5 Behavior 5）：
+      // 上传-再发送，按 kind 分流。凭据缺失必须显式抛错——send 的静默返回会向
+      // 调用方谎报成功，出站投递必须诚实，由服务层映射 send-failed。
+      const token = await readTenantAccessToken(bot, deps);
+      if (!token) {
+        throw new Error("Feishu app credentials are missing.");
+      }
+      const bytes = await readFile(attachment.localPath);
+      // 目标推导与 send 完全一致：receive_id = message.providerUserId，
+      // 接收方真值由服务层 taskDeliveryRegistry 解析，adapter 不新增身份管道。
+      const receiveId = message.providerUserId;
+      if (attachment.kind === "image") {
+        // 图片走 im/v1/images（10MB API 限制，内联渲染），随后独立气泡发送。
+        const imageKey = await uploadFeishuImage(bot, token, bytes);
+        await sendFeishuMediaMessage(bot, token, receiveId, "image", { image_key: imageKey });
+        return;
+      }
+      // 飞书 im/v1/files 会拒绝 0 字节文件：上传前如实失败，
+      // 不发起一次注定被拒的请求（API 错误信息不携带本地文件上下文）。
+      if (bytes.length === 0) {
+        throw new Error(`Feishu upload file rejected: ${attachment.filename} is empty (0 bytes).`);
+      }
+      // video/file 一律走 im/v1/files 文件通道（30MB API 限制）。
+      const fileKey = await uploadFeishuFile(bot, token, attachment, bytes);
+      await sendFeishuMediaMessage(bot, token, receiveId, "file", { file_key: fileKey });
     },
 
     async createStreamingReplyCard(bot, state, signal) {

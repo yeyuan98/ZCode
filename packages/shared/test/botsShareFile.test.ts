@@ -122,6 +122,8 @@ test("share_file 工具名与方法名常量对齐契约", async () => {
  * Review 修复（FIX 2）：注入判定矩阵。deny 条件原先三处手抄（CLI legacy/v4 per-turn
  * 禁用名单 + services adapter 镜像），apps/zcode-cli 无测试基建——矩阵测试必须落在
  * shared，三处消费同一谓词，这里就是它们共同的回归锚点。
+ * Phase C Alpha 5（spec §2b/验收场景 1）：合格通道从 weixin 扩为
+ * weixin/telegram/feishu/lark，私聊限定与 automation/off-peak 排除不变。
  */
 const WEIXIN_PRIVATE_TARGET = {
   provider: "weixin",
@@ -130,9 +132,17 @@ const WEIXIN_PRIVATE_TARGET = {
   chatType: "private",
 } as const;
 
+const QUALIFYING_PROVIDERS = ["weixin", "telegram", "feishu", "lark"] as const;
+
 test("botShareFileDeliveryTargetQualifies：完整判定矩阵", () => {
-  // weixin + private + 无派发身份 → 允许。
-  assert.equal(botShareFileDeliveryTargetQualifies(WEIXIN_PRIVATE_TARGET), true);
+  // 四通道 + private + 无派发身份 → 允许。
+  for (const provider of QUALIFYING_PROVIDERS) {
+    assert.equal(
+      botShareFileDeliveryTargetQualifies({ ...WEIXIN_PRIVATE_TARGET, provider }),
+      true,
+      `provider=${provider} 私聊应允许`,
+    );
+  }
   assert.equal(
     botShareFileDeliveryTargetQualifies(WEIXIN_PRIVATE_TARGET, {
       automationId: undefined,
@@ -142,30 +152,44 @@ test("botShareFileDeliveryTargetQualifies：完整判定矩阵", () => {
   );
   // target 缺失 → 拒绝。
   assert.equal(botShareFileDeliveryTargetQualifies(undefined), false);
-  // feishu（或 lark）→ 拒绝。
-  assert.equal(
-    botShareFileDeliveryTargetQualifies({ ...WEIXIN_PRIVATE_TARGET, provider: "feishu" }),
-    false,
-  );
-  assert.equal(
-    botShareFileDeliveryTargetQualifies({ ...WEIXIN_PRIVATE_TARGET, provider: "lark" }),
-    false,
-  );
-  // weixin 群聊 → 拒绝。
-  assert.equal(
-    botShareFileDeliveryTargetQualifies({ ...WEIXIN_PRIVATE_TARGET, chatType: "group" }),
-    false,
-  );
-  // automation 派发轮 → 拒绝。
-  assert.equal(
-    botShareFileDeliveryTargetQualifies(WEIXIN_PRIVATE_TARGET, { automationId: "cron-1" }),
-    false,
-  );
-  // off-peak 派发轮 → 拒绝。
-  assert.equal(
-    botShareFileDeliveryTargetQualifies(WEIXIN_PRIVATE_TARGET, { offPeakTaskId: "offpeak-1" }),
-    false,
-  );
+  // 每个通道配群聊 → 拒绝（私聊限定不变）。
+  for (const provider of QUALIFYING_PROVIDERS) {
+    assert.equal(
+      botShareFileDeliveryTargetQualifies({
+        ...WEIXIN_PRIVATE_TARGET,
+        provider,
+        chatType: "group",
+      }),
+      false,
+      `provider=${provider} 群聊应拒绝`,
+    );
+  }
+  // automation 派发轮 → 拒绝（每个通道）。
+  for (const provider of QUALIFYING_PROVIDERS) {
+    assert.equal(
+      botShareFileDeliveryTargetQualifies(
+        { ...WEIXIN_PRIVATE_TARGET, provider },
+        {
+          automationId: "cron-1",
+        },
+      ),
+      false,
+      `provider=${provider} automation 派发轮应拒绝`,
+    );
+  }
+  // off-peak 派发轮 → 拒绝（每个通道）。
+  for (const provider of QUALIFYING_PROVIDERS) {
+    assert.equal(
+      botShareFileDeliveryTargetQualifies(
+        { ...WEIXIN_PRIVATE_TARGET, provider },
+        {
+          offPeakTaskId: "offpeak-1",
+        },
+      ),
+      false,
+      `provider=${provider} off-peak 派发轮应拒绝`,
+    );
+  }
   // 两个派发身份同时存在 → 拒绝。
   assert.equal(
     botShareFileDeliveryTargetQualifies(WEIXIN_PRIVATE_TARGET, {

@@ -1,7 +1,7 @@
 // ============================================================
 // share_file Tool Handler
 // ============================================================
-// bot 会话（微信私聊）里模型用它把工作区文件作为原生媒体消息发给聊天用户：
+// bot 会话（微信/Telegram/飞书/Lark 私聊）里模型用它把工作区文件作为原生媒体消息发给聊天用户：
 //   - 工具只在注入了 BotFileSharePort 的会话注册（bot 会话 force-yolo，无审批流；
 //     普通会话永远看不到这个工具）。
 //   - 收件人由 Host 从 taskDeliveryRegistry 解析，模型只能给 path。
@@ -31,7 +31,7 @@ const SHARE_FILE_MODEL_BYTES = 8_000;
 const SHARE_FILE_DESCRIPTION = [
   "Send a file from the workspace to the user in the bot chat as a native media message (image/video/file).",
   "",
-  "Only available in bot chat sessions (WeChat private chat); the tool result reports the REAL outcome, including exactly why a delivery failed.",
+  "Only available in bot chat sessions (WeChat, Telegram, Feishu, or Lark private chat); the tool result reports the REAL outcome, including exactly why a delivery failed.",
   "`path` must be a workspace-relative path or a path inside the workspace; paths outside the workspace are rejected.",
   "The recipient is always the user of this bot chat; you cannot choose or override it.",
 ].join("\n");

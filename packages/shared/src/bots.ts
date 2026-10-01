@@ -40,7 +40,7 @@ export type FeishuBotProvider = Extract<BotProvider, "feishu" | "lark">;
  */
 export const zcodeAutomationBotDeliveryTargetSchema = z
   .object({
-    provider: z.enum(["feishu", "lark", "weixin"]),
+    provider: z.enum(["feishu", "lark", "telegram", "weixin"]),
     botId: z.string().trim().min(1),
     providerUserId: z.string().trim().min(1),
     chatType: z.enum(["private", "group"]),
@@ -58,8 +58,9 @@ export type ZCodeAutomationBotDeliveryTarget = z.infer<
 export const SHARE_FILE_TOOL_NAME = "share_file";
 
 /**
- * share_file 注入判定的单一事实来源（specs/bot-file-delivery.md Phase B §1）：
- * turn 携带 weixin 私聊 botDeliveryTarget 且非 automation/off-peak 派发轮。
+ * share_file 注入判定的单一事实来源（specs/bot-file-delivery.md Phase B §1；
+ * Phase C Alpha 5 §2b 起从 weixin 收窄面扩到 weixin/telegram/feishu/lark 四通道）：
+ * turn 携带四通道之一的私聊 botDeliveryTarget 且非 automation/off-peak 派发轮。
  * Review 修复：此前该条件在 CLI legacy/v4 两条 per-turn 禁用名单与 services adapter
  * 镜像里三处手抄，apps/zcode-cli 又没有测试基建——判定条件漂移无法被任何 harness 捕获。
  * 收敛为 shared 纯谓词后由三处消费，矩阵测试落在 packages/shared/test。
@@ -72,7 +73,10 @@ export function botShareFileDeliveryTargetQualifies(
 ): boolean {
   return (
     target !== undefined &&
-    target.provider === "weixin" &&
+    (target.provider === "weixin" ||
+      target.provider === "telegram" ||
+      target.provider === "feishu" ||
+      target.provider === "lark") &&
     target.chatType === "private" &&
     !context?.automationId &&
     !context?.offPeakTaskId

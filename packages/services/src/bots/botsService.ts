@@ -247,6 +247,7 @@ const helpMessageByCommand = {
   mode: "helpMode",
   thoughtLevel: "helpThoughtLevel",
   reply: "helpReply",
+  file: "helpFile",
 } as const satisfies Record<(typeof BOT_MENU_COMMAND_ORDER)[number], BotMessageId>;
 
 function validateBotConfig(config: BotsConfigFile, candidate: BotConfig): void {
@@ -497,7 +498,16 @@ function createOutbound(
 function resolveAutomationBotDeliveryTarget(
   actor: BotActor,
 ): ZCodeAutomationBotDeliveryTarget | undefined {
-  if (actor.provider !== "feishu" && actor.provider !== "lark" && actor.provider !== "weixin") {
+  // Phase C Alpha 5（specs/bot-file-delivery.md §2c，owner decision）：telegram 仅私聊
+  // 产出投递目标，群聊永远不产出；feishu/lark/weixin 维持任意 chatType 均产出的既有行为。
+  // 群聊入站虽已在授权层被 privateChatOnly 拦截，产出侧的私聊限定是纵深防御，
+  // 保证未来新增入站路径也不会让 telegram 群聊拿到回推目标。
+  if (
+    actor.provider !== "feishu" &&
+    actor.provider !== "lark" &&
+    actor.provider !== "weixin" &&
+    (actor.provider !== "telegram" || actor.chatType !== "private")
+  ) {
     return undefined;
   }
   const providerUserId = actor.chatId?.trim() || actor.providerUserId.trim();

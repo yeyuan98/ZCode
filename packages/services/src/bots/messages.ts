@@ -29,6 +29,7 @@ const messages = {
     helpMode: "**/模式** — 切换运行模式",
     helpThoughtLevel: "**/思考** — 切换思考级别",
     helpReply: "**/回复** — 切换回复详细程度",
+    helpFile: "**/file <路径>** — 发送工作区内的文件（仅私聊，≤5MB）",
     webhookSecretInvalid: "Webhook secret 校验失败。",
     // Bugfix: 这条错误由通用 provider callback 处理路径触发，微信/飞书失败时不能误显示 Telegram。
     callbackFailed: "处理机器人回调失败：{message}",
@@ -156,6 +157,7 @@ const messages = {
     helpMode: "**/mode** — Switch run mode",
     helpThoughtLevel: "**/think** — Switch thought level",
     helpReply: "**/reply** — Switch reply detail",
+    helpFile: "**/file <path>** — Send a workspace file (private chat only, max 5MB)",
     webhookSecretInvalid: "Webhook secret verification failed.",
     callbackFailed: "Failed to process bot callback: {message}",
     sessionExpiredNewTaskHint:
