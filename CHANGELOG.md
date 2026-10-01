@@ -1,5 +1,49 @@
 # Changelog
 
+## [3.14.4-alpha.2](https://github.com/yeyuan98/zodex/compare/v3.14.4-alpha.1...v3.14.4-alpha.2) (2026-10-01)
+
+### Features
+
+* **bots:** deliver remote workspace files via /file + share_file (Phase C Alpha 2 items 1,5-9) ([900fbf5](https://github.com/yeyuan98/zodex/commit/900fbf5004744aa65df5ea46c878a592babfeb33))
+  * 投递核心: deliverWorkspaceFile 用远程分支取代 remote-workspace 硬拒绝
+  * 失败映射: 新增协议 reason remote-unavailable（bridge 缺席/无路由/
+  * /file: 移除远程前置拒绝（Alpha 0 回复顺序注释按 spec §9 更新），
+  * 协议镜像: shared botShareFileFailureReasonSchema 与 CLI contracts
+  * 审计: 远程尝试追加 remote=<workspaceIdentity>；path= 用 workspace
+  * 测试: services botFileDelivery 套件 57/57（远程 /file+tool happy
+
+* **bots:** remote workspace file read wire + bot-only channel (Phase C Alpha 2 items 2-4) ([817027d](https://github.com/yeyuan98/zodex/commit/817027d74fd6fe757af9a6df7818b1dbf28e8759))
+  * wire: 新增 v4 方法 v4/bot-workspace-file/read（V4_METHODS + strict zod
+  * 策略: packages/shared 新增纯路径/配额 helper（botWorkspaceFilePolicy）——
+  * CLI 网关: bot-workspace-file-read.ts 薄壳（realpath→containment→fd stat
+  * bot-only 锁: AttachServicePort schema 增 additive attachmentKind:
+  * 窄化 channel: IBotWorkspaceFileService 单方法 descriptor（services）；
+  * bridge: createBotRemoteWorkspaceService 增 getWorkspaceFileReader
+  * 兼容: 旧远端 CLI（-32601）/旧远端 server（channel 缺席）统一折叠为结构化
+  * 测试: shared 43/43（wire strict + POSIX/Windows 路径矩阵 + realpath 逃逸 +
+
+
+### Bug Fixes
+
+* **bots:** review-round fixes for remote workspace file delivery ([a86a342](https://github.com/yeyuan98/zodex/commit/a86a3429d12042d92229476a297fbdb1e27bff6b))
+  * BLOCKER：desktop host 包装曾用 strict v4 schema 直接 parse service 层参数，
+  * 安全关键路径抽取为 createScopedBotWorkspaceFileService 纯函数并新增
+  * 临时目录收紧为 0700（recursive mkdir 默认 0755 会暴露文件名列表）
+  * 文件名截断 160 → 120，给 Windows MAX_PATH 深路径留余量
+  * 测试补强：累积 5MB 上限用例改用 sizeBytesAtChunk 钉住 stat，真正命中
+  * spec 对齐实现事实：quota reserve 位置（shareFileForTask 入口前）、
+
+
+### Documentation
+
+* **specs:** mark bot-file-delivery Phase B as shipped in 3.14.4-alpha.1 ([bf2b7af](https://github.com/yeyuan98/zodex/commit/bf2b7af8d86e49d7a94f3cf5c80085af26ce1327)), closes [#4]()
+
+* **versioning:** release:alpha requires explicit --increment (train-jump incident) ([d2248b1](https://github.com/yeyuan98/zodex/commit/d2248b1e60bbe0943d4f55c22d6ea41892484946))
+  * plain pnpm release:alpha empirically minor-jumps the train (2026-09-29
+  * --increment=prerelease observed to minor-jump as well: do not use
+  * correct usage: continue train with full version (--increment=3.14.4-alpha.1);
+  * keep the dry-run package.json side-effect warning co-located
+
 ## [3.14.4-alpha.1](https://github.com/yeyuan98/zodex/compare/v3.14.4-alpha.0...v3.14.4-alpha.1) (2026-09-29)
 
 ### Features
