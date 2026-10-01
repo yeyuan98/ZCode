@@ -3,6 +3,7 @@ import test from "node:test";
 import {
   ZCODE_AGENT_PROVIDER,
   zcodeBotsShareFileParamsSchema,
+  zcodeBotsShareFileResultSchema,
   type BotActor,
   type BotOutboundAttachment,
   type BotShareFileResult,
@@ -446,8 +447,20 @@ test("旧桌面（无反向 channel）：forward 立即折叠 unsupported-method
       path: TOPO_RELATIVE_PATH,
     });
     // 与旧 host 的 -32601 → unsupported-method 语义一致：CLI 渲染既有能力差异散文，
-    // 绝不挂满 280s 预算，也绝不误报 no-target。
-    assert.deepEqual(result, { ok: false, reason: "unsupported-method" });
+    // 绝不挂满 280s 预算，也绝不误报 no-target。Alpha 4 诊断：就绪门折叠必须携带
+    // 稳定 detail 签名（chat 侧 grep "desktop reverse channel never initialized" 即
+    // Chain Y「桌面反向 channel 从未初始化」，与远端 -32601 "unavailable on this
+    // host"（Chain X-a）区分）；detail 经共享结果 schema 保真流回 CLI 散文。
+    assert.equal(result.ok, false);
+    if (!result.ok) {
+      assert.equal(result.reason, "unsupported-method");
+      assert.equal(result.detail, "desktop reverse channel never initialized");
+    }
+    const wireParsed = zcodeBotsShareFileResultSchema.safeParse(result);
+    assert.ok(wireParsed.success, "folded result must stay schema-valid with detail");
+    assert.ok(
+      !wireParsed.success || wireParsed.data.detail === "desktop reverse channel never initialized",
+    );
     assert.equal(harness.desktopAdapterCalls.length, 0);
     assert.equal(harness.standaloneAdapterCalls.length, 0);
     orphanClient.dispose();

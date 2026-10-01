@@ -458,3 +458,21 @@ Unit/integration (`packages/services/test/botShareFileRemoteTopology.test.ts`):
    `Initialize`) → `unsupported-method`, zero deliveries, no queueing.
 4. Control asymmetry: the desktop instance asked directly still delivers exactly
    once with materialization and cleanup (Phase-1 coverage kept).
+
+### Instrumentation (Alpha 4 diagnostic footprint)
+
+Production incident (remote WeChat `share_file` → `unsupported-method`): two candidate
+chains were indistinguishable in chat. The `unsupported-method` prose now surfaces its
+`detail` (same pattern as `send-failed`), discriminating "desktop reverse channel never
+initialized" (forwarder readiness fold, a structured RESULT from Chain Y) from
+"bots/shareFile is unavailable on this host" (remote `-32601` JSON-RPC error, Chain
+X-a). Footprint (all additive, no behavior change beyond the detail surfacing; no file
+paths in logs): CLI port logs per attempt the result reason plus, on
+`ProtocolRequestError`, BOTH code and message (X-a vs stale-bundle X-b), else an
+explicit "structured result; no rpc error" line (Chain Y); the forwarder folds with the
+stable detail string, logs a one-shot "channel initialized" on `Initialize`, and logs
+each forward outcome (reason + detail only); entry-stdio logs one assembly line
+(`authority=… forwarder=ready|absent(client=absent)`); the desktop side logs the
+ChannelServer construction decision (`serveDesktopChannels`) and the forward-channel
+registration, plus a warn when the registration gap (botsService present,
+desktopChannelServer absent) would otherwise stay silent.

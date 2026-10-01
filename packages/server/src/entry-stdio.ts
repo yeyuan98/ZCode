@@ -81,6 +81,12 @@ async function main() {
     zcodeBuiltinProviderConfigFilePath,
     desktopChannelClient,
   });
+  // Alpha 4 诊断足迹：装配时刻的 authority 裁决 + 反向 forwarder 是否注入，一行钉住
+  // 「desktop-attached-remote 却没有 forwarder」（Chain X-a 的装配前提）与
+  // 「根本不是远程装配」两种静默错配。经 stderr 中继为桌面侧 "[remote]" 日志。
+  log(
+    `bot share file forward: authority=${authorityModeParseResult.mode} forwarder=${desktopChannelClient ? "ready" : "absent(client=absent)"}`,
+  );
   if (authorityModeParseResult.invalidRawValue) {
     log(
       `${SERVICE_AUTHORITY_MODE_ENV}=${authorityModeParseResult.invalidRawValue} 非法，按默认本机 Environment 权威模式启动`,

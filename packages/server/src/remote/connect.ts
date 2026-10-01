@@ -242,6 +242,12 @@ async function connectRemoteUnchecked(
   const desktopChannelServer = options?.serveDesktopChannels
     ? new ChannelServer(protocol, "desktop")
     : undefined;
+  // Alpha 4 诊断足迹：桌面侧是否构造 desktop-serving ChannelServer 决定了远端 forwarder
+  // 能否收到 Initialize（Chain Y 的根因位）。构造/跳过此前完全静默；连同
+  // serveDesktopChannels 原值一起落日志，区分「有意跳过（web/http）」与「该构造却没构造」。
+  log(
+    `bot share file forward: desktop channel server ${desktopChannelServer ? "constructed" : "skipped"} (serveDesktopChannels=${options?.serveDesktopChannels === true})`,
+  );
   const services = new RemoteServiceAccess(client);
   let hasReportedRemoteClose = false;
   let hasStreamClosed = false;
