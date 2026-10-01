@@ -30,6 +30,16 @@ export class ChannelClient implements IChannelClient, IDisposable {
   private readonly _onDidInitialize = new Emitter<void>();
   readonly onDidInitialize = this._onDidInitialize.event;
 
+  /**
+   * Review 修复（Phase C Alpha 3 Initialize 竞态）：Initialize 只发一次且 Emitter 无重放，
+   * 晚于 Initialize 到达才订阅 onDidInitialize 的调用方会永久漏掉就绪事实（远端
+   * bot-share-file-forwarder 曾因此把新桌面误判为 unsupported-method）。暴露状态式查询，
+   * 调用方可在任意时刻轮询而不依赖订阅时机。
+   */
+  isInitialized(): boolean {
+    return this.state === State.Idle;
+  }
+
   constructor(private protocol: IMessagePassingProtocol) {
     this.protocolListener = this.protocol.onMessage((msg) => this.onBuffer(msg));
   }

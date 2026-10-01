@@ -555,3 +555,26 @@ test("控制组不对称性：A 直接应答恰好一次投递，桥接目标与
     await harness.dispose();
   }
 });
+
+test("Initialize 竞态回归：forwarder 在 Initialize 已送达后才构造也能 forward 成功", async () => {
+  // Review 修复（生产时序钉扎）：entry-stdio 在 waitForAck 后立刻构造反向 ChannelClient，
+  // 但 forwarder 要等 materialize await 之后才经 createStdioServices 构造——桌面侧
+  // ChannelServer 构造即回 Initialize，WSL/本地 Docker 等低 RTT 场景下该帧常在窗口期内
+  // 送达。事件式订阅会永久漏掉就绪事实，把新桌面误判为 unsupported-method；
+  // isInitialized() 状态式轮询对构造时机免疫。本测试按「先送达、后构造」时序执行。
+  const [desktopProtocol, remoteProtocol] = createQueuePair();
+  const remoteChannelClient = new ChannelClient(remoteProtocol);
+  const desktopChannelServer = new ChannelServer(desktopProtocol, "desktop");
+  desktopChannelServer.registerChannel(
+    IBotShareFileForwardService.channelName,
+    ProxyChannel.fromService<IBotShareFileForwardService>({
+      forward: async () => ({ ok: true, filename: "late.bin", sizeBytes: 7 }),
+    }),
+  );
+  // 关键时序：等 Initialize 真正送达客户端之后，才构造 forwarder（生产中 materialize
+  // await 之后的位置）。修复前这里会拿到 unsupported-method。
+  await Event.toPromise(remoteChannelClient.onDidInitialize);
+  const lateForwarder = createBotShareFileForwarder(remoteChannelClient);
+  const result = await lateForwarder({ taskId: "task-late", path: "out/late.bin" });
+  assert.deepEqual(result, { ok: true, filename: "late.bin", sizeBytes: 7 });
+});

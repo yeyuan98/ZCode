@@ -35,6 +35,14 @@ export interface ConnectOptions extends DeployOptions {
   remoteRuntimeEnv?: Record<string, string | undefined>;
   /** Desktop Host 为 desktop-attached WSL server 提供的显式 Agent 网络配置。 */
   remoteRuntimeNetwork?: RemoteRuntimeNetworkOptions;
+  /**
+   * Review 修复（http web 模式回归）：只有桌面窗口 Host 传 true——它在同一 protocol 上
+   * 构造 desktop-serving ChannelServer（远端→桌面 bot-share-file-forward 的落点）。
+   * web/http 模式的进程没有 botsService，缺省不构造，远端 forwarder 得不到 Initialize
+   * → 立即 unsupported-method，保持诚实即时失败（而不是烧 1s 后暴露 channel 名的
+   * send-failed detail）。
+   */
+  serveDesktopChannels?: boolean;
   /** 远端 stdio 关闭后的回调（用于上层感知断连并触发回收） */
   onDidRemoteClose?: (event: { code: number }) => void;
 }
@@ -55,7 +63,7 @@ export interface RemoteConnection {
    * 负责注册，连接释放时随 client/protocol 一并 dispose）。旧远端 server 不发起
    * 反向调用，零成本。
    */
-  desktopChannelServer?: IChannelServer & { ready(): void };
+  desktopChannelServer?: IChannelServer;
   dispose(): void;
   disposeAndWait(options?: { timeoutMs?: number }): Promise<void>;
 }
@@ -229,7 +237,11 @@ async function connectRemoteUnchecked(
   // 远端 ChannelServer 的应答帧，互不干扰。构造即向远端回 Initialize（远端反向
   // client 以是否收到 Initialize 判定「桌面是否提供反向 channel」，旧桌面语义由此
   // 退化为 unsupported-method 而非挂起）。channel 由调用方（window Host）注册。
-  const desktopChannelServer = new ChannelServer(protocol, "desktop");
+  // Review 修复：仅 serveDesktopChannels（桌面窗口 Host）才构造——web/http 模式没有
+  // botsService，构造了也只能 1s 超时，不如不构造让远端立即 unsupported-method。
+  const desktopChannelServer = options?.serveDesktopChannels
+    ? new ChannelServer(protocol, "desktop")
+    : undefined;
   const services = new RemoteServiceAccess(client);
   let hasReportedRemoteClose = false;
   let hasStreamClosed = false;
@@ -271,7 +283,7 @@ async function connectRemoteUnchecked(
     }
     disposalStarted = true;
     backendDisconnectDisposable?.dispose();
-    desktopChannelServer.dispose();
+    desktopChannelServer?.dispose();
     client.dispose();
     protocol.dispose();
     // stdin.end 必须在任何 await 之前同步触发，让远端 stdio server 立即收到 EOF。

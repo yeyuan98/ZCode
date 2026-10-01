@@ -78,7 +78,6 @@ import {
   buildRemoteWorkspaceIdentity,
   buildRemoteEnvironmentKey,
   isRemoteWorkspaceIdentity,
-  isSameRemoteTarget,
   resolveWorkspaceKey,
   formatModelPickerValue,
   type ZCodePromptAttachment,
@@ -94,6 +93,7 @@ import {
   type ModelSelection,
 } from "@zcode/shared";
 import { createScopedBotWorkspaceFileService } from "./botWorkspaceFileGate.js";
+import { resolveOnlineRemoteWorkspaceScopes } from "./botShareFileForwardScopes.js";
 import {
   parseHostIncomingMessageEvent,
   rejectUnavailableAttachedServicePort,
@@ -1672,21 +1672,13 @@ async function createWindowRemoteConnectionHandle(params: {
       ProxyChannel.fromService(
         createDesktopBotShareFileForwardService({
           botsService: localBotsService,
+          // Review 修复：安全关键过滤收敛为纯函数 resolveOnlineRemoteWorkspaceScopes
+          //（独立文件，可脱离 Electron 单测）；这里只提供注册表事实与连接 target。
           resolveWorkspaceScopes: () =>
-            windowRemoteConnectionRegistry
-              .listSessions()
-              .filter(
-                (session) =>
-                  session.state === "online" &&
-                  session.sourceAvailability === "online" &&
-                  session.workspacePath !== undefined &&
-                  session.workspaceIdentity !== undefined &&
-                  isSameRemoteTarget(session.target, params.target),
-              )
-              .map((session) => ({
-                workspacePath: session.workspacePath as string,
-                workspaceIdentity: session.workspaceIdentity,
-              })),
+            resolveOnlineRemoteWorkspaceScopes(
+              windowRemoteConnectionRegistry.listSessions(),
+              params.target,
+            ),
         }),
       ),
     );
@@ -2922,6 +2914,9 @@ async function setupRemoteConnection(
     remoteAssetNetwork,
     remoteRuntimeNetwork,
     signal,
+    // Phase C Alpha 3：本窗口 Host 是唯一 botsService 持有方，也只有它需要
+    // desktop-serving 反向 channel（远端→桌面 bot-share-file-forward）。
+    serveDesktopChannels: true,
     // SSH/Docker 远端 server 由 host process 单独启动，不能依赖桌面 main 的环境继承。
     // 这里显式透传编译期版本，避免漏导入后生成裸 ZCODE_VERSION 引用导致 SSH 初始化直接 ReferenceError。
     appVersion: ZCODE_VERSION,

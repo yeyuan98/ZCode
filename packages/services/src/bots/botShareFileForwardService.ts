@@ -98,13 +98,16 @@ export function createBotShareFileForwarder(
   options?: { timeoutMs?: number },
 ): BotShareFileForwarder {
   const timeoutMs = options?.timeoutMs ?? BOT_SHARE_FILE_FORWARD_TIMEOUT_MS;
-  // 就绪事实必须在工厂构造期同步订阅：Initialize 只发一次，之后才挂 listener 会漏。
-  let desktopChannelsReady = false;
+  // Review 修复（Initialize 竞态）：就绪判定改为调用时轮询 isInitialized() 状态，而不是
+  // 构造期订阅 onDidInitialize——Initialize 只发一次且 Emitter 无重放，若工厂在 Initialize
+  // 已送达后才构造（entry-stdio 的 materialize await 之后），事件订阅会永久漏掉，新桌面
+  // 被误判为 unsupported-method。状态式查询对构造时机免疫；事件订阅保留作冗余兜底。
+  let desktopChannelsReady = client.isInitialized();
   client.onDidInitialize(() => {
     desktopChannelsReady = true;
   });
   return async (params) => {
-    if (!desktopChannelsReady) {
+    if (!desktopChannelsReady && !client.isInitialized()) {
       return { ok: false, reason: "unsupported-method" };
     }
     const service = ProxyChannel.toService<IBotShareFileForwardService>(

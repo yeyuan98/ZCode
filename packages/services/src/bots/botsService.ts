@@ -6194,7 +6194,8 @@ export function createBotsService(
       ) {
         botsLogger.warn(
           undefined,
-          `bot file delivery rejected bot=${entry.botId} file=${params.path} size=0 outcome=not-allowed source=forward-pin task=${params.taskId} path=${params.path}: registry entry workspace is not served by the forwarding connection`,
+          // Review 修复：去掉与 path= 重复的 file= 字段（同一值打印两次）。
+          `bot file delivery rejected bot=${entry.botId} size=0 outcome=not-allowed source=forward-pin task=${params.taskId} path=${params.path}: registry entry workspace is not served by the forwarding connection`,
         );
         return { ok: false, reason: "not-allowed" };
       }
