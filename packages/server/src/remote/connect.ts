@@ -1,4 +1,4 @@
-import { SocketProtocol, ChannelClient } from "@zcode/rpc";
+import { SocketProtocol, ChannelClient, ChannelServer, type IChannelServer } from "@zcode/rpc";
 import type { IServiceAccessor } from "@zcode/services";
 import { RemoteServiceAccess } from "@zcode/client";
 import {
@@ -49,6 +49,13 @@ export interface RemoteRuntimeNetworkOptions {
 export interface RemoteConnection {
   services: IServiceAccessor;
   client: ChannelClient;
+  /**
+   * Phase C Alpha 3：同一条 stdio protocol 上的桌面侧 ChannelServer，向远端
+   * zcode-server 提供窄化反向 channel（目前仅 bot-share-file-forward；window Host
+   * 负责注册，连接释放时随 client/protocol 一并 dispose）。旧远端 server 不发起
+   * 反向调用，零成本。
+   */
+  desktopChannelServer?: IChannelServer & { ready(): void };
   dispose(): void;
   disposeAndWait(options?: { timeoutMs?: number }): Promise<void>;
 }
@@ -216,6 +223,13 @@ async function connectRemoteUnchecked(
   const socket = wrapStdioStream(stream);
   const protocol = new SocketProtocol(socket);
   const client = new ChannelClient(protocol);
+  // Phase C Alpha 3：同一 protocol 上再挂桌面侧 ChannelServer——远端→桌面的反向
+  // forward（bot-share-file-forward）经它回到 window Host。RequestType/ResponseType
+  // 数值域不相交：本 server 只消费远端 ChannelClient 的请求帧，既有 client 只消费
+  // 远端 ChannelServer 的应答帧，互不干扰。构造即向远端回 Initialize（远端反向
+  // client 以是否收到 Initialize 判定「桌面是否提供反向 channel」，旧桌面语义由此
+  // 退化为 unsupported-method 而非挂起）。channel 由调用方（window Host）注册。
+  const desktopChannelServer = new ChannelServer(protocol, "desktop");
   const services = new RemoteServiceAccess(client);
   let hasReportedRemoteClose = false;
   let hasStreamClosed = false;
@@ -257,6 +271,7 @@ async function connectRemoteUnchecked(
     }
     disposalStarted = true;
     backendDisconnectDisposable?.dispose();
+    desktopChannelServer.dispose();
     client.dispose();
     protocol.dispose();
     // stdin.end 必须在任何 await 之前同步触发，让远端 stdio server 立即收到 EOF。
@@ -286,6 +301,7 @@ async function connectRemoteUnchecked(
   return {
     services,
     client,
+    desktopChannelServer,
     dispose() {
       beginDisposal();
       disposeBackend();

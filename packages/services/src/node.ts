@@ -75,6 +75,13 @@ export { createSettingService } from "./setting/settingService.js";
 export { createCredentialService } from "./credential/credentialService.js";
 export { createBroadcastService } from "./broadcast/broadcastService.js";
 export { createZCodeAgentService } from "./zcode-agent/zcodeAgentService.js";
+// Phase C Alpha 3：share_file 跨 Host forward 的三个装配工厂（桌面 handler / 远端
+// forwarder / executor 装配裁决），供 window Host 与 stdio 入口复用并各自单测。
+export {
+  createBotsShareFileExecutor,
+  createBotShareFileForwarder,
+  createDesktopBotShareFileForwardService,
+} from "./bots/botShareFileForwardService.js";
 export { createZCodeTaskServiceAdapter } from "./zcode-agent/zcodeTaskServiceAdapter.js";
 export { createZCodeSessionService } from "./zcode-session/zcodeSessionService.js";
 export {
@@ -253,6 +260,10 @@ import {
   IBotWorkspaceFileService,
   type BotWorkspaceFileV4Forwarder,
 } from "./bots/botWorkspaceFileService.js";
+import {
+  createBotsShareFileExecutor,
+  type BotShareFileForwarder,
+} from "./bots/botShareFileForwardService.js";
 import { IFileWatcherService } from "./fileWatcher/fileWatcher.js";
 import { IUsageStatsService } from "./usage-stats/usageStats.js";
 // P5 D-P5.4：IClientScenesService 已随 endpoint web / clientScenes 链删除。
@@ -410,7 +421,6 @@ import {
   ZCODE_CUA_PLUGIN_AUTHORITY_ENV_KEY,
   type ZCodeAutomation,
   type ZCodeAutomationRun,
-  type BotShareFileResult,
   getCapturedZCodeAgentTelemetryEnv,
   ZCODE_DESKTOP_CONTEXT_PROMPT_ENABLED_ENV,
   // P5 D-P5.4：buildRuntimeZCodeApiUrl 已删除——分享 client（W4）与 clientScenes
@@ -1186,6 +1196,12 @@ export function createLocalServices(options: {
     httpProxy?: string;
     noProxy?: string;
   };
+  /**
+   * Phase C Alpha 3：远端→桌面 share_file forward 调用面。仅 stdio 入口的
+   * desktop-attached-remote 装配注入（同一 stdio protocol 上的反向 ChannelClient）；
+   * 缺省（desktop-local / standalone-server）时 botsShareFileExecutor 保持本地裁决。
+   */
+  desktopBotShareFileForward?: BotShareFileForwarder;
   /** 所属 Environment 的 ZCode Built-in Provider Config 物理路径。 */
   zcodeBuiltinProviderConfigFilePath: string;
   /** HTTP Server 只有在调用方明确配置认证时才暴露跨 Environment Provisioning target。 */
@@ -1806,13 +1822,17 @@ export function createLocalServices(options: {
     spawnFallbackCwd: options?.zcodeAgentSpawnFallbackCwd,
     // browser-use：host→main 执行桥透传给 agent service 的 onRequest browserExecute 路由。
     browserControlExecutor: options?.browserControlExecutor,
-    // 对话式 share_file：bots/shareFile 协议 handler 转发到 bots 服务（收件人由其内部
-    // taskDeliveryRegistry 解析；agent service 不持有任何投递状态）。装配完成前到达的
-    // 请求按 no-target 拒绝（fail-closed，与 CLI 端 unsupported-method 语义衔接）。
-    botsShareFileExecutor: (params) =>
-      botsServiceForAgent
-        ? botsServiceForAgent.shareFileForTask(params)
-        : Promise.resolve({ ok: false, reason: "no-target" } satisfies BotShareFileResult),
+    // 对话式 share_file（Phase B/Alpha 3）：协议 handler 转发到 bots 服务裁决；agent
+    // service 不持有任何投递状态。Alpha 3 装配裁决收敛在 createBotsShareFileExecutor：
+    // desktop-attached-remote 且注入了桌面 forward channel 时一律 forward（远端自己的
+    // taskDeliveryRegistry 恒空——bot 入站只落在桌面窗口 Host，本地自答必然 no-target）；
+    // desktop-local / standalone-server / 未注入 forward 的装配保持今日本地单写者语义，
+    // 装配完成前到达的请求按 no-target 拒绝（fail-closed，与 CLI 端 unsupported-method
+    // 语义衔接）。
+    botsShareFileExecutor: createBotsShareFileExecutor({
+      forwarder: isDesktopAttachedRemote ? options?.desktopBotShareFileForward : undefined,
+      resolveLocalBotsService: () => botsServiceForAgent,
+    }),
     // 读取闭包只在 desktop-attached-remote 装配消费（见下方 IBotWorkspaceFileService
     // 注册）；其余装配不取，agent 侧零成本。
     ...(isDesktopAttachedRemote

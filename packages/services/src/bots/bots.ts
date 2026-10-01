@@ -125,6 +125,17 @@ export type BotFeishuRegistrationPollResult =
       domain: "feishu" | "lark";
     };
 
+/**
+ * 跨 Host forward 的 workspace 钉扎作用域（Phase C Alpha 3）：desktop window Host
+ * 的 forward handler 传入「本连接所服务 workspace」集合（来自连接注册表事实，
+ * 绝非远端自报）。shareFileForTask 在注册表命中后校验条目 (workspacePath,
+ * workspaceIdentity) 必须落在该集合内，否则按 not-allowed fail-closed——被入侵的
+ * 远端不能借本连接投递别的 workspace / 别的机器的会话。
+ */
+export interface BotShareFileTaskDeliveryOptions {
+  restrictToWorkspaces?: Array<{ workspacePath: string; workspaceIdentity?: string }>;
+}
+
 export interface IBotsService {
   /**
    * 将 App 全局交互偏好同步给 Bot 已持有的远端 runtime；不得为此建立新的远端连接。
@@ -159,8 +170,13 @@ export interface IBotsService {
    * bots/shareFile RPC 的 Host 侧裁决入口（specs/bot-file-delivery.md Phase B）：
    * 按 taskId 从服务内 taskDeliveryRegistry 解析收件人并走 deliverWorkspaceFile 单一
    * 写出核心；注册表未命中 → no-target。收件人不来自任何协议参数。
+   * Alpha 3：opts.restrictToWorkspaces 仅供桌面 forward handler 传入连接作用域
+   * 钉扎（见 BotShareFileTaskDeliveryOptions）；本地/协议直调路径不传，语义不变。
    */
-  shareFileForTask(params: { taskId: string; path: string }): Promise<BotShareFileResult>;
+  shareFileForTask(
+    params: { taskId: string; path: string },
+    opts?: BotShareFileTaskDeliveryOptions,
+  ): Promise<BotShareFileResult>;
   handleInboundMessage(message: BotInboundMessage): Promise<BotOutboundMessage[]>;
   handleProviderCallback(provider: BotProvider, payload: unknown): Promise<BotOutboundMessage[]>;
   handleProviderCallbackResponse(
