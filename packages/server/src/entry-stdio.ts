@@ -52,6 +52,24 @@ async function main() {
   const ack = await waitForAck();
   log(`client connected: ${ack.clientId} (v${ack.version})`);
 
+  // 全装彩排 E2E（packages/server/test/botShareFileRemoteBundleE2E.test.ts）复现的
+  // 生产竞态，Chain Y 的真正根因：waitForAck 消费完 ack 行后会移除 stdin 上唯一的
+  // data 监听，而 stdin 仍处于 flowing 模式——此后到 wrapStdio() 挂上持久监听之间，
+  // 桌面侧写入的任何字节（尤其是 desktop-serving ChannelServer 构造即发的 Initialize
+  // 帧，它与 ack 在桌面同一 tick 内背靠背写出）都会被静默丢弃。远端反向
+  // ChannelClient 由此永远 Uninitialized，share_file 恒折叠 unsupported-method
+  // （detail "desktop reverse channel never initialized"）。修复：把 socket/protocol/
+  // 反向 client 的构造提到任何 post-ack await（ensureRemoteServerDeviceMid 等）之前
+  // ——await waitForAck 的续体与本段同步代码在同一微任务链内完成，期间不可能插入
+  // 新的 I/O 事件，窗口归零。
+  const stdioSocket = wrapStdio();
+  const stdioProtocol = new SocketProtocol(stdioSocket);
+  const desktopChannelClient = new ChannelClient(stdioProtocol);
+  const stdioTransport: StdioServerTransport = {
+    socket: stdioSocket,
+    protocol: stdioProtocol,
+  };
+
   // 远端主机没有 Desktop main，没人写 telemetry-state.json，services 发往 ZCode endpoint
   // 的请求缺 X-Device-Mid，Start Plan 的 billing/balance 被拒。远端 server 是本机设备身份的
   // 生命周期所有者，必须在 services 创建前确保 deviceMid 存在（详见 stdioDeviceMid.ts）。
@@ -63,13 +81,7 @@ async function main() {
   // 远端经窄化 bot-share-file-forward channel 把 bots/shareFile 裁决 forward 回桌面单一
   // 写出核心。RequestType/ResponseType 数值域不相交，两个方向共享同一条 stdio 流互不干扰；
   // 旧桌面不回 Initialize 时 forward 按 unsupported-method 折叠（见 createStdioServices）。
-  const stdioSocket = wrapStdio();
-  const stdioProtocol = new SocketProtocol(stdioSocket);
-  const desktopChannelClient = new ChannelClient(stdioProtocol);
-  const stdioTransport: StdioServerTransport = {
-    socket: stdioSocket,
-    protocol: stdioProtocol,
-  };
+  // （socket/protocol/client 已在 waitForAck 之后、任何异步初始化之前构造，见上方竞态注释。）
 
   // Phase 3: Initialize services and start stdio RPC server
   const zcodeBuiltinProviderConfigFilePath = await materializeBundledZCodeBuiltinProviderConfig({

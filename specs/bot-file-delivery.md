@@ -476,3 +476,23 @@ each forward outcome (reason + detail only); entry-stdio logs one assembly line
 ChannelServer construction decision (`serveDesktopChannels`) and the forward-channel
 registration, plus a warn when the registration gap (botsService present,
 desktopChannelServer absent) would otherwise stay silent.
+
+### Readiness gap root cause & bundle E2E guard (Alpha 4 follow-up)
+
+The full-dress rehearsal test (`packages/server/test/botShareFileRemoteBundleE2E.test.ts`)
+reproduced Chain Y deterministically against the BUILT remote server bundle
+(`dist/remote/zcode-server.cjs`) and pinned the root cause: `waitForAck` removes the only
+stdin `data` listener while stdin stays in flowing mode; during the subsequent
+`await ensureRemoteServerDeviceMid(...)` window, any desktop frame — including the
+desktop-serving ChannelServer's `Initialize`, written back-to-back with the ack in the
+desktop's same tick — is silently discarded. The remote reverse `ChannelClient` stays
+`Uninitialized` forever and every forward folds to `unsupported-method` ("desktop
+reverse channel never initialized"). Fix (entry-stdio): construct the persistent
+socket/protocol/reverse `ChannelClient` immediately after `waitForAck` resolves, BEFORE
+any post-ack await — the promise continuation runs in the same microtask chain, so no
+I/O event can slip into a listener-less window. The rehearsal test is the standing CI
+guard: it execs the real bundle via the real `connectRemote` + a POSIX temp-HOME stub
+backend, registers the real desktop forward channel exactly as the window Host does,
+drives the agent-protocol dispatch leg with a minimal ndjson fake agent, and asserts
+`ok` + exactly one desktop adapter delivery while explicitly failing on any `-32601` /
+`unsupported-method` shape (bundle wiring losses become visible forever).
