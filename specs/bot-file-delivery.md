@@ -6,10 +6,15 @@ Status: Alpha 0 **shipped** in `3.14.4-alpha.0` (PR #2, merge `a399b22`; owner m
 green, asset set + single-channel invariant verified; owner-rig manual validation passed
 2026-09-30). Phase B implements the design contract reviewed & owner-approved 2026-09-29
 (two independent subagent review rounds + one implementation review round).
-Next: Phase C — Alpha 2 = remote workspaces (spec below, in progress); Alpha 3 =
-cross-host recipient resolution (spec below; supersedes the earlier "Alpha 3 =
-Telegram/Feishu outbound senders" placeholder — channel senders move to a later
-alpha and stay unspec'd).
+Alpha 2 (remote workspaces) **shipped** in `3.14.4-alpha.2` (PR #6). Alpha 3 (cross-host
+recipient resolution + absolute-path parity) **shipped** in `3.14.4-alpha.3` (PR #7,
+red-test-first; a speculative queued-turn fix was dropped after owner rig testing — busy
+inputs are dropped by design). Alpha 4 (chain self-announcing diagnostics + three
+stdio-handshake race fixes, found via the new built-bundle E2E) **shipped** in
+`3.14.4-alpha.4` (PR #8) — **owner-rig validated 2026-10-01**: remote conversational
+`share_file` and `/file` (relative AND absolute-inside paths) all deliver over real SSH.
+Next: **Alpha 5 — Telegram + Feishu/Lark outbound senders (not yet spec'd here; plan in
+../ZCode-handoff.md §4)** — the last milestone before official 3.14.4.
 Full-feature playbook: ../ZCode-handoff.md.
 Owners: bots service (`packages/services/src/bots/botsService.ts`) — command admission, path
 policy, size gates, `taskDeliveryRegistry` + `deliverWorkspaceFile` single writer + tool-source
@@ -348,7 +353,11 @@ Unit/integration (services `botFileDelivery.test.ts` + shared zod/policy tests):
    absolute-outside requestedPath → the remote reader's outside-workspace verdict maps 1:1 →
    honest refusal, zero deliveries.
 
-Manual rig (owner pause phase, blocks the alpha release):
+Manual rig (owner pause phase, blocks the alpha release) — **validated 2026-10-01 on
+`3.14.4-alpha.4`** (remote conversational + `/file` relative AND absolute paths all
+deliver over real SSH; the Alpha 2/3 checklist items passed cumulatively — R2 busy-drop,
+R3/R4 absolute-in/outside, R5 relative, L1 local parity were exercised across the
+alpha.3/alpha.4 rig runs):
 
 1. Local regression: `/file` + conversational share behave exactly as `3.14.4-alpha.1`.
 2. Remote happy path: `/file <path>` and "发给我" both deliver the real file from the remote
