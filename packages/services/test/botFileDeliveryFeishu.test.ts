@@ -295,6 +295,100 @@ test("feishu sendAttachment：上传业务错误（HTTP 200 code!=0）→ 抛错
   assert.equal(run.calls.length, 2);
 });
 
+test("feishu sendAttachment：im/v1/files 上传成功但缺 file_key → 抛缺失键错误且零 im/v1/messages 调用", async () => {
+  const run = await runSendAttachment({
+    appId: "cli_6000000000000001",
+    filename: "report.pdf",
+    mimeType: "application/pdf",
+    kind: "file",
+    bytes: Buffer.from("%PDF-1.7 no file_key", "utf8"),
+    respond: (call) => {
+      if (call.url.includes("/open-apis/auth/v3/tenant_access_token/internal")) {
+        return jsonResponse({ code: 0, tenant_access_token: FEISHU_TOKEN, expire: 7200 });
+      }
+      if (call.url.includes("/open-apis/im/v1/files")) {
+        // HTTP 200 且 code=0，但 data 缺 file_key：诚实失败，不得继续发送。
+        return jsonResponse({ code: 0, data: {} });
+      }
+      throw new Error(`unexpected feishu fetch: ${call.url}`);
+    },
+  });
+  assert.ok(run.error, "上传应答缺 file_key 必须抛错");
+  assert.match(run.error.message, /Feishu upload file failed: response missing file_key/u);
+  // 缺键即失败：不携带半成品去调 im/v1/messages（仅 token + 上传两次请求）。
+  assert.equal(
+    run.calls.filter((call) => call.url.includes("/open-apis/im/v1/messages")).length,
+    0,
+  );
+  assert.equal(run.calls.length, 2);
+});
+
+test("feishu sendAttachment：im/v1/images 上传成功但缺 image_key → 抛缺失键错误且零 im/v1/messages 调用", async () => {
+  const run = await runSendAttachment({
+    appId: "cli_6000000000000002",
+    filename: "plot.png",
+    mimeType: "image/png",
+    kind: "image",
+    bytes: Buffer.from("png-bytes-without-image-key", "utf8"),
+    respond: (call) => {
+      if (call.url.includes("/open-apis/auth/v3/tenant_access_token/internal")) {
+        return jsonResponse({ code: 0, tenant_access_token: FEISHU_TOKEN, expire: 7200 });
+      }
+      if (call.url.includes("/open-apis/im/v1/images")) {
+        // HTTP 200 且 code=0，但整个 data 缺失：同样命中缺键诚实失败分支。
+        return jsonResponse({ code: 0 });
+      }
+      throw new Error(`unexpected feishu fetch: ${call.url}`);
+    },
+  });
+  assert.ok(run.error, "上传应答缺 image_key 必须抛错");
+  assert.match(run.error.message, /Feishu upload image failed: response missing image_key/u);
+  assert.equal(
+    run.calls.filter((call) => call.url.includes("/open-apis/im/v1/messages")).length,
+    0,
+  );
+  assert.equal(run.calls.length, 2);
+});
+
+test("feishu sendAttachment：上传成功但 im/v1/messages 业务错误（HTTP 200 code!=0）→ 抛错携带 code/msg/log_id 且不重试", async () => {
+  const run = await runSendAttachment({
+    appId: "cli_6000000000000003",
+    filename: "report.pdf",
+    mimeType: "application/pdf",
+    kind: "file",
+    bytes: Buffer.from("%PDF-1.7 send will fail", "utf8"),
+    respond: (call) => {
+      if (call.url.includes("/open-apis/auth/v3/tenant_access_token/internal")) {
+        return jsonResponse({ code: 0, tenant_access_token: FEISHU_TOKEN, expire: 7200 });
+      }
+      if (call.url.includes("/open-apis/im/v1/files")) {
+        return jsonResponse({ code: 0, data: { file_key: "file_v2_key_1" } });
+      }
+      if (call.url.includes("/open-apis/im/v1/messages")) {
+        // 上传成功后的消息发送被业务拒绝：log_id 在 body error.log_id（优先于响应头）。
+        return jsonResponse({
+          code: 230002,
+          msg: "receive message limited",
+          error: { log_id: "log-send-77" },
+        });
+      }
+      throw new Error(`unexpected feishu fetch: ${call.url}`);
+    },
+  });
+  assert.ok(run.error, "消息发送业务错误必须抛错");
+  assert.match(run.error.message, /Feishu send file message failed: HTTP 200/u);
+  assert.match(run.error.message, /code=230002/u);
+  assert.match(run.error.message, /msg=receive message limited/u);
+  assert.match(run.error.message, /log_id=log-send-77/u);
+  assert.match(run.error.message, /receive_id_type=open_id/u);
+  // 失败语义：单次发送尝试上抛（token + 上传 + 发送恰好三次），无重试循环。
+  assert.equal(
+    run.calls.filter((call) => call.url.includes("/open-apis/im/v1/messages")).length,
+    1,
+  );
+  assert.equal(run.calls.length, 3);
+});
+
 test("feishu sendAttachment：凭据缺失 → 显式拒绝且不发起任何请求", async () => {
   const bytes = Buffer.from("feishu outbound payload", "utf8");
   const dir = await mkdtemp(join(tmpdir(), "zcode-fs-attach-"));
