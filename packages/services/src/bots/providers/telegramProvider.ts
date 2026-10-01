@@ -60,6 +60,7 @@ const telegramCommandDescriptions = {
   mode: "Select mode",
   thoughtLevel: "Select thinking level",
   reply: "Select reply detail",
+  file: "Send a workspace file",
 } as const;
 
 const telegramCommandNames = {
@@ -72,6 +73,7 @@ const telegramCommandNames = {
   mode: "mode",
   thoughtLevel: "think",
   reply: "reply",
+  file: "file",
 } as const;
 
 function isRecord(value: unknown): value is Record<string, unknown> {

@@ -247,6 +247,7 @@ const helpMessageByCommand = {
   mode: "helpMode",
   thoughtLevel: "helpThoughtLevel",
   reply: "helpReply",
+  file: "helpFile",
 } as const satisfies Record<(typeof BOT_MENU_COMMAND_ORDER)[number], BotMessageId>;
 
 function validateBotConfig(config: BotsConfigFile, candidate: BotConfig): void {

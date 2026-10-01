@@ -200,3 +200,48 @@ test("telegram sendAttachment：缺少 token → 拒绝且不发起任何请求"
     await rm(dirname(file.localPath), { recursive: true, force: true });
   }
 });
+
+// specs/bot-file-delivery.md Phase C Alpha 5 验收场景 7：Telegram 原生命令菜单
+// 通过 syncCommands → setMyCommands 注册 /file；allowedCommands.file 缺省 = 允许，
+// 仅显式 false 时排除。
+
+interface TelegramCommandPayload {
+  commands: Array<{ command: string; description: string }>;
+}
+
+async function readSyncedCommands(
+  botOverrides?: Partial<{ file: boolean | undefined }>,
+): Promise<TelegramCommandPayload> {
+  const stub = installProviderStub(
+    () => new Response(JSON.stringify({ ok: true }), { status: 200 }),
+  );
+  try {
+    const provider = createTelegramBotProvider({
+      loadCredential: async () => TELEGRAM_TOKEN,
+    });
+    const bot = buildTelegramBot();
+    if (botOverrides && "file" in botOverrides) {
+      bot.allowedCommands = { ...bot.allowedCommands, file: botOverrides.file };
+    }
+    await provider.syncCommands(bot);
+    const setCommandsCall = stub.calls.find((call) => call.url.endsWith("/setMyCommands"));
+    assert.ok(setCommandsCall, "syncCommands must call setMyCommands");
+    assert.ok(typeof setCommandsCall.init.body === "string");
+    return JSON.parse(setCommandsCall.init.body as string) as TelegramCommandPayload;
+  } finally {
+    stub.restore();
+  }
+}
+
+test("telegram syncCommands：默认注册 /file 原生命令", async () => {
+  const payload = await readSyncedCommands();
+  const fileCommand = payload.commands.find((command) => command.command === "file");
+  assert.deepEqual(fileCommand, { command: "file", description: "Send a workspace file" });
+});
+
+test("telegram syncCommands：allowedCommands.file === false → 菜单不含 /file", async () => {
+  const payload = await readSyncedCommands({ file: false });
+  assert.ok(!payload.commands.some((command) => command.command === "file"));
+  // 其余命令不受 file 开关影响。
+  assert.ok(payload.commands.some((command) => command.command === "bind"));
+});
