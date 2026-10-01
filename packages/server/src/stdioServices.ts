@@ -1,6 +1,7 @@
 import {
   createBotShareFileForwarder,
   createLocalServices,
+  createServiceLogger,
   type ZCodeAgentCommandResolver,
 } from "@zcode/services/node";
 import type { ChannelClient } from "@zcode/rpc";
@@ -46,8 +47,12 @@ export function createStdioServices(options: CreateStdioServicesOptions) {
   const remoteAgentNetwork = resolveRemoteAgentNetworkFromEnv(env);
   // Phase C Alpha 3：反向 forward 调用面（失败矩阵折叠在 createBotShareFileForwarder：
   // 旧桌面不回 Initialize → unsupported-method；传输错误/子超时 → send-failed）。
+  // Alpha 4 诊断：注入 bots 域 service logger——Initialize 正向事实与每次 forward 结局
+  // （reason + detail）经 stderr 汇入 "[remote]" 桌面日志，本模块自身不直接打日志。
   const desktopBotShareFileForward = options.desktopChannelClient
-    ? createBotShareFileForwarder(options.desktopChannelClient)
+    ? createBotShareFileForwarder(options.desktopChannelClient, {
+        logger: createServiceLogger("bots"),
+      })
     : undefined;
   // 远程 Desktop 的呈现能力必须从 stdio 入口收到的 authority mode 进入 Services 推导链。
   // 测试注入 resolver 只用于在 spawn 前观察最终命令，不改变生产默认 resolver。

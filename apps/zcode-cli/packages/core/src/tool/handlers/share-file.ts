@@ -157,7 +157,11 @@ function formatShareFileModelContent(output: unknown): string {
       // 并转介 /file（/file 不受 tool 配额限制）。
       return `The delivery attempt failed and the user did not receive the file. Tell the user the file could not be delivered, and suggest requesting it with the /file command instead.${detail}`;
     case "unsupported-method":
-      return "The host does not support file sharing yet (it returned method not found), so nothing was sent.";
+      // 诊断链路：区分「旧桌面未就绪」（远端 forwarder 折叠，detail=
+      // "desktop reverse channel never initialized"）与「远端未装配」（-32601
+      // "bots/shareFile is unavailable on this host"）——同一 reason 的两条生产链路
+      // 只能靠 detail 分辨，缺失时 chat 里无法裁定。
+      return `The host does not support file sharing yet (it returned method not found), so nothing was sent.${detail}`;
     case "unknown-outcome":
       return "The delivery outcome is UNKNOWN: the request timed out and the file may or may not have been sent. Do NOT claim success or failure. Ask the user to check the chat, and do not retry the same file immediately.";
     default: {

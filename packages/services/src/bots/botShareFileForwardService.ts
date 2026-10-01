@@ -6,6 +6,7 @@ import {
 } from "@zcode/shared";
 import { ChannelClient, ProxyChannel } from "@zcode/rpc";
 import { createServiceDescriptor } from "../descriptors.js";
+import type { ServiceLogger } from "../logger/serviceLogger.js";
 import type { IBotsService } from "./bots.js";
 
 /**
@@ -86,29 +87,62 @@ class BotShareFileForwardTimeoutError extends Error {
 }
 
 /**
+ * 就绪门折叠的稳定 detail 签名：生产排障时它是「桌面反向 channel 从未初始化」
+ * （Chain Y）的唯一 chat 侧可 grep 证据，与远端 -32601 "unavailable on this host"
+ * （Chain X-a）区分。措辞必须保持逐字稳定。
+ */
+const DESKTOP_REVERSE_CHANNEL_NEVER_INITIALIZED_DETAIL =
+  "desktop reverse channel never initialized";
+
+/**
  * 远端装配的 forwarder 工厂：把远端→桌面的 channel 调用折叠为 BotShareFileResult
  * 失败矩阵（specs Phase C Alpha 3 §4）：
  *  - 桌面从未回 Initialize（旧桌面不构造 desktop-serving ChannelServer）→ 立即
  *    unsupported-method，绝不排队（排队会挂满整个 CLI 预算）；
  *  - 传输错误 / 桌面 handler 抛错 / 桌面回包不合法 → send-failed（带 detail）；
  *  - 280s 子超时 → send-failed（CLI 300s 预算内拿到确定答案）。
+ *
+ * logger（可选注入，Alpha 4 诊断）：一次性正向日志（Initialize 收到）+ 每次 forward
+ * 的结局日志（reason + detail，绝不记文件路径——用户数据）。
  */
 export function createBotShareFileForwarder(
   client: ChannelClient,
-  options?: { timeoutMs?: number },
+  options?: { timeoutMs?: number; logger?: Pick<ServiceLogger, "info"> },
 ): BotShareFileForwarder {
   const timeoutMs = options?.timeoutMs ?? BOT_SHARE_FILE_FORWARD_TIMEOUT_MS;
+  const logger = options?.logger;
   // Review 修复（Initialize 竞态）：就绪判定改为调用时轮询 isInitialized() 状态，而不是
   // 构造期订阅 onDidInitialize——Initialize 只发一次且 Emitter 无重放，若工厂在 Initialize
   // 已送达后才构造（entry-stdio 的 materialize await 之后），事件订阅会永久漏掉，新桌面
   // 被误判为 unsupported-method。状态式查询对构造时机免疫；事件订阅保留作冗余兜底。
+  // 正向事实必须自宣（Alpha 4 诊断）：反向链路健康时此前零日志，排障只能靠反证。
+  let loggedInitialized = false;
+  const logInitializedOnce = () => {
+    if (loggedInitialized) return;
+    loggedInitialized = true;
+    logger?.info(undefined, "bot share file forward channel initialized");
+  };
   let desktopChannelsReady = client.isInitialized();
+  if (desktopChannelsReady) {
+    // Initialize 已在构造前送达（低 RTT 竞态赢家）：one-shot 正向日志不能跟着事件丢失。
+    logInitializedOnce();
+  }
   client.onDidInitialize(() => {
     desktopChannelsReady = true;
+    logInitializedOnce();
   });
   return async (params) => {
     if (!desktopChannelsReady && !client.isInitialized()) {
-      return { ok: false, reason: "unsupported-method" };
+      logger?.info(
+        undefined,
+        "bot share file forward folded: unsupported-method",
+        DESKTOP_REVERSE_CHANNEL_NEVER_INITIALIZED_DETAIL,
+      );
+      return {
+        ok: false,
+        reason: "unsupported-method",
+        detail: DESKTOP_REVERSE_CHANNEL_NEVER_INITIALIZED_DETAIL,
+      };
     }
     const service = ProxyChannel.toService<IBotShareFileForwardService>(
       client.getChannel(IBotShareFileForwardService.channelName),
@@ -128,15 +162,28 @@ export function createBotShareFileForwarder(
       }
       const parsed = zcodeBotsShareFileResultSchema.safeParse(result);
       if (!parsed.success) {
+        logger?.info(
+          undefined,
+          "bot share file forward folded: send-failed",
+          "desktop forward returned an invalid shareFile result",
+        );
         return {
           ok: false,
           reason: "send-failed",
           detail: "desktop forward returned an invalid shareFile result",
         };
       }
+      // 结局日志只含 reason/detail（ok 或失败矩阵），不落文件路径（用户数据）。
+      logger?.info(
+        undefined,
+        parsed.data.ok
+          ? "bot share file forward outcome: ok"
+          : `bot share file forward outcome: ${parsed.data.reason}${parsed.data.detail ? ` (${parsed.data.detail})` : ""}`,
+      );
       return parsed.data;
     } catch (error) {
       const detail = error instanceof Error ? error.message : String(error);
+      logger?.info(undefined, "bot share file forward folded: send-failed", detail);
       return { ok: false, reason: "send-failed", detail };
     }
   };

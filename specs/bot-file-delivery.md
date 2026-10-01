@@ -458,3 +458,59 @@ Unit/integration (`packages/services/test/botShareFileRemoteTopology.test.ts`):
    `Initialize`) → `unsupported-method`, zero deliveries, no queueing.
 4. Control asymmetry: the desktop instance asked directly still delivers exactly
    once with materialization and cleanup (Phase-1 coverage kept).
+
+### Instrumentation (Alpha 4 diagnostic footprint)
+
+Production incident (remote WeChat `share_file` → `unsupported-method`): two candidate
+chains were indistinguishable in chat. The `unsupported-method` prose now surfaces its
+`detail` (same pattern as `send-failed`), discriminating "desktop reverse channel never
+initialized" (forwarder readiness fold, a structured RESULT from Chain Y) from
+"bots/shareFile is unavailable on this host" (remote `-32601` JSON-RPC error, Chain
+X-a). Footprint (all additive, no behavior change beyond the detail surfacing; no file
+paths in logs): CLI port logs per attempt the result reason plus, on
+`ProtocolRequestError`, BOTH code and message (X-a vs stale-bundle X-b), else an
+explicit "structured result; no rpc error" line (Chain Y); the forwarder folds with the
+stable detail string, logs a one-shot "channel initialized" on `Initialize`, and logs
+each forward outcome (reason + detail only); entry-stdio logs one assembly line
+(`authority=… forwarder=ready|absent(client=absent)`); the desktop side logs the
+ChannelServer construction decision (`serveDesktopChannels`) and the forward-channel
+registration, plus a warn when the registration gap (botsService present,
+desktopChannelServer absent) would otherwise stay silent.
+
+### Readiness gap root cause & bundle E2E guard (Alpha 4 follow-up)
+
+The full-dress rehearsal test (`packages/server/test/botShareFileRemoteBundleE2E.test.ts`)
+reproduced Chain Y deterministically against the BUILT remote server bundle
+(`dist/remote/zcode-server.cjs`) and pinned the root cause: `waitForAck` removes the only
+stdin `data` listener while stdin stays in flowing mode, so desktop frames arriving in the
+listener-less window are silently discarded. The remote reverse `ChannelClient` stays
+`Uninitialized` forever and every forward folds to `unsupported-method` ("desktop
+reverse channel never initialized"). TWO discard windows exist, and the fix closes both
+(review-verified empirically on Node 22 + 24):
+
+1. **Separate chunks**: ack and `Initialize` in different `data` chunks — closed by
+   constructing the persistent socket/protocol/reverse `ChannelClient` immediately after
+   `waitForAck` resolves, BEFORE any post-ack await (the continuation runs in the same
+   microtask chain, so no new I/O event can intervene).
+2. **Coalesced chunk** (the likely SSH production shape — ssh2 batches same-tick writes):
+   ack + `Initialize` in ONE `data` chunk — `waitForAck`'s `unshift()` of the remainder
+   happens while flowing with no listener and an empty buffer, which takes Node's
+   direct-emit path and discards the bytes before the continuation attaches. Closed by
+   `process.stdin.pause()` after `removeListener` / before `unshift`, with
+   `process.stdin.resume()` in `main()` after the protocol listener is attached
+   (explicit pause disables `on('data')` auto-resume).
+3. **Binary remainder corruption** (found by the coalescing E2E leg itself): the old
+   handshake accumulated stdin as a UTF-8 _string_ and re-encoded the remainder — RPC
+   frames are binary and invalid-UTF-8 sequences were replaced, corrupting the first
+   frame so the reverse client's deserializer crashed. Closed by buffer-only scanning:
+   locate the ack line by `0x0A` byte, UTF-8-decode ONLY the ack line (JSON, safe),
+   unshift the remainder as raw bytes — never through a string round-trip.
+   The rehearsal test runs BOTH transport shapes (separate-chunk and a same-tick coalescing
+   stub backend mirroring SSH batching), execs the real bundle via the real `connectRemote`
+
+- a POSIX temp-HOME stub backend, registers the real desktop forward channel exactly as
+  the window Host does, drives the agent-protocol dispatch leg with a minimal ndjson fake
+  agent, and asserts `ok` + exactly one desktop adapter delivery while explicitly failing
+  on any `-32601` / `unsupported-method` shape (bundle wiring losses become visible
+  forever). Bundle freshness guard: the test rebuilds when any server/services/shared
+  src file is newer than the bundle (stale local artifacts no longer mask regressions).

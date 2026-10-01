@@ -1682,6 +1682,16 @@ async function createWindowRemoteConnectionHandle(params: {
         }),
       ),
     );
+    // Alpha 4 诊断足迹：远端 unsupported-method（Chain Y）的桌面侧根因位在这段注册——
+    // 注册成功即反向链路就绪的正向事实，此前零日志。
+    logger.info("bot share file forward channel registered on desktop channel server");
+  } else if (localBotsService) {
+    // Alpha 4 诊断足迹：botsService 在而 desktopChannelServer 缺席（serveDesktopChannels
+    // 未开/异常路径）——远端 forwarder 将永远收不到 Initialize、恒折叠 unsupported-method，
+    // 该组合此前完全静默（Chain-Z-adjacent），必须显式告警。
+    logger.warn(
+      "bot share file forward channel NOT registered: desktop channel server absent while bots service exists",
+    );
   }
   const remoteMediaPreviewFactory = !remoteMediaRangePreviewEnabled
     ? undefined
