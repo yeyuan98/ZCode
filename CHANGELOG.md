@@ -1,5 +1,57 @@
 # Changelog
 
+## [3.14.4-alpha.5](https://github.com/yeyuan98/zodex/compare/v3.14.4-alpha.4...v3.14.4-alpha.5) (2026-10-01)
+
+### Features
+
+* **bots:** Alpha 5 /file 可发现性——/help 双语文案 + Telegram 原生命令菜单 + CLI 工具描述更正 ([0e173dc](https://github.com/yeyuan98/zodex/commit/0e173dc3ba6bcb7f800aa28dc002460dfc1dd5d3))
+  * BOT_MENU_COMMAND_ORDER += file（置于策略命令后、bind 前；不进 BOT_POLICY_COMMAND_ORDER——那是 keyof BotCommandPolicy 的设置命令清单）
+  * helpMessageByCommand + messages.ts 新增 helpFile：zh「/file <路径> — 发送工作区内的文件（仅私聊，≤5MB）」/ en 对应文案
+  * telegramCommandNames/Descriptions 注册 file，buildTelegramCommands 自动收编且 allowedCommands.file 显式 false 时排除（缺省允许语义不变）
+  * CLI share_file 工具描述由「仅微信私聊」更正为 WeChat/Telegram/Feishu/Lark 私聊四通道
+  * 新增 botHelpCommand 测试（zh/en 文案、菜单位置、file:false 隐藏）+ telegram syncCommands 两行（默认包含/显式 false 排除）
+
+* **bots:** Alpha 5 Telegram 出站投递——sendAttachment 走 sendDocument ([e35e469](https://github.com/yeyuan98/zodex/commit/e35e4693c6ba4d136b754ac929aecdfd36f4a33d))
+  * telegramProvider 新增 sendAttachment：一律 sendDocument（不做重压缩），multipart 走全局 FormData/Blob（Node 24 原生），不手工设 content-type
+  * chat_id 复用既有 sendMessage 路径的 providerUserId 推导，零新增身份管道；收件人真相仍在 host 侧 taskDeliveryRegistry
+  * 显式 60s 超时（providerRequest 默认 15s 对 5MB 上传过短）；payload.ok!==true 抛错并携带 description，由服务层映射 send-failed
+  * 凭据缺失直接抛错（send 的静默返回会向调用方谎报成功，出站投递必须诚实）
+  * 新增 fetch-stub 测试：happy path（URL/chat_id/文件字节/60s deadline 直接观测）、API 错误透传 description 且零重试、无凭据拒绝
+
+* **bots:** Alpha 5 通道扩宽——telegram 目标枚举/谓词/producer 三点解锁 ([b18974f](https://github.com/yeyuan98/zodex/commit/b18974fb08d54f8f512818d428b15b8cb9c5d3bc))
+  * zcodeAutomationBotDeliveryTargetSchema.provider 枚举 += telegram（线上为增量字段，旧端按既有枚举严格解析，已按 owner 决策 A 接受 -32602 退化）
+  * botShareFileDeliveryTargetQualifies 由 weixin 单通道扩到 weixin/telegram/feishu/lark（仍仅私聊、仍排除 automation/off-peak）；三处 deny 站点消费同一谓词自动扩宽
+  * resolveAutomationBotDeliveryTarget 为 telegram 发目标，但仅私聊（owner 决策：telegram 群聊永不发目标；副作用：telegram 私聊 bot 获得定时任务完成回推）；feishu/lark/weixin 行为不变
+  * 谓词矩阵扩宽：四通道私聊正例 + 群聊/automation/off-peak 负例
+  * services 增 telegram 私聊 producer 正例、weixin/feishu 对齐行、telegram 群聊零目标回归（群聊在 withAuthorizedContext 已被拦，作为纵深防御锁定）
+
+* **bots:** Alpha 5 飞书/Lark 出站投递——im/v1/images 内联图 + im/v1/files 文件气泡 ([7b3f643](https://github.com/yeyuan98/zodex/commit/7b3f643181f472f3f377c1b211b45f880d5f44e6))
+  * feishuProvider 新增 sendAttachment：kind=image 走 im/v1/images 上传后 msg_type:image 内联渲染；video/file 走 im/v1/files 后 msg_type:file 文件气泡
+  * file_type 按扩展名精确映射 pdf/doc/xls/ppt/mp4/opus，无歧义 mime 兜底，其余一律 stream；receive_id 复用既有 send 路径推导（ou_→open_id / oc_→chat_id），零新增身份管道
+  * 0-byte 文件在上传前诚实失败（飞书 API 拒收空文件，先查后传省一次注定失败的网络往返）
+  * 上传与发送均显式 60s 超时（默认 15s 对 5MB 上传过短）；业务错误经 createFeishuMessageError 透传 code/msg/log_id（入参放宽为结构化 payload，既有调用方行为不变）
+  * 不触碰流式卡片/瞬时卡片机制：媒体作为独立消息气泡送达
+  * 负例 stub 迁移：unsupported-provider 判定由 feishu 改为真实无 sendAttachment 的 webhook（feishu 现已具备该能力）
+  * 新增 6 项 fetch-stub 测试：图片链路、pdf 链路、mp4/opus/未知扩展映射、0-byte 零上传、业务错误字段保全、凭据缺失诚实抛错
+
+
+### Documentation
+
+* **specs:** Alpha 5 规格先行——Telegram + Feishu/Lark 出站文件投递 ([310e17f](https://github.com/yeyuan98/zodex/commit/310e17f7c0b8cfa859b392bdddd7c701920e581e))
+  * 新增 Phase C Alpha 5 章节：同一 single writer，新增两家上传 adapter，通道资格扩宽
+  * 四处扩宽点定稿：provider 枚举 += telegram；共享谓词扩到四通道（仍仅私聊）；producer 仅 telegram 私聊发目标（owner 决策）；三处 deny 站点随谓词自动扩宽
+  * 明确 owner 已批准的副作用：telegram 私聊 bot 获得定时任务完成回推（群聊不变）
+  * Telegram sendDocument（显式 60s 超时）；Feishu 按 kind 走 im/v1/images / im/v1/files（file_type 映射、0-byte 上传前诚实失败、复用 receiveId/错误增强、不触碰流式卡片）
+  * /help 终于列出 /file（zh+en，含 Telegram 原生命令菜单，尊重 allowedCommands.file）
+  * 版本混用退化定稿（owner 决策 A）：旧远端对 telegram 目标的 -32602 整轮失败为已接受的自愈式降级，不加兜底重试
+  * 默认开启发布语义：合入即对所有 telegram/feishu bot 生效，回滚 = 按 bot file:false
+  * 验收场景：谓词矩阵/producer/两家 adapter fetch-mock/负例 stub 迁移/微信零漂移/help/手动 rig 清单
+
+* **specs:** mark Phase C Alpha 2-4 shipped + rig-validated; next = Alpha 5 channels ([c5763ad](https://github.com/yeyuan98/zodex/commit/c5763ad55d4c6125a9e54a11a14f391ab6fd1462))
+  * 状态头更新：Alpha 2/3/4 均已发布（3.14.4-alpha.2/3/4），Alpha 4 于 2026-10-01
+  * Phase C 手册 rig 清单标记为已验证（含 alpha.3/4 两轮累计覆盖项）
+  * 下一里程碑指向 Alpha 5（Telegram/Feishu 出站），计划见 ../ZCode-handoff.md §4
+
 ## [3.14.4-alpha.4](https://github.com/yeyuan98/zodex/compare/v3.14.4-alpha.3...v3.14.4-alpha.4) (2026-10-01)
 
 ### Features
