@@ -236,6 +236,9 @@ export * from "./mcp.js";
 export * from "./runtime-tool-runtime.js";
 export * from "./git.js";
 export * from "./bots.js";
+// Bot 出站投递远端 workspace 读取的纯路径/配额策略（Phase C Alpha 2）；
+// 无 Node 依赖，路径语义由调用方注入（远端 CLI 传自己的 node:path）。
+export * from "./botWorkspaceFilePolicy.js";
 export * from "./assistant-message-parts.js";
 export * from "./zcodePersistedMessageMerge.js";
 export * from "./assistant-presentation.js";

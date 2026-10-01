@@ -24,6 +24,11 @@ interface WindowHostExposeAttachmentParams<TServices, TPort, TCapabilities = nev
   generation: number;
   capabilities?: TCapabilities;
   port: TPort;
+  /**
+   * Bot-only 标记（Phase C Alpha 2）：仅 desktop main 的 bot runtime attachment
+   * 携带。expose 据此决定是否附加 bot 专属窄化 channel；标准 attachment 恒缺席。
+   */
+  attachmentKind?: "bot-runtime";
 }
 
 interface TrackedAttachment<TServices, TPort, TCapabilities = never> {
@@ -60,6 +65,7 @@ export function createWindowHostAttachmentRegistry<
     clientMode: ZCodeAgentV4ClientMode;
     scope: WindowHostAttachmentScope;
     port: TPort;
+    attachmentKind?: "bot-runtime";
   }): void {
     // scope 必须先由 Host registry 验证；验证失败时不能影响同 attachmentId 的现有端口。
     const resolved = options.resolveScope(params.scope);

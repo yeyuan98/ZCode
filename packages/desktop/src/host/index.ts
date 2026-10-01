@@ -18,6 +18,7 @@ import { randomUUID } from "node:crypto";
 import {
   MessagePortProtocol,
   ChannelServer,
+  ProxyChannel,
   type IChannelServer,
   LoggingChannelServer,
 } from "@zcode/rpc";
@@ -26,6 +27,7 @@ import { materializeBrowserRecordingArtifact } from "./browserRecordingArtifactM
 import {
   ServiceCollection,
   IBotsService,
+  IBotWorkspaceFileService,
   IFileService,
   // P3 C5 供应商 client/configs 拉取删除：IClientConfigService 已随服务移除。
   IMediaPreviewService,
@@ -88,6 +90,7 @@ import {
   type ZCodeAutomationRunOutcome,
   type ModelSelection,
 } from "@zcode/shared";
+import { createScopedBotWorkspaceFileService } from "./botWorkspaceFileGate.js";
 import {
   parseHostIncomingMessageEvent,
   rejectUnavailableAttachedServicePort,
@@ -152,6 +155,13 @@ interface HostRemoteConnectionCapabilities {
   remoteMediaPreviewFactory?: (
     scope: Extract<WindowHostAttachmentScope, { kind: "remote" }>,
   ) => RemoteMediaPreviewProxy;
+  /**
+   * Bot 出站投递远端文件读取（Phase C Alpha 2）：远端 zcode-server 的
+   * bot-workspace-file channel 代理工厂。只在 bot-runtime 标记的 attachment 上
+   * 被 exposeServicesOnMessagePort 消费——与 remoteMediaPreviewFactory 同一条
+   * “按 attachment 选择数据面”的模式，但这里同时是 bot-only 锁的执行点。
+   */
+  botWorkspaceFileServiceFactory?: () => IBotWorkspaceFileService;
 }
 
 let activeRemoteMediaRequests = 0;
@@ -1639,6 +1649,13 @@ async function createWindowRemoteConnectionHandle(params: {
   });
 
   let disposed = false;
+  // Bot 出站投递远端文件读取（Phase C Alpha 2）：对远端 zcode-server 的
+  // bot-workspace-file channel 做代理。惰性 getChannel——旧远端 server 未注册该
+  // channel 时 proxy 在首次调用处失败，由 expose 侧包装折叠为结构化 unavailable。
+  const botWorkspaceFileServiceFactory = () =>
+    ProxyChannel.toService<IBotWorkspaceFileService>(
+      connection.client.getChannel(IBotWorkspaceFileService.channelName),
+    );
   const remoteMediaPreviewFactory = !remoteMediaRangePreviewEnabled
     ? undefined
     : (scope: Extract<WindowHostAttachmentScope, { kind: "remote" }>) =>
@@ -1660,6 +1677,7 @@ async function createWindowRemoteConnectionHandle(params: {
         ? {
             browserRecordingUploader: connection.backend,
             ...(remoteMediaPreviewFactory ? { remoteMediaPreviewFactory } : {}),
+            botWorkspaceFileServiceFactory,
           }
         : {},
     onDidClose(listener) {
@@ -1891,6 +1909,7 @@ function exposeServicesOnMessagePort(
   clientMode: ZCodeAgentV4ClientMode = "desktop-continuous",
   attachmentScope: WindowHostAttachmentScope = { kind: "local" },
   capabilities?: HostRemoteConnectionCapabilities,
+  attachmentKind?: "bot-runtime",
 ): ExposedServicePortHandle {
   const wrappedPort = wrapElectronPort(port);
   const protocol = new MessagePortProtocol(wrappedPort);
@@ -1946,6 +1965,30 @@ function exposeServicesOnMessagePort(
   // P5 W4：会话分享 attachment connection-scope 覆盖（scopeConversationShareServiceForAttachment）
   // 已随分享服务删除；Agent 的 trusted-carrier 约束仍由上方 connectionScope 统一持有。
   services.exposeOnChannelServer(server, overrides);
+  // Bot-only 锁（Phase C Alpha 2）：gate 判定 + scope 注入 + wire 校验折叠收敛在
+  // createScopedBotWorkspaceFileService（独立文件，可脱离 Electron MessagePort 单测）。
+  // channel 不进任何 ServiceCollection——renderer/relay/phone attachment 的
+  // exposeOnChannelServer 结构上注册不到它；只有 main 以 attachmentKind="bot-runtime"
+  // 标记的远端 attachment 在这里显式挂上。旧远端 server 无该 channel 时调用方得到
+  // 结构化 unavailable（见包装），不会悬挂。
+  const scopedBotWorkspaceFileService = createScopedBotWorkspaceFileService({
+    attachmentKind,
+    attachmentScope,
+    factory: capabilities?.botWorkspaceFileServiceFactory,
+  });
+  if (scopedBotWorkspaceFileService) {
+    server.registerChannel(
+      IBotWorkspaceFileService.channelName,
+      ProxyChannel.fromService(scopedBotWorkspaceFileService),
+    );
+    logger.info(
+      `bot workspace file channel exposed, scope=remote, attachmentKind=bot-runtime, clientMode=${clientMode}`,
+    );
+  } else if (attachmentKind === "bot-runtime" && attachmentScope.kind === "remote") {
+    logger.warn(
+      "bot-runtime attachment without botWorkspaceFileServiceFactory; workspace file reads unavailable",
+    );
+  }
   let disposed = false;
   let flowUpdateChain = Promise.resolve();
   const forwardFlowState = (state: "saturated" | "drained" | "closed") => {
@@ -2011,8 +2054,16 @@ const windowHostAttachmentRegistry = createWindowHostAttachmentRegistry<
       capabilities: windowRemoteConnectionRegistry.resolveScopedCapabilities(scope),
     };
   },
-  expose: ({ port, services, clientMode, scope, capabilities }) =>
-    exposeServicesOnMessagePort(port, services, false, clientMode, scope, capabilities),
+  expose: ({ port, services, clientMode, scope, capabilities, attachmentKind }) =>
+    exposeServicesOnMessagePort(
+      port,
+      services,
+      false,
+      clientMode,
+      scope,
+      capabilities,
+      attachmentKind,
+    ),
 });
 
 function logWindowHostTopology(reason: string): void {
@@ -2634,6 +2685,9 @@ parentPort.on("message", async (e: Electron.MessageEvent) => {
         clientMode: msg.clientMode,
         scope: msg.scope,
         port,
+        // Bot-only 锁：仅当 main 显式声明 bot-runtime 标记时向下传递；
+        // 标准 renderer/relay/phone attachment 恒为 undefined。
+        ...(msg.attachmentKind ? { attachmentKind: msg.attachmentKind } : {}),
       });
       logger.info(
         `attached scoped service port, attachmentId=${msg.attachmentId}, scope=${msg.scope.kind}, clientMode=${msg.clientMode}`,

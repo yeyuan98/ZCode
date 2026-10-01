@@ -33,7 +33,10 @@ export const BOT_SHARE_FILE_FAILURE_REASONS = [
   "no-target",
   "not-allowed",
   "unsupported-provider",
+  // "remote-workspace" 仅为旧 host 兼容保留（新 host 已支持远程投递，不再产生该 reason）。
   "remote-workspace",
+  // Phase C Alpha 2：远程取回失败（远端不可达/初始化失败/超时/超预算/中途 RPC 失败）。
+  "remote-unavailable",
   "outside-workspace",
   "not-found",
   "too-large",

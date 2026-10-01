@@ -60,7 +60,8 @@ test("share_file 请求 schema 拒绝空/空白 taskId 与 path", () => {
 
 test("BotShareFileResult 响应联合按每个 failure reason 往返", () => {
   const reasons = botShareFileFailureReasonSchema.options;
-  assert.equal(reasons.length, 11);
+  // Phase C Alpha 2 新增 remote-unavailable（enum 同时保留旧 CLI 兼容的 remote-workspace）。
+  assert.equal(reasons.length, 12);
   for (const reason of reasons as readonly BotShareFileFailureReason[]) {
     const wireFailure = { ok: false, reason, detail: `detail for ${reason}` };
     const parsed = zcodeBotsShareFileResultSchema.safeParse(wireFailure);

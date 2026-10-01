@@ -800,6 +800,12 @@ export function createRemoteWorkspaceSessionManager(options: {
     workspaceIdentity: string;
     workspaceKey: string;
     clientMode: "web-remote-replayable";
+    /**
+     * Bot-only 锁（Phase C Alpha 2）：唯一合法来源是 createBotRemoteWorkspaceRuntimePort。
+     * 携带该标记的 attachment 才会在 window Host 端口上出现 IBotWorkspaceFileService
+     * 窄化 channel；renderer/relay/phone attachment 不传此字段。
+     */
+    attachmentKind?: "bot-runtime";
   }): {
     process: ElectronUtilityProcess;
     port: MessagePortMain;
@@ -849,6 +855,7 @@ export function createRemoteWorkspaceSessionManager(options: {
           workspacePath: params.workspacePath,
           workspaceIdentity: params.workspaceIdentity,
         },
+        ...(params.attachmentKind ? { attachmentKind: params.attachmentKind } : {}),
       },
       [port2],
     );
@@ -909,6 +916,9 @@ export function createRemoteWorkspaceSessionManager(options: {
       workspaceIdentity: params.workspaceIdentity,
       workspaceKey: params.workspaceIdentity,
       clientMode: "web-remote-replayable",
+      // Bot-only 锁：整个 main 里只有这里设置 attachmentKind——bot runtime attachment
+      // 才允许触达 workspace 文件读取窄化 channel。
+      attachmentKind: "bot-runtime",
     }).port;
   }
 

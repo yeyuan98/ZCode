@@ -192,6 +192,11 @@ export type {
   BotSaveBotParams,
   BotTestResult,
 } from "./bots/bots.js";
+// Bot 出站投递的远端 workspace 文件读取窄化 channel（Phase C Alpha 2）。
+// 只导出 descriptor 与类型：实现（createBotWorkspaceFileService）留在 node 装配，
+// renderer 经根 index 拉进浏览器包时不会连带 Node 依赖。
+export { IBotWorkspaceFileService } from "./bots/botWorkspaceFileService.js";
+export type { BotWorkspaceFileV4Forwarder } from "./bots/botWorkspaceFileService.js";
 
 // Hooks service — IHooksService is both a type (interface) and value (descriptor).
 export { IHooksService } from "./hooks/hooks.js";

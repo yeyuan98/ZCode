@@ -482,6 +482,17 @@ export interface ZCodeAgentAttachmentReadParams extends ZCodeAgentSessionTarget 
   limit: number;
 }
 
+/**
+ * Bot 出站投递读取本机 workspace 文件（Phase C Alpha 2）。非 IZCodeAgentService
+ * 接口成员：只在文件系统所有者进程（desktop-attached-remote 装配）内由
+ * IBotWorkspaceFileService 直接调用，replay/connection-scope 面不可达。
+ */
+export interface ZCodeAgentBotWorkspaceFileReadParams extends ZCodeAgentWorkspaceTarget {
+  relativePath: string;
+  offset: number;
+  limit: number;
+}
+
 export interface ZCodeAgentConversationAttachmentReadParams extends ZCodeAgentSessionTarget {
   ref: string;
   target: ConversationRowTarget;

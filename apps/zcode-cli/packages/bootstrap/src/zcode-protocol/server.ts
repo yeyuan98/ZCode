@@ -1,4 +1,5 @@
 import { querySessionDebug } from "./session-debug.js";
+import { readBotWorkspaceFile } from "./bot-workspace-file-read.js";
 import {
   zcodePluginsCancelOperationParamsSchema,
   zcodeProtocolMethods,
@@ -540,6 +541,10 @@ export class ZCodeProtocolAgentServer {
         return {};
       case V4_METHODS.attachmentRead:
         return await this.requireV4Gateway().attachmentRead(request.params);
+      // Bot 出站投递读取本机 workspace 文件（Phase C Alpha 2）：只读、无状态、
+      // 超时重发安全；不经 v4Gateway（无会话投影依赖），与 usageStats 同模式。
+      case V4_METHODS.botWorkspaceFileRead:
+        return await readBotWorkspaceFile(request.params);
       case V4_METHODS.conversationAttachmentRead:
         return await this.requireV4Gateway().conversationAttachmentRead(request.params);
       case V4_METHODS.conversationAttachmentStat:

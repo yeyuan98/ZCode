@@ -10,6 +10,7 @@ import { type IZCodeTaskService as IZCodeTaskServiceShape } from "../session/zco
 import type { ICredentialService } from "../credential/credential.js";
 import type { ISettingService } from "../setting/setting.js";
 import { type ZCodeAgentAppRuntimePreferences } from "../zcode-agent/zcodeAgent.js";
+import type { IBotWorkspaceFileService as IBotWorkspaceFileServiceShape } from "./botWorkspaceFileService.js";
 import {
   createRemoteRuntimeServicesFromPort,
   type RemoteBotWorkspaceRuntimeServices,
@@ -246,6 +247,15 @@ export function createBotRemoteWorkspaceService(params: {
     },
     async getModelSelectionService(target: { workspacePath: string; workspaceIdentity: string }) {
       return (await getRuntimeServices(target))?.modelSelectionService ?? null;
+    },
+    // Phase C Alpha 2：Bot 出站投递的远端文件读取。与 getZCodeTaskService 同一
+    // lifecycle/失败约定（无 attachable route → null；初始化失败/超时 → throw），
+    // 由调用方映射 remote-unavailable。
+    async getWorkspaceFileReader(target: {
+      workspacePath: string;
+      workspaceIdentity: string;
+    }): Promise<IBotWorkspaceFileServiceShape | null> {
+      return (await getRuntimeServices(target))?.botWorkspaceFileService ?? null;
     },
     async syncAppRuntimePreferences(preferences: ZCodeAgentAppRuntimePreferences): Promise<void> {
       latestAppRuntimePreferences = preferences;

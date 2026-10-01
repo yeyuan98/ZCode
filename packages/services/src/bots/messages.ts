@@ -43,8 +43,8 @@ const messages = {
       "无法下载附件。文件可能已过期、已撤回，或机器人没有读取权限。请重新发送附件后再试。",
     attachmentTooLarge: "附件超过 5MB，请压缩后重新发送。",
     fileCommandUnsupported: "该渠道暂不支持发送文件，会在后续版本提供。",
-    fileRemoteWorkspaceUnsupported:
-      "远端 workspace 的文件发送将在后续版本支持，当前仅支持本地 workspace。",
+    // Phase C Alpha 2：远程取回失败（远端不可达/超时/超预算）的如实文案。
+    fileRemoteUnavailable: "远程工作区当前不可用，请稍后重试或先 /重连。",
     fileMissingPath: "请指定要发送的文件路径，例如 **/file reports/result.png**。",
     fileOutsideWorkspace: "只能发送当前 workspace 内的文件：{path}",
     fileNotFound: "文件不存在或不可读：{path}",
@@ -170,8 +170,9 @@ const messages = {
     attachmentTooLarge: "The attachment exceeds 5MB. Compress it and send it again.",
     fileCommandUnsupported:
       "This channel does not support sending files yet; coming in a later release.",
-    fileRemoteWorkspaceUnsupported:
-      "File delivery from remote workspaces arrives in a later release; only local workspaces are supported for now.",
+    // Phase C Alpha 2: honest wording for remote fetch failures (unreachable/timeout/budget).
+    fileRemoteUnavailable:
+      "The remote workspace is currently unavailable. Please retry later or send /reconnect first.",
     fileMissingPath: "Specify the file to send, e.g. **/file reports/result.png**.",
     fileOutsideWorkspace: "Only files inside the current workspace can be sent: {path}",
     fileNotFound: "File not found or unreadable: {path}",
