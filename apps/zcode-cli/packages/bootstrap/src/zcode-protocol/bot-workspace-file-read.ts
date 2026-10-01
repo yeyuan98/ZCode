@@ -49,7 +49,9 @@ function errorCode(error: unknown): string | undefined {
   return typeof code === "string" ? code : undefined;
 }
 
-export async function readBotWorkspaceFile(rawParams: unknown): Promise<V4BotWorkspaceFileReadResult> {
+export async function readBotWorkspaceFile(
+  rawParams: unknown,
+): Promise<V4BotWorkspaceFileReadResult> {
   const params = v4BotWorkspaceFileReadParamsSchema.parse(rawParams);
   const root = WORKSPACE_ROOT();
 
@@ -74,9 +76,7 @@ export async function readBotWorkspaceFile(rawParams: unknown): Promise<V4BotWor
   } catch (error) {
     return rejected(classifyBotWorkspaceFileFsError(error), errorCode(error));
   }
-  if (
-    !isRealpathInsideWorkspace({ pathOps: path, realWorkspaceRoot: realRoot, realFilePath })
-  ) {
+  if (!isRealpathInsideWorkspace({ pathOps: path, realWorkspaceRoot: realRoot, realFilePath })) {
     return rejected("outside-workspace");
   }
 
