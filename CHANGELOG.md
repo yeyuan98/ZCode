@@ -1,5 +1,31 @@
 # Changelog
 
+## [3.14.4-alpha.3](https://github.com/yeyuan98/zodex/compare/v3.14.4-alpha.2...v3.14.4-alpha.3) (2026-10-01)
+
+### Bug Fixes
+
+* **bots:** forward remote share_file to desktop single writer (Phase C Alpha 3) ([7209b29](https://github.com/yeyuan98/zodex/commit/7209b296918809f940c51e4bb61245ad1ad52e42))
+  * 窄化 channel: 新增 IBotShareFileForwardService（单方法 forward，channel
+  * 传输: 同一条 stdio protocol 双向服务——桌面 connectRemote 在既有
+  * 装配裁决: createBotsShareFileExecutor 收敛 node.ts 1812 语义——
+  * 身份钉扎: shareFileForTask 新增可选 restrictToWorkspaces（仅桌面
+  * 失败矩阵: 旧桌面不回 Initialize → 立即 unsupported-method（不排队，
+  * 桌面装配: window Host 在远程连接上注册 forward channel，钉扎作用域
+  * 测试: services botShareFileRemoteTopology 5/5（生产装配翻转 ok、
+
+* **bots:** remote workspace file read accepts absolute-inside paths (Phase C Alpha 3) ([647bdf7](https://github.com/yeyuan98/zodex/commit/647bdf79fcd5f0dfff995c50a1eba92f2c0eb0dd))
+  * 词法分支改为：绝对输入原样 normalize 后直接做 containment 前缀裁决，相对输入仍 join(root)；绝不 join(root, absolute)（会把 /etc/passwd 错拼成 <root>/etc/passwd，把越权逃逸变成同名文件误读）
+  * containment 表达式与相对分支/本地 resolveWorkspaceFilePath 完全一致（分隔符边界前缀比较）；realpath 层不变，绝对-outside 与 `..` 逃逸（相对/绝对形式）仍拒
+  * spec Phase C Behavior 2 与验收场景 6/9 更新为平价口径；wire 字段名保持 relativePath（additive，不破坏旧远端 CLI）
+  * transport.ts 与 CLI gateway 的「只接受相对路径」陈旧注释同步修正；gateway 逻辑零改动（消费更新后的 shared 策略）
+  * shared 策略矩阵补绝对-inside/绝对 `..` 逃逸/跨 OS 盘符输入 + 绝对与相对形式同文件断言；services 新增远程绝对路径平价测试（reader 原样收到绝对路径、绝对-outside → typed 拒绝零投递）
+
+* **bots:** review-round fixes for alpha3 forward channel + path parity ([43b541f](https://github.com/yeyuan98/zodex/commit/43b541f611f6510da5a49f9f2da64cf6e2722efa))
+  * BLOCKER（Initialize 竞态，评审者实测复现）：远端 forwarder 原在构造期订阅
+  * 钉扎作用域过滤收敛为纯函数 resolveOnlineRemoteWorkspaceScopes（独立文件），
+  * connectRemote 新增 serveDesktopChannels 开关：仅桌面窗口 Host 构造
+  * forward-pin 审计日志去掉重复的 file= 字段；desktopChannelServer 类型移除
+
 ## [3.14.4-alpha.2](https://github.com/yeyuan98/zodex/compare/v3.14.4-alpha.1...v3.14.4-alpha.2) (2026-10-01)
 
 ### Features

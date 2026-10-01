@@ -244,7 +244,7 @@
     "apps/zcode-cli/packages/tui/package.json": "097d5896b0b37a455eafaf015f21113dfbea7b05bb3f92666f423f7753720eb1",
     "apps/zcode-cli/tools/prompt-trajectory/package.json": "7f161fc87f36691f01eb8c2034bd89cf28107da36db02bc20e76f059edd36af6",
     "apps/zcode-cli/tools/typescript/package.json": "23d7e50d2089d205ce3022c5bafbb6b3e31d000e41ac678a5934e0b72627cf3a",
-    "package.json": "46c6f23c886fce8420b35414d0950b64d41216fc329d67ff924110b352e10b7e",
+    "package.json": "06ddb6fa0a92b6b987445239ce251e6394def76b8b007b394bd45c07a72ff604",
     "packages/client/package.json": "e76f441549130dc3e5e68072a36b6cb9044e19a6625f1e813f19a4def2b1b689",
     "packages/desktop/package.json": "125f0926066165ea3132f4eda451be17b584d3f5353f302a87414773e7494c74",
     "packages/desktop/src/renderer/public/material-icons/3d.svg": "9527b849f0fba57ca7640e2717b3a19cb5f5e046712cbbd8b75d73af338c68fb",
@@ -1403,7 +1403,7 @@
     "packages/rpc/examples/04-remote-connection.ts": "db268ab9e21a6e20eff2a16ce7c88de571d6688a6f46aa9eb0508ca734bcdc1c",
     "packages/rpc/package.json": "5f8bb83df4cecc0e93490b1990517d67c4bd65fcc4fdb8c18f2c9baf45477eed",
     "packages/rpc/src/buffer.ts": "6bc6a44e6abd088f72d57616d9556d78ce078b6f3813bf75402dde386781492c",
-    "packages/rpc/src/channelClient.ts": "d2504929253ebb18f020e6f35e51a3741190558875d18a47192f9af78ca3f8ac",
+    "packages/rpc/src/channelClient.ts": "92578910e33e558c0e00fd5f5b5c3718b7d3ab160f19b852f280069960066b60",
     "packages/rpc/src/channels.shared.ts": "e2d3ce17dfb23d53ea8fef6cd4dc87bef4558ff6e72b458e50fd456b0b2a6ae2",
     "packages/rpc/src/channels.ts": "afaba1724055a3d2e6b8b379553569489b71ac6eb252f636ab91649657485209",
     "packages/rpc/src/channelServer.ts": "b9c61bd3881fff11b38a93853c60fa5c2bc871bcbea5dad0e9be0a4674f6c9da",
@@ -28768,7 +28768,7 @@
         },
         {
           "file": "packages/rpc/src/channelClient.ts",
-          "sha256": "d2504929253ebb18f020e6f35e51a3741190558875d18a47192f9af78ca3f8ac"
+          "sha256": "92578910e33e558c0e00fd5f5b5c3718b7d3ab160f19b852f280069960066b60"
         },
         {
           "file": "packages/rpc/src/channelServer.ts",
