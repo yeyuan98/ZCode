@@ -1,8 +1,10 @@
 /* eslint-disable max-lines -- Telegram provider 集中处理 Bot API 文本、按钮、媒体解析和附件下载。 */
+import { readFile } from "node:fs/promises";
 import type {
   BotInboundAttachment,
   BotConfig,
   BotInboundMessage,
+  BotOutboundAttachment,
   BotOutboundMessage,
   SelectionPrompt,
 } from "@zcode/shared";
@@ -21,6 +23,10 @@ interface TelegramBotCommand {
 
 const TELEGRAM_ATTACHMENT_DOWNLOAD_TIMEOUT_MS = 30_000;
 
+// 出站文档上传（5MB 上限）耗时高于普通文本请求；15s 默认值不够，60s 仍远低于
+// Telegram sendDocument 的 50MB 文档上限对应的传输预算（specs/bot-file-delivery.md Alpha 5）。
+const TELEGRAM_SEND_ATTACHMENT_TIMEOUT_MS = 60_000;
+
 interface TelegramGetMeResponse {
   ok?: boolean;
   description?: string;
@@ -28,6 +34,11 @@ interface TelegramGetMeResponse {
     username?: string;
     first_name?: string;
   };
+}
+
+interface TelegramSendDocumentResponse {
+  ok?: boolean;
+  description?: string;
 }
 
 interface TelegramFileResponse {
@@ -434,6 +445,42 @@ export function createTelegramBotProvider(deps: TelegramProviderDeps): BotProvid
             }),
           });
         }
+      }
+    },
+
+    async sendAttachment(
+      bot: BotConfig,
+      message: BotOutboundMessage,
+      attachment: BotOutboundAttachment,
+    ) {
+      const token = await loadToken(bot);
+      if (!token?.trim()) {
+        // 与 send 的静默返回不同：附件投递失败必须显式抛错，服务层才能映射 send-failed，
+        // 否则调用方会误以为文件已送达。
+        throw new Error("Telegram bot token is missing.");
+      }
+      // 出站文件投递（specs/bot-file-delivery.md Phase C Alpha 5）：只走 sendDocument 文档通道，
+      // 不做图片重压缩、不走 photo 特例；服务层 5MB 上限远低于 Telegram 50MB 文档限制。
+      const bytes = await readFile(attachment.localPath);
+      // 目标推导与 send/sendMessage 完全一致：chat_id 直接取 message.providerUserId，
+      // 接收方真值由服务层 taskDeliveryRegistry 解析，adapter 不新增身份管道。
+      // content-type 不能手工设置：undici FormData 会自带 multipart boundary。
+      const form = new FormData();
+      form.append("chat_id", message.providerUserId);
+      form.append("document", new Blob([bytes]), attachment.filename);
+      const response = await fetchBotProviderJson<TelegramSendDocumentResponse>(
+        `https://api.telegram.org/bot${token}/sendDocument`,
+        {
+          method: "POST",
+          body: form,
+        },
+        TELEGRAM_SEND_ATTACHMENT_TIMEOUT_MS,
+      );
+      if (response.payload?.ok !== true) {
+        // Telegram 错误体形如 { ok: false, description }；抛错上抛由服务层统一映射 send-failed。
+        throw new Error(
+          response.payload?.description ?? `Telegram sendDocument failed: HTTP ${response.status}.`,
+        );
       }
     },
 
