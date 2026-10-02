@@ -95,6 +95,10 @@ export function createTelegramChannelRuntime(deps: TelegramChannelRuntimeDeps) {
       return;
     }
 
+    // F0b 自愈标记：pollBot 生命周期内出现过 provider 网络错误后，需要在一个成功的
+    // getUpdates 周期（error→polling 转换）后补一次 syncCommands。必须声明在外层
+    // while 之外：catch-all 路径会退出内层循环并重启外层迭代，标记不能随之丢失。
+    let needsCommandResync = false;
     while (!signal.aborted) {
       let lock: Awaited<ReturnType<typeof acquireTelegramPollingLock>>;
       try {
@@ -127,6 +131,7 @@ export function createTelegramChannelRuntime(deps: TelegramChannelRuntimeDeps) {
         await waitFor(BOT_RUNTIME_LOCK_RETRY_MS, signal);
         continue;
       }
+      // F0b 自愈标记的使用点见 pollBot 顶部的 needsCommandResync 声明。
       try {
         try {
           await fetchBotProvider(`https://api.telegram.org/bot${token}/deleteWebhook`, {
@@ -135,10 +140,16 @@ export function createTelegramChannelRuntime(deps: TelegramChannelRuntimeDeps) {
             body: JSON.stringify({ drop_pending_updates: false }),
             signal,
           });
-        } catch {
+        } catch (error) {
           if (signal.aborted) {
             return;
           }
+          // Bugfix（事故 2026-10-01）：这里此前裸 catch 丢弃 deleteWebhook 的失败原因。
+          // 真正的连接故障随后会由 getUpdates 的 catch 呈现；先用 debug 记录避免完全静默。
+          deps.logger.debug(
+            undefined,
+            `Telegram deleteWebhook failed bot=${bot.id}: ${error instanceof Error ? error.message : String(error)}`,
+          );
         }
         deps.statusSink.setRuntimeStatus({
           botId: bot.id,
@@ -167,6 +178,7 @@ export function createTelegramChannelRuntime(deps: TelegramChannelRuntimeDeps) {
             TELEGRAM_LONG_POLL_REQUEST_TIMEOUT_MS,
           );
           if (!response.ok) {
+            needsCommandResync = true;
             deps.statusSink.setRuntimeStatus({
               botId: bot.id,
               provider: "telegram",
@@ -182,6 +194,7 @@ export function createTelegramChannelRuntime(deps: TelegramChannelRuntimeDeps) {
           }
           const payload = response.payload;
           if (payload?.ok !== true || !Array.isArray(payload.result)) {
+            needsCommandResync = true;
             deps.statusSink.setRuntimeStatus({
               botId: bot.id,
               provider: "telegram",
@@ -212,6 +225,13 @@ export function createTelegramChannelRuntime(deps: TelegramChannelRuntimeDeps) {
               await deps.writeTelegramOffset(bot.id, updateId + 1);
             }
           }
+          if (needsCommandResync) {
+            // Bugfix（事故发现）：连接断开期间 setMyCommands 可能一直失败，恢复后 Telegram
+            // 命令菜单会保持空白直到重启。这里在一个成功周期（error→polling 转换）后补一次
+            // syncCommands；标记复位保证每次恢复只触发一次，持续故障期间不反复轰炸。
+            needsCommandResync = false;
+            void syncCommands(bot);
+          }
           deps.statusSink.setRuntimeStatus({
             botId: bot.id,
             provider: "telegram",
@@ -222,16 +242,23 @@ export function createTelegramChannelRuntime(deps: TelegramChannelRuntimeDeps) {
             offset: await deps.readTelegramOffset(bot.id),
           });
         }
-      } catch {
+      } catch (error) {
         if (signal.aborted) {
           return;
         }
+        needsCommandResync = true;
+        // Bugfix（事故 2026-10-01）：此前的裸 catch 丢弃了错误对象，运行状态只剩固定文案，
+        // owner 机器上真实网络原因（fetch failed/ETIMEDOUT 等）完全不可见。这里绑定错误：
+        // 保留 messageId 摘要（前端按语言渲染），把原始原因追加进 message 供 UI 展示详情，
+        // 并以 warn 落日志。
+        const cause = error instanceof Error ? error.message : String(error);
+        deps.logger.warn(undefined, `Telegram polling failed bot=${bot.id}: ${cause}`);
         deps.statusSink.setRuntimeStatus({
           botId: bot.id,
           provider: "telegram",
           status: "error",
           messageId: "bots.runtime.telegramPollingFailedRetrying",
-          message: "Telegram polling failed; retrying.",
+          message: `Telegram polling failed; retrying. (${cause})`,
           offset: await deps.readTelegramOffset(bot.id),
         });
         await waitFor(5_000, signal);

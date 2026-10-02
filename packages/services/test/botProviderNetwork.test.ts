@@ -22,6 +22,8 @@ import type { IModelSelectionService } from "../src/model-provider/providerFacad
 // specs/bot-provider-network.md F1 验收场景 1-4、10：bot provider 全部出站 HTTP 走注入
 // requester（providerFetch 组合缝）；缺省回落 globalThis.fetch 零漂移；transport 销毁
 // fail-closed 不回退直连。全程 stub 注入 fetch / global fetch，无真实网络。
+// F0/F0b 验收场景 5、7、8：poller 错误携带真实原因（状态 + warn 日志）、saveBot 的
+// resolveName 失败带回添加流程、error→polling 恢复后 syncCommands 自愈恰好一次。
 
 interface CapturedFetchCall {
   url: string;
@@ -140,6 +142,10 @@ interface ServiceHarnessOptions {
   omitProviderFetch?: boolean;
   runStartupBackgroundTasks?: boolean;
   getUpdatesAfterFirstHang?: boolean;
+  /** F0 场景7：覆盖 telegram getMe 应答（resolveName 路径）。 */
+  getMeOutcome?: (call: CapturedFetchCall) => Response | Promise<Response>;
+  /** F0/F0b 场景5、8：接管 getUpdates 应答（按调用序号脚本化成功/失败）。 */
+  getUpdatesOutcome?: (call: CapturedFetchCall, count: number) => Response | Promise<Response>;
 }
 
 /**
@@ -199,8 +205,14 @@ async function createServiceHarness(options: ServiceHarnessOptions): Promise<Ser
           result: { file_path: "docs/report.txt", file_size: TELEGRAM_FILE_BYTES.length },
         });
       }
+      if (url.endsWith("/getMe") && options.getMeOutcome) {
+        return options.getMeOutcome(call);
+      }
       if (url.endsWith("/getUpdates")) {
         getUpdatesCount += 1;
+        if (options.getUpdatesOutcome) {
+          return options.getUpdatesOutcome(call, getUpdatesCount);
+        }
         if (options.getUpdatesAfterFirstHang && getUpdatesCount > 1) {
           // 首轮空结果后挂起第二次长轮询，等待 runtime dispose 的 abort 收口。
           return new Promise<Response>((_, reject) => {
@@ -278,6 +290,10 @@ async function createServiceHarness(options: ServiceHarnessOptions): Promise<Ser
   };
   const credentialService = {
     load: async (key: string) => credentialValues[key] ?? null,
+    // F0 场景7：saveBot 携带 credentialValue 时需要真实落盘，供 resolveName 读取。
+    save: async (key: string, value: string) => {
+      credentialValues[key] = value;
+    },
   } as unknown as ICredentialService;
 
   const service = createBotsService({
@@ -603,5 +619,219 @@ test("场景4：providerFetch 销毁后请求失败且绝不回退 globalThis.fe
   } finally {
     globalThis.fetch = realFetch;
     await harness?.dispose();
+  }
+});
+
+// ---- F0/F0b：失败可观测 + 自愈（场景 5、7、8）----
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function waitForCondition(condition: () => boolean, deadlineMs: number): Promise<boolean> {
+  const deadline = Date.now() + deadlineMs;
+  while (Date.now() < deadline) {
+    if (condition()) {
+      return true;
+    }
+    await sleep(50);
+  }
+  return condition();
+}
+
+/**
+ * 捕获 console.warn（createServiceLogger("bots") 的缺省 sink）。
+ * 只在单个 test 内安装并在 finally 恢复，避免污染并行输出。
+ */
+function captureConsoleWarn(): { warns: string[]; restore(): void } {
+  const warns: string[] = [];
+  const original = console.warn;
+  console.warn = (...args: unknown[]) => {
+    warns.push(args.map((arg) => String(arg)).join(" "));
+  };
+  return {
+    warns,
+    restore: () => {
+      console.warn = original;
+    },
+  };
+}
+
+test("场景5：telegram poller catch-all 绑定真实错误——状态 message 携带原因 + warn 日志 + 进入 error 转换日志", async () => {
+  const cause = "fetch failed: ETIMEDOUT (api.telegram.org)";
+  const botId = "bot-telegram-cause";
+  const harness = await createServiceHarness({
+    // 后台轮询必须真实启动（构造即 refresh）。
+    runStartupBackgroundTasks: true,
+    bots: [{ id: botId, provider: "telegram", credentialRef: "telegram-token-ref" }],
+    // getUpdates 一律以网络错误拒绝：fetchBotProviderJson 抛错 → poller catch-all。
+    getUpdatesOutcome: () => Promise.reject(new Error(cause)),
+  });
+  const warnCapture = captureConsoleWarn();
+  try {
+    const deadline = Date.now() + 15_000;
+    let errorRuntime: { status?: string; message?: string; messageId?: string } | undefined;
+    while (Date.now() < deadline) {
+      const runtime = (await harness.service.getStatus()).botRuntime.find(
+        (item) => item.botId === botId,
+      );
+      if (runtime?.status === "error") {
+        errorRuntime = runtime;
+        break;
+      }
+      await sleep(50);
+    }
+    assert.ok(errorRuntime, "poller 必须进入 error 状态");
+    // i18n 摘要保留（messageId 不变），详情追加在 message 中。
+    assert.equal(errorRuntime?.messageId, "bots.runtime.telegramPollingFailedRetrying");
+    assert.match(errorRuntime?.message ?? "", /Telegram polling failed; retrying/u);
+    assert.match(errorRuntime?.message ?? "", /ETIMEDOUT/u, "状态详情必须携带真实网络原因");
+    // poller 自身的 warn 携带 botId + 原因。
+    assert.ok(
+      warnCapture.warns.some(
+        (line) =>
+          line.includes("Telegram polling failed") &&
+          line.includes(botId) &&
+          line.includes("ETIMEDOUT"),
+      ),
+      "logger.warn 必须记录 catch-all 的真实原因",
+    );
+    // setRuntimeStatus 单点记录“进入 error”转换（三条 runtime 链路共用）。
+    assert.ok(
+      warnCapture.warns.some(
+        (line) =>
+          line.includes("entered error state") &&
+          line.includes(botId) &&
+          line.includes("provider=telegram") &&
+          line.includes("ETIMEDOUT"),
+      ),
+      "进入 error 状态的转换必须落 warn 日志",
+    );
+  } finally {
+    warnCapture.restore();
+    await harness.dispose();
+  }
+});
+
+function draftTelegramBot(id: string): BotConfig {
+  return {
+    id,
+    name: "",
+    provider: "telegram",
+    enabled: true,
+    allowedWorkspaces: ["*"],
+    allowedCommands: baseAllowedCommands(),
+    currentOptions: {},
+    replyMode: "assistant_changes",
+  };
+}
+
+test("场景7：saveBot 携带凭据且 resolveName 失败——返回 resolveNameError 且 bot 仍保存", async () => {
+  const harness = await createServiceHarness({
+    runStartupBackgroundTasks: false,
+    bots: [],
+    getMeOutcome: () => Promise.reject(new Error("fetch failed: ETIMEDOUT")),
+  });
+  try {
+    const saved = await harness.service.saveBot({
+      bot: draftTelegramBot("bot-telegram-add-fail"),
+      credentialValue: TELEGRAM_TOKEN,
+    });
+    assert.match(saved.resolveNameError ?? "", /ETIMEDOUT/u, "失败原因必须带回添加流程");
+    assert.equal(saved.id, "bot-telegram-add-fail");
+    const stored = (await harness.service.listBots()).find(
+      (bot) => bot.id === "bot-telegram-add-fail",
+    );
+    assert.ok(stored, "本地配置是事实源：resolveName 失败不阻塞保存");
+    assert.equal(stored?.name, "", "解析失败时不得虚构名称");
+  } finally {
+    await harness.dispose();
+  }
+});
+
+test("场景7：resolveName 成功回填名称且不带 resolveNameError；无凭据草稿不产生误报", async () => {
+  const harness = await createServiceHarness({
+    runStartupBackgroundTasks: false,
+    bots: [],
+    getMeOutcome: () => jsonResponse({ ok: true, result: { first_name: "Rig Bot" } }),
+  });
+  try {
+    const saved = await harness.service.saveBot({
+      bot: draftTelegramBot("bot-telegram-add-ok"),
+      credentialValue: TELEGRAM_TOKEN,
+    });
+    assert.equal(saved.resolveNameError, undefined, "成功路径不得携带错误字段");
+    assert.equal(saved.name, "Rig Bot");
+
+    // 无凭据草稿（名称为空触发 resolveName，但无 token 时 getMe 返回 null 而非抛错）
+    // 不得产生 resolveNameError 误报。
+    const draft = await harness.service.saveBot({
+      bot: draftTelegramBot("bot-telegram-draft"),
+    });
+    assert.equal(draft.resolveNameError, undefined, "缺省凭据的草稿创建不得误报校验失败");
+    assert.ok((await harness.service.listBots()).some((bot) => bot.id === "bot-telegram-draft"));
+  } finally {
+    await harness.dispose();
+  }
+});
+
+test("场景8：error→polling 恢复触发 syncCommands 恰好一次；后续周期安静；再次恢复会重新触发", async () => {
+  const botId = "bot-telegram-heal";
+  // 按调用序号脚本化 getUpdates 结局：ok 周期带 250ms 延迟模拟长轮询节奏，
+  // 避免瞬时响应让内层循环空转。
+  type ScriptOutcome = "ok" | "http500" | "reject";
+  const script: ScriptOutcome[] = [
+    "ok", // #1 启动正常周期（reconcile 已 syncCommands 一次）
+    "ok", // #2 正常周期（安静）
+    "http500", // #3 内层 HTTP 错误路径 → error
+    "ok", // #4 恢复 → 触发 syncCommands #2
+    "ok", // #5 安静
+    "ok", // #6 安静
+    "reject", // #7 catch-all 网络异常路径 → error（外层重启）
+    "ok", // #8 恢复 → 触发 syncCommands #3
+    "ok", // #9 安静
+  ];
+  const harness = await createServiceHarness({
+    runStartupBackgroundTasks: true,
+    bots: [{ id: botId, provider: "telegram", credentialRef: "telegram-token-ref" }],
+    getUpdatesOutcome: (_call, count) => {
+      const outcome = script[count - 1] ?? "ok";
+      if (outcome === "http500") {
+        return new Response(JSON.stringify({ ok: false, description: "Internal Server Error" }), {
+          status: 500,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      if (outcome === "reject") {
+        return Promise.reject(new Error("fetch failed: ECONNRESET"));
+      }
+      return new Promise<Response>((resolve) => {
+        setTimeout(() => resolve(jsonResponse({ ok: true, result: [] })), 250);
+      });
+    },
+  });
+  try {
+    const syncCommandsCount = () =>
+      harness.calls.filter((call) => call.url.endsWith("/setMyCommands")).length;
+
+    assert.ok(
+      await waitForCondition(() => syncCommandsCount() >= 1, 10_000),
+      "启动 reconcile 必须同步一次命令菜单",
+    );
+    assert.ok(
+      await waitForCondition(() => syncCommandsCount() >= 2, 20_000),
+      "第一次 error→polling 恢复后必须补一次 syncCommands",
+    );
+    // 安静窗口：恢复后的成功周期 + 下一次故障退避期（无成功周期）都不得重复触发。
+    await sleep(1_500);
+    assert.equal(syncCommandsCount(), 2, "恢复后的后续周期不得重复触发 syncCommands");
+    assert.ok(
+      await waitForCondition(() => syncCommandsCount() >= 3, 20_000),
+      "第二次 error→polling 恢复后必须再次触发 syncCommands",
+    );
+    await sleep(1_000);
+    assert.equal(syncCommandsCount(), 3, "每次恢复只触发一次");
+  } finally {
+    await harness.dispose();
   }
 });

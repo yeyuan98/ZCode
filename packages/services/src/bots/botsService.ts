@@ -83,6 +83,7 @@ import type {
   BotCreateBindCodeParams,
   BotListWorkspaceRefsParams,
   BotSaveBotParams,
+  BotSaveBotResult,
   BotShareFileTaskDeliveryOptions,
   BotTestResult,
   BotUserConfigOptionsParams,
@@ -1279,8 +1280,18 @@ export function createBotsService(
   }
 
   function setRuntimeStatus(status: BotRuntimeInfo): void {
+    const previous = runtimeByBotId.get(status.botId);
+    if (status.status === "error" && previous?.status !== "error") {
+      // Bugfix（事故 2026-10-01）：轮询错误此前只写进内存状态映射，服务日志完全看不到
+      // runtime 进入错误态。telegram/weixin/feishu 三条链路都在这里单点记录“进入 error”
+      // 的转换（已在 error 中不重复刷屏）；message 是 provider 错误串，不含凭据。
+      botsLogger.warn(
+        undefined,
+        `bot runtime entered error state bot=${status.botId} provider=${status.provider}: ${status.message ?? status.messageId ?? "unknown error"}`,
+      );
+    }
     runtimeByBotId.set(status.botId, {
-      ...runtimeByBotId.get(status.botId),
+      ...previous,
       ...status,
       lastUpdateAt: Date.now(),
     });
@@ -6016,7 +6027,7 @@ export function createBotsService(
     async listBots() {
       return (await repo.readConfig()).bots;
     },
-    async saveBot(params: BotSaveBotParams) {
+    async saveBot(params: BotSaveBotParams): Promise<BotSaveBotResult> {
       const config = await repo.readConfig();
       let bot: BotConfig = {
         ...params.bot,
@@ -6027,6 +6038,8 @@ export function createBotsService(
         currentOptions: normalizeBotCurrentOptions(params.bot.currentOptions),
         replyMode: normalizeBotReplyGranularity(params.bot.provider, params.bot.replyMode),
       };
+      // F0：凭据校验失败不阻塞保存，但要把原因带回给调用方（见下方赋值点）。
+      let resolveNameError: string | undefined;
       if (params.credentialValue?.trim()) {
         const key = buildBotCredentialKey(bot.id);
         await deps.credentialService.save(key, params.credentialValue.trim());
@@ -6059,10 +6072,14 @@ export function createBotsService(
         if (resolvedName?.trim()) {
           bot = { ...bot, name: resolvedName.trim() };
         } else if (lastResolveNameError) {
-          botsLogger.warn(
-            undefined,
-            `resolve bot name failed bot=${bot.id}: ${lastResolveNameError instanceof Error ? lastResolveNameError.message : String(lastResolveNameError)}`,
-          );
+          // Bugfix（事故 2026-10-01）：resolveName 失败此前只 warn 就继续，添加流程完全
+          // 感知不到不可达的 token。配置仍然保存（本地配置是事实源），但把失败原因通过
+          // 返回值带回给添加流程做非阻塞提示（F0 add-time fail-fast）。
+          resolveNameError =
+            lastResolveNameError instanceof Error
+              ? lastResolveNameError.message
+              : String(lastResolveNameError);
+          botsLogger.warn(undefined, `resolve bot name failed bot=${bot.id}: ${resolveNameError}`);
         }
       }
       bot = normalizeBotConfig(bot);
@@ -6074,7 +6091,7 @@ export function createBotsService(
       telegramRuntime.scheduleRefresh(savedConfig);
       weixinRuntime.scheduleRefresh(savedConfig);
       feishuRuntime.scheduleRefresh(savedConfig);
-      return bot;
+      return resolveNameError ? { ...bot, resolveNameError } : bot;
     },
     async removeBotSecret(botId: string) {
       const config = await repo.readConfig();
