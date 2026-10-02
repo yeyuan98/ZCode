@@ -1,5 +1,13 @@
 # Changelog
 
+## [3.14.4](https://github.com/yeyuan98/zodex/compare/v3.14.4-alpha.6...v3.14.4) (2026-10-02)
+
+### Documentation
+
+* **specs:** 标记 Alpha 5/6 已发布并 rig 验证通过，3.14.4 train 收官 ([22516e5](https://github.com/yeyuan98/zodex/commit/22516e5da4648aaab11c08b0db3fb3e3c4f543a1))
+  * bot-file-delivery.md 状态块：Alpha 5 shipped @ alpha.5（飞书 rig 全过；Telegram 因 GFW 网络事故受阻，根因经 live rig 证实，Alpha 6 代理修复后端到端验证）；Alpha 6 shipped @ alpha.6 rig 验证通过；train 完成 → 正式 3.14.4
+  * bot-provider-network.md 状态块：SHIPPED @ alpha.6（PR #11）+ 2026-10-02 owner rig 验证明细（代理生效 bind//file/对话投递、菜单自愈、无代理时错误详情可见、飞书/微信回归干净）
+
 ## [3.14.4-alpha.6](https://github.com/yeyuan98/zodex/compare/v3.14.4-alpha.5...v3.14.4-alpha.6) (2026-10-02)
 
 ### Features
