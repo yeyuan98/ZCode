@@ -133,6 +133,8 @@ const messages = {
     replySelectTitle: "当前第三方回复颗粒度 {mode}\n选择第三方回复颗粒度",
     replyMissing: "未找到回复颗粒度。",
     replyChanged: "第三方回复颗粒度已切换为 {mode}。",
+    // F2（specs/bot-message-delivery.md）：flush 预算耗尽丢弃剩余正文时的一次性本地化通知。
+    replyDeliveryFailed: "部分回复未能送达，已跳过。",
   },
   "en-US": {
     botDisabled: "This bot is not enabled.",
@@ -272,6 +274,7 @@ const messages = {
     replySelectTitle: "Current third-party reply detail {mode}\nSelect third-party reply detail",
     replyMissing: "Reply detail option not found.",
     replyChanged: "Third-party reply detail changed to {mode}.",
+    replyDeliveryFailed: "Part of the reply could not be delivered and was skipped.",
   },
 } as const;
 

@@ -416,7 +416,9 @@ export function createTelegramBotProvider(deps: TelegramProviderDeps): BotProvid
     async send(bot: BotConfig, message: BotOutboundMessage) {
       const token = await loadToken(bot);
       if (!token?.trim()) {
-        return;
+        // Bugfix（specs/bot-provider-network.md Alpha 1 F6）：凭据缺失静默返回会让调用方
+        // 误以为消息已送达；显式抛错走既有 catch→warn 路径（不加重试、不在坏通道上发通知）。
+        throw new Error("Telegram bot token is missing.");
       }
       const selection = message.selection;
       const replyMarkup = selection ? buildSelectionReplyMarkup(selection) : undefined;
@@ -441,15 +443,26 @@ export function createTelegramBotProvider(deps: TelegramProviderDeps): BotProvid
         if (!response.ok) {
           // Bugfix: Telegram Markdown 对未闭合的 `_*[]()` 很敏感，模型输出偶尔会被拒收。
           // 解析失败时退回纯文本重发，既优先支持 Markdown，也保证消息不会丢。
-          await fetchBotProvider(`https://api.telegram.org/bot${token}/sendMessage`, {
-            method: "POST",
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify({
-              chat_id: message.providerUserId,
-              text,
-              ...(shouldAttachReplyMarkup ? { reply_markup: replyMarkup } : {}),
-            }),
-          });
+          const fallbackResponse = await fetchBotProvider(
+            `https://api.telegram.org/bot${token}/sendMessage`,
+            {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({
+                chat_id: message.providerUserId,
+                text,
+                ...(shouldAttachReplyMarkup ? { reply_markup: replyMarkup } : {}),
+              }),
+            },
+          );
+          // Bugfix（specs/bot-provider-network.md Alpha 1 F6）：降级重发的响应此前未检查——
+          // Markdown 与纯文本都失败仍静默返回，调用方误以为已送达；必须如实抛错并带上
+          // 两个状态，由服务层按 F2 契约降级。
+          if (!fallbackResponse.ok) {
+            throw new Error(
+              `Telegram sendMessage failed: markdown HTTP ${response.status}, plain fallback HTTP ${fallbackResponse.status}.`,
+            );
+          }
         }
       }
     },

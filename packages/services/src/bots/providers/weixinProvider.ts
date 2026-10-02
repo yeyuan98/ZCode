@@ -18,6 +18,10 @@ import type {
 } from "@zcode/shared";
 import type { BotProviderAdapter, BotTypingTarget } from "./types.js";
 import type { BotProviderRequester } from "#src/bots/providers/providerRequest.js";
+import { createServiceLogger } from "#src/logger/serviceLogger.js";
+
+// F10（specs/bot-message-delivery.md）：ret=-2 无 token 重试等 provider 侧关键事件可观测。
+const weixinLogger = createServiceLogger("bots");
 
 export const DEFAULT_WEIXIN_ILINK_BASE_URL = "https://ilinkai.weixin.qq.com";
 const WEIXIN_BOT_API_PREFIX = "/ilink/bot";
@@ -37,6 +41,9 @@ const WEIXIN_MEDIA_CHANNEL_VERSION = "2.4.2";
 const WEIXIN_MEDIA_BOT_AGENT = "Zodex/1.0";
 const WEIXIN_UPLOAD_MEDIA_TYPE = { image: 1, video: 2, file: 3 } as const;
 const WEIXIN_MESSAGE_ITEM_TYPE = { text: 1, image: 2, file: 4, video: 5 } as const;
+// 文本 /sendmessage 与其它调用对齐的显式 deadline（specs/bot-provider-network.md Alpha 1 F4）：
+// 无界请求会占住 actor 串行队列。
+const WEIXIN_SEND_TEXT_TIMEOUT_MS = 15_000;
 
 interface WeixinProviderDeps {
   loadCredential(key: string): Promise<string | null>;
@@ -214,7 +221,12 @@ async function requestWeixinJson(
       readString(data, "errmsg") ||
       readString(data, "message") ||
       `ret=${ret ?? ""} errcode=${errcode ?? ""}`.trim();
-    throw new Error(`Weixin iLink ${path} failed: ${message}`);
+    const error = new Error(`Weixin iLink ${path} failed: ${message}`);
+    // Bugfix（specs/bot-provider-network.md Alpha 1 F4）：文本路径此前不带 weixinRet 标记，
+    // 调用方无法按协议 ret 码分支；与 requestWeixinMediaJson 对齐打标，文本 /sendmessage
+    // 的 ret=-2 无 token 重试依赖它。
+    (error as Error & { weixinRet?: number }).weixinRet = ret ?? undefined;
+    throw error;
   }
   return payload;
 }
@@ -1033,14 +1045,14 @@ export function createWeixinBotProvider(deps: WeixinProviderDeps): BotProviderAd
     async send(bot, message) {
       // Bugfix: 微信 iLink 发送协议必须走 /ilink/bot/sendmessage，并把文本放进 msg.item_list。
       // 之前把 openclaw-weixin 当成本地 gateway 依赖，会导致 ZCode 不能独立完成微信接入。
-      await requestWeixinJson(bot, deps, "/sendmessage", {
+      const buildBody = (contextToken: string | undefined): Record<string, unknown> => ({
         msg: {
           from_user_id: bot.providerUserId ?? "",
           to_user_id: message.providerUserId,
           client_id: buildWeixinClientId(),
           message_type: WEIXIN_MESSAGE_TYPE_BOT,
           message_state: WEIXIN_MESSAGE_STATE_FINISH,
-          ...(message.providerContextToken ? { context_token: message.providerContextToken } : {}),
+          ...(contextToken ? { context_token: contextToken } : {}),
           item_list: [
             {
               type: 1,
@@ -1049,6 +1061,35 @@ export function createWeixinBotProvider(deps: WeixinProviderDeps): BotProviderAd
           ],
         },
       });
+      try {
+        await requestWeixinJson(
+          bot,
+          deps,
+          "/sendmessage",
+          buildBody(message.providerContextToken),
+          undefined,
+          WEIXIN_SEND_TEXT_TIMEOUT_MS,
+        );
+      } catch (error) {
+        // Bugfix（specs/bot-provider-network.md Alpha 1 F4）：文本 /sendmessage 此前没有
+        // ret=-2 处理——长任务（>40min 无入站）token 过期后完成消息直接丢失。与媒体路径
+        // （sendWeixinMediaItem）对齐：ret=-2 = context_token 过期，去掉 token 重试一次；
+        // 仍失败则上抛，由服务层按 F2 契约降级。
+        const weixinRet = (error as { weixinRet?: number }).weixinRet;
+        if (weixinRet === -2 && message.providerContextToken) {
+          weixinLogger.info(undefined, "weixin text send tokenless retry fired");
+          await requestWeixinJson(
+            bot,
+            deps,
+            "/sendmessage",
+            buildBody(undefined),
+            undefined,
+            WEIXIN_SEND_TEXT_TIMEOUT_MS,
+          );
+          return;
+        }
+        throw error;
+      }
     },
 
     async sendAttachment(bot, message, attachment) {
