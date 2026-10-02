@@ -5,6 +5,8 @@ Status: **SHIPPED in `3.14.4-alpha.6` (PR #11, release `cbf6a68`); owner-rig val
 delivery all succeed on the previously-failing GFW rig; command menu self-heals; detailed
 error visible with proxy unset; Feishu/WeChat regression clean). Postmortem decisions
 FINAL, owner-approved 2026-10-02; folded into official `3.14.4`.
+**Amended in `3.14.5-alpha.1`** (WeChat text token parity + provider honest-send
+contracts — see the Alpha 1 section at the bottom).
 Production incident 2026-10-01/02: the owner rig (mainland-China network) could not bind a
 Telegram bot — the desktop UI showed the generic "Bot connection failed"
 (`bots.runtime.connectionFailed`) and bind was blocked. Root cause PROVEN on a live rig (real
@@ -131,3 +133,44 @@ Manual rig (blocks release): set proxy in Zodex settings (owner's local proxy ad
 restart → telegram bind succeeds → `/file` + conversational share deliver → command menu
 appears (self-heal) → WeChat/Feishu regression pass → unset proxy → detailed error visible
 in UI + logs (no generic-only).
+
+## Amendment (3.14.5-alpha.1) — WeChat text token parity + provider honest sends
+
+Reply-pipeline semantics (buffers, drain owner, flush budget) live in
+`specs/bot-message-delivery.md` (single-owner split). This section owns the PROVIDER send
+contracts:
+
+1. **WeChat text token parity (F4)**: the text `/sendmessage` path gains the same token
+   resilience the media path already has (`weixinProvider`):
+   - `requestWeixinJson` tags `weixinRet` on thrown errors (mirror of
+     `requestWeixinMediaJson`), so callers can branch on protocol ret codes.
+   - Text `/sendmessage` retries ONCE WITHOUT `context_token` when the first attempt
+     fails with `ret=-2` (token expired, ~40 min; mirror of the media retry). Honest
+     coverage note: the persisted-token read only helps when an inbound ping occurred
+     mid-task; the token-less retry is the guarantee for zero-inbound >40-min tasks.
+   - The text `/sendmessage` request carries an explicit 15s timeout (parity with other
+     calls; no unbounded hang on a wedged network).
+   - Stream-path TEXT sends in the bots service read the freshest persisted WeChat
+     context token (`readPersistedWeixinContextToken`, refreshed by any inbound ping)
+     for weixin actors at send time, with the captured actor token as fallback (mirror
+     of the media-path usage). Coverage is honest, not magic: zero-inbound tasks rely on
+     the ret=-2 retry above.
+2. **Honest provider sends (F6)**: Telegram `send` checks the fallback plain-text resend
+   response; `!ok` → throw naming BOTH statuses. Missing-token in Telegram and Feishu
+   `send` throws a quiet credential error (no retry machinery, no
+   notice-over-broken-channel — failures surface via the existing catch→warn paths;
+   credential-not-configured stays quiet to avoid spam). No new retry loops.
+   **Telegram cursor dead-end (recorded)**: a callback whose reply send throws skips
+   that update's offset commit (per-update commit-after-success,
+   `telegramChannelRuntime`), so a PERSISTENTLY failing send (e.g. 403 bot-blocked
+   while `getUpdates` stays healthy) redelivers the same update every ~5s until the
+   send recovers. Self-limiting in practice (a token-less bot never starts polling —
+   the same token feeds `getUpdates`); retry-on-failure cursor semantics is the
+   pre-existing deliberate choice (never lose an update); revisit only with rig
+   evidence of a real loop.
+3. **Cursor rescope decision note (DEFERRED to alpha.2, owner §4.8 — do NOT implement in
+   alpha.1)**: the WeChat poll protocol has ONE marker per batch (no per-message markers
+   like Telegram's update_ids), so per-message commit would ack unprocessed messages
+   (silent loss). The sound rescope is skip-failing-message-with-notice + commit — a real
+   trade-off vs today's retry-forever. Design + decision land in alpha.2 in this spec's
+   F4 (cursor) section.

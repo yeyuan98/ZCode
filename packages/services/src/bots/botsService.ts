@@ -775,6 +775,13 @@ const BOT_ELICITATION_CUSTOM_OPTION_ID = "__custom__";
 const BOT_ELICITATION_SUBMIT_OPTION_ID = "__submit__";
 const BOT_ELICITATION_SKIP_OPTION_ID = "__skip__";
 const BOT_ELICITATION_FORM_VALUE_PREFIX = "__form__:";
+// F2（specs/bot-message-delivery.md）：单次 flush 的重试预算——每个失败分块至多 2 次尝试，
+// 期间只做一次 ~1s 退避；预算按构造有界，毒丸消息不可能拖住串行事件队列。
+const BOT_REPLY_FLUSH_MAX_ATTEMPTS = 2;
+const BOT_REPLY_FLUSH_RETRY_BACKOFF_MS = 1_000;
+
+/** F1（specs/bot-message-delivery.md）：watcher drain 的四个法定来源，写入观测日志。 */
+type BotTaskWatcherDisposeReason = "terminal" | "stop" | "stale" | "dispose";
 
 const OUTBOUND_IMAGE_EXTENSIONS = new Set([
   ".png",
@@ -1241,6 +1248,14 @@ export function createBotsService(
   const bindCodes = new Map<string, BindCodeRecord>();
   const automationDeliveryWarningAtByKey = new Map<string, number>();
   const streamSubscriptions = new Map<string, IDisposable>();
+  // F1（specs/bot-message-delivery.md）：watcher 的唯一 drain 注册表——键与 streamSubscriptions
+  // 相同（workspace::task）。disposeTaskWatcher 由此取 drain 闭包：force-flush 未送出正文 →
+  // 队列外停 typing → 清 live 进度 → 拆订阅。写入只发生在 watchTaskStream，删除只发生在
+  // disposeTaskWatcher（terminal/stop/stale/dispose 四个法定调用点）。
+  const taskWatcherDisposals = new Map<
+    string,
+    { dispose(reason: BotTaskWatcherDisposeReason): Promise<void> }
+  >();
   const streamingCardRequestControllers = new Set<AbortController>();
   const transientInteractionCards = new Map<
     string,
@@ -1676,9 +1691,19 @@ export function createBotsService(
     actor: BotActor,
   ): Promise<string | undefined> {
     const peerKey = actor.chatId?.trim() || actor.providerUserId.trim();
-    if (!peerKey) return undefined;
+    return readPersistedWeixinPeerToken(botId, peerKey);
+  }
+
+  async function readPersistedWeixinPeerToken(
+    botId: string,
+    peerKey: string,
+  ): Promise<string | undefined> {
+    // Review NIT：与持久化写入侧的键派生对齐（chatId 优先 + trim 归一），
+    // 避免空白差异导致读不到最新 token。
+    const normalizedPeerKey = peerKey.trim();
+    if (!normalizedPeerKey) return undefined;
     const state = await repo.readState().catch(() => null);
-    return state?.bots[botId]?.weixinContextTokens?.[peerKey]?.token;
+    return state?.bots[botId]?.weixinContextTokens?.[normalizedPeerKey]?.token;
   }
 
   /**
@@ -2913,6 +2938,20 @@ export function createBotsService(
     if (!adapter) {
       return;
     }
+    // Bugfix（specs/bot-provider-network.md Alpha 1 F4）：微信文本发送此前沿用 watcher 捕获的
+    // actor token——长任务（>~40min 无入站）后 token 过期，完成消息发送直接失败被丢。
+    // 与媒体路径（deliverWorkspaceFile tool 分支）对齐：发送前优先读最新持久化 token
+    // （任何入站 ping 都会刷新该表），捕获 token 只作兜底；ret=-2 无 token 重试仍由
+    // provider 兜底。peerKey 与持久化写入侧一致（chatId 优先）。
+    if (bot.provider === "weixin") {
+      const freshToken = await readPersistedWeixinPeerToken(bot.id, message.providerUserId);
+      const providerContextToken = freshToken ?? message.providerContextToken;
+      await adapter.send(
+        bot,
+        providerContextToken ? { ...message, providerContextToken } : message,
+      );
+      return;
+    }
     await adapter.send(bot, message);
   }
 
@@ -3065,6 +3104,30 @@ export function createBotsService(
     }
     clearInterval(intervalId);
     typingIntervals.delete(taskId);
+  }
+
+  /**
+   * F1（specs/bot-message-delivery.md）单一 drain owner：终态处理、/stop、stale 清理和
+   * 服务 dispose 四个法定调用点都经由这里拆除 watcher。drain 闭包（watchTaskStream 注册）
+   * 依次：force-flush 未送出正文 → 清 live 进度 → 队列外停 typing → 拆订阅。
+   * 本函数绝不 enqueue 到 streamEventQueue——串行队列被挂起时 /stop 的 drain 仍即时执行；
+   * drain 之后 streamSubscriptions 不再有该键，下一次 watchTaskStream 必然建立全新 watcher。
+   */
+  async function disposeTaskWatcher(
+    context: Pick<BotContextState, "workspacePath" | "workspaceIdentity">,
+    taskId: string,
+    reason: BotTaskWatcherDisposeReason,
+  ): Promise<void> {
+    const key = [getWorkspaceKey(context.workspacePath, context.workspaceIdentity), taskId].join(
+      "::",
+    );
+    const watcher = taskWatcherDisposals.get(key);
+    if (!watcher) {
+      return;
+    }
+    taskWatcherDisposals.delete(key);
+    botsLogger.info(undefined, `bot task watcher dispose task=${taskId} reason=${reason}`);
+    await watcher.dispose(reason);
   }
 
   function updateLiveStatusProgress(event: ZCodeStreamEvent): void {
@@ -4551,6 +4614,8 @@ export function createBotsService(
     if (!context.activeTaskId) {
       return;
     }
+    // 闭包内保留收窄后的任务 id（context 属性收窄不会流入下方回调闭包）。
+    const watchedTaskId: string = context.activeTaskId;
     const streamSubscriptionKey = [
       getWorkspaceKey(context.workspacePath, context.workspaceIdentity),
       context.activeTaskId,
@@ -4664,22 +4729,34 @@ export function createBotsService(
       }
       return blocks;
     };
-    const syncStreamingCardReply = async (trigger: string, force = false): Promise<void> => {
+    const syncStreamingCardReply = async (
+      trigger: string,
+      force = false,
+      options?: { halfOpen?: boolean },
+    ): Promise<boolean> => {
       if (!supportsStreamingCardReply()) {
-        return;
+        return false;
       }
       const now = Date.now();
       // Bugfix：旧实现只在成功后更新时间基准，Feishu 失败时每个 stream event 都会真实发请求；
       // force 路径还会绕过普通节流。失败退避和熔断必须先于 force 判断，避免单次 400 被放大成风暴。
-      if (streamingCardCircuitOpen || now < streamingCardNextAttemptAt) {
-        return;
+      // F5（specs/bot-message-delivery.md）：halfOpen 仅供终态 task_complete 渲染——熔断打开时
+      // 也必尝试一次（half-open），否则完成任务会永远冻结在 Running 卡片上。
+      if (!options?.halfOpen && (streamingCardCircuitOpen || now < streamingCardNextAttemptAt)) {
+        return false;
       }
       if (
         streamingCardHandle &&
         !force &&
         now - streamingCardLastUpdateAt < FEISHU_STREAMING_CARD_MIN_UPDATE_INTERVAL_MS
       ) {
-        return;
+        return false;
+      }
+      if (options?.halfOpen && streamingCardCircuitOpen) {
+        botsLogger.info(
+          undefined,
+          `Feishu streaming card circuit half-open final attempt task=${context.activeTaskId} trigger=${trigger}`,
+        );
       }
       const adapter = providers[bot.provider];
       const locale = await readMessageLocale();
@@ -4690,7 +4767,8 @@ export function createBotsService(
         status: streamingCardStatus,
       };
       const states = adapter?.splitStreamingReplyCardStates?.(state) ?? [state];
-      streamingCardQueue = streamingCardQueue
+      // 返回值携带本次尝试是否成功（F5 终态降级判定）；链尾吞掉值保持串行化语义不变。
+      const run = streamingCardQueue
         .catch(() => undefined)
         .then(async () => {
           let operation = streamingCardHandle ? "update" : "create";
@@ -4743,6 +4821,16 @@ export function createBotsService(
             streamingCardLastUpdateAt = Date.now();
             streamingCardConsecutiveFailures = 0;
             streamingCardNextAttemptAt = 0;
+            if (streamingCardCircuitOpen) {
+              // Bugfix（F5 specs/bot-message-delivery.md）：旧实现成功后只清计数不清熔断标志，
+              // 熔断一旦打开就永远打开，卡片冻结 Running、完成态永不渲染。成功同步必须关闸。
+              streamingCardCircuitOpen = false;
+              botsLogger.info(
+                undefined,
+                `Feishu streaming card circuit reset task=${context.activeTaskId} trigger=${trigger}`,
+              );
+            }
+            return true;
           } catch (error) {
             // Bugfix: 第三方卡片只是 best-effort 展示，超时/失败不能阻塞 task_complete、
             // task_error 或 typing 清理等生命周期事件。
@@ -4766,12 +4854,14 @@ export function createBotsService(
                 `Feishu streaming card sync failed task=${context.activeTaskId} trigger=${trigger} operation=${operation} failures=${streamingCardConsecutiveFailures} retryDelayMs=${retryDelayMs}: ${errorMessage}`,
               );
             }
+            return false;
           } finally {
             clearTimeout(timeoutId);
             streamingCardRequestControllers.delete(requestController);
           }
         });
-      await streamingCardQueue;
+      streamingCardQueue = run.then(() => undefined);
+      return await run;
     };
     const sealStreamingCardReply = async (): Promise<void> => {
       if (!streamingCardHandle) {
@@ -4787,7 +4877,7 @@ export function createBotsService(
       streamingCardStatus = "running";
       streamingCardLastUpdateAt = 0;
     };
-    const flushAssistantReplyBuffer = async (force = false) => {
+    const flushAssistantReplyBuffer = async (force = false): Promise<void> => {
       if (
         getMode() === "summary_changes" ||
         supportsStreamingCardReply() ||
@@ -4796,10 +4886,56 @@ export function createBotsService(
         return;
       }
       const extracted = extractBotAssistantResponseMessages(assistantReplyBuffer, force);
+      // F2 trim-on-success（specs/bot-message-delivery.md）：缓冲只推进到提取后的剩余；
+      // 已成功送出的分块绝不重发，失败分块按下方预算处理。
       assistantReplyBuffer = extracted.rest;
-      for (const text of extracted.messages) {
-        sentAnyAssistantReply = true;
-        await sendOutbound(bot, createOutbound(actor, text));
+      if (extracted.messages.length === 0) {
+        return;
+      }
+      if (force) {
+        // F10 观测：强制 flush 的规模（taskId / 分块数 / 字节数）。
+        botsLogger.info(
+          undefined,
+          `bot forced reply flush task=${context.activeTaskId} chunks=${extracted.messages.length} bytes=${extracted.messages.reduce((total, text) => total + text.length, 0)}`,
+        );
+      }
+      for (const [index, text] of extracted.messages.entries()) {
+        let delivered = false;
+        // Bugfix（F2）：旧实现先清缓冲再发送，发送被拒时正文被静默销毁（extract-before-send
+        // 丢失）。改为有界重试：每个失败分块至多 BOT_REPLY_FLUSH_MAX_ATTEMPTS 次尝试、
+        // 单次 ~1s 退避，预算按构造有界，毒丸消息不可能拖住串行事件队列。
+        for (let attempt = 1; attempt <= BOT_REPLY_FLUSH_MAX_ATTEMPTS && !delivered; attempt += 1) {
+          if (attempt > 1) {
+            await delay(BOT_REPLY_FLUSH_RETRY_BACKOFF_MS);
+          }
+          try {
+            await sendOutbound(bot, createOutbound(actor, text));
+            delivered = true;
+            sentAnyAssistantReply = true;
+          } catch {
+            // 落入下方预算判定。
+          }
+        }
+        if (!delivered) {
+          // 决定语义（owner 已评审）：预算耗尽即丢弃剩余（含未发送分块与缓冲尾部）并送达
+          // 一次性本地化通知；毒丸余量不得滞留到下一个 force 边界反复重试。
+          const droppedChunks = extracted.messages.length - index;
+          assistantReplyBuffer = "";
+          botsLogger.warn(
+            undefined,
+            `bot reply flush dropped remainder task=${context.activeTaskId} chunks=${droppedChunks} restBytes=${extracted.rest.length}`,
+          );
+          const locale = await readMessageLocale();
+          await sendOutbound(bot, createOutbound(actor, msg(locale, "replyDeliveryFailed"))).catch(
+            (error: unknown) => {
+              botsLogger.warn(
+                undefined,
+                `bot reply delivery failure notice failed task=${context.activeTaskId}: ${error instanceof Error ? error.message : String(error)}`,
+              );
+            },
+          );
+          return;
+        }
       }
     };
     const zcodeTaskService = await resolveZCodeTaskServiceForContext(context);
@@ -4898,7 +5034,13 @@ export function createBotsService(
       if (event.type === "permission_request") {
         const locale = await readMessageLocale();
         stopTyping(event.taskId);
-        await sealStreamingCardReply();
+        // Bugfix（F3 specs/bot-message-delivery.md）：交互边界必须先落正文——卡片 provider seal，
+        // 文本 provider 强制 flush，否则问题前正文滞留缓冲，与回答后的 continuation 粘成一条。
+        if (supportsStreamingCardReply()) {
+          await sealStreamingCardReply();
+        } else {
+          await flushAssistantReplyBuffer(true);
+        }
         await broadcastTaskListChange(context, event.taskId, "permission_request", {
           permissionRequest: event,
         });
@@ -4953,7 +5095,12 @@ export function createBotsService(
         return;
       }
       if (event.type === "elicitation_request") {
-        await sealStreamingCardReply();
+        // Bugfix（F3 specs/bot-message-delivery.md）：与 permission_request 同一交互边界语义。
+        if (supportsStreamingCardReply()) {
+          await sealStreamingCardReply();
+        } else {
+          await flushAssistantReplyBuffer(true);
+        }
         await handleElicitationRequest(bot, user, actor, context, event);
         return;
       }
@@ -4994,6 +5141,12 @@ export function createBotsService(
                 ),
           );
         }
+        // Bugfix（F1+F7 specs/bot-message-delivery.md）：终态先经单一 drain owner 拆除 watcher——
+        // 它会先把未送出正文作为独立消息送达（文本优先、文书靠后），再在串行队列之外停
+        // typing、清 live 进度并拆除订阅。旧实现先读 task meta/快照再 flush，与 /status 的
+        // RPC 在同一刚收尾的 session 上争用（协议 deadline 3 分钟），正是「/status 卡死完成
+        // 消息」的复现路径；此后续读 meta/快照只影响 change summary 等后续气泡。
+        await disposeTaskWatcher(context, watchedTaskId, "terminal");
         // Bugfix: ZCode Agent 终态事件可能先于 task index/meta 落盘广播到 Bots。
         // 如果这里立刻用旧 meta 更新 sidebar，随后列表再刷新到终态 meta，会出现状态/摘要跳一下。
         // 因此终态广播前短重试读取一次稳定 meta，尽量用同一帧完成 UI 增量更新。
@@ -5009,8 +5162,6 @@ export function createBotsService(
             ...(event.type === "task_error" ? { error: event.error } : {}),
           },
         );
-        streamSubscriptions.get(streamSubscriptionKey)?.dispose();
-        streamSubscriptions.delete(streamSubscriptionKey);
         // Phase B：流到终态后投递目标随之失效；晚到的 share_file RPC 按 no-target 拒绝。
         taskDeliveryRegistry.forget(event.taskId);
         if (event.type === "task_error") {
@@ -5023,7 +5174,27 @@ export function createBotsService(
                 }),
               ]);
             }
-            await syncStreamingCardReply(event.type, true);
+            // Bugfix（F5 specs/bot-message-delivery.md）：错误终态与完成终态同一病理——
+            // 熔断打开时 plain force 会静默跳过，卡片冻结 Running 且错误永不送达。
+            // half-open 必尝试；仍失败则诚实降级为标准文本失败通知。
+            const errorRendered = await syncStreamingCardReply(event.type, true, {
+              halfOpen: true,
+            });
+            if (!errorRendered) {
+              botsLogger.warn(
+                undefined,
+                `Feishu streaming card error render failed, degrading to text task=${context.activeTaskId}`,
+              );
+              await sendOutbound(
+                bot,
+                createOutbound(
+                  actor,
+                  msg(await readMessageLocale(), "taskFailed", {
+                    message: event.error,
+                  }),
+                ),
+              ).catch(() => undefined);
+            }
             return;
           }
           await sendOutbound(
@@ -5060,8 +5231,30 @@ export function createBotsService(
             appendStreamingCardMessages(changeSummaryMessages);
           }
           streamingCardStatus = "completed";
-          await syncStreamingCardReply(event.type, true);
-          sentAnyAssistantReply = true;
+          // Bugfix（F5 specs/bot-message-delivery.md）：终态渲染带 half-open——熔断打开时也
+          // 必尝试一次；若仍失败则诚实降级为标准文本完成消息，不得让卡片冻结在 Running。
+          const finalRendered = await syncStreamingCardReply(event.type, true, { halfOpen: true });
+          if (finalRendered) {
+            sentAnyAssistantReply = true;
+            return;
+          }
+          botsLogger.warn(
+            undefined,
+            `Feishu streaming card final render failed, degrading to text task=${context.activeTaskId}`,
+          );
+          if (changeSummaryMessages.length > 0) {
+            for (const text of changeSummaryMessages) {
+              sentAnyAssistantReply = true;
+              await sendOutbound(bot, createOutbound(actor, text));
+            }
+            return;
+          }
+          if (!sentAnyAssistantReply) {
+            await sendOutbound(
+              bot,
+              createOutbound(actor, locale === "en-US" ? "Task completed." : "任务已完成。"),
+            );
+          }
           return;
         }
         let replyMessages: string[] = [];
@@ -5140,6 +5333,26 @@ export function createBotsService(
         streamDisposable.dispose();
       },
     });
+    // F1（specs/bot-message-delivery.md）：drain 闭包与订阅同键注册，disposeTaskWatcher 是
+    // 唯一调用方（terminal/stop/stale/dispose 四个法定调用点）。flush 走 F2 契约；
+    // stopTyping 在串行 streamEventQueue 之外执行——drain 从不入队，队列被挂起时
+    // /stop 仍即时排干；拆除后下一次 watchTaskStream 必然建立全新 watcher。
+    taskWatcherDisposals.set(streamSubscriptionKey, {
+      dispose: async (reason: BotTaskWatcherDisposeReason) => {
+        if (assistantReplyBuffer) {
+          botsLogger.info(
+            undefined,
+            `bot task watcher drains pending reply task=${watchedTaskId} reason=${reason}`,
+          );
+          await flushAssistantReplyBuffer(true);
+        }
+        liveStatusProgressByTaskId.delete(watchedTaskId);
+        stopTyping(watchedTaskId);
+        streamSubscriptions.get(streamSubscriptionKey)?.dispose();
+        streamSubscriptions.delete(streamSubscriptionKey);
+      },
+    });
+    botsLogger.info(undefined, `bot task watcher create task=${context.activeTaskId}`);
     startTyping(bot, actor, context.activeTaskId);
   }
 
@@ -6048,6 +6261,10 @@ export function createBotsService(
       // 且尚未观察到终态的 task 才阻止 /task、/new 等上下文切换。
       runningTasks.delete(context.activeTaskId);
       stopTyping(context.activeTaskId);
+      // Bugfix（F1 specs/bot-message-delivery.md）：终态事件丢失时 watcher 仍武装且缓冲扣着
+      // 未送正文（跨聊天续跑还会把回复路由给旧聊天）。这里经单一 drain owner 拆除 watcher
+      // 并把部分回复送达其所属聊天；拆除后新一轮 watchTaskStream 建立全新 watcher。
+      await disposeTaskWatcher(context, context.activeTaskId, "stale");
       // Review 修复（stale registry）：这里检测到「本进程以为在跑、持久化状态已是终态」，
       // 说明流终态事件已丢失——taskDeliveryRegistry 里的投递目标同样必须失效，终态任务
       // 不能继续应答 share_file（晚到 RPC 按 no-target 拒绝）。
@@ -7176,6 +7393,12 @@ export function createBotsService(
               ];
             }
             runningTasks.delete(auth.context.activeTaskId);
+            // Bugfix（F1 specs/bot-message-delivery.md）：/stop 是 watcher 的法定 drain 点。
+            // 顺序为 stopGeneration → drain → 状态回复：drain 把未送出的部分回复作为独立
+            // 消息立即送达（owner 决定语义：文本已在桌面 UI 可见，丢弃即信息损失，扣押它
+            // 正是卡消息 bug），随后停 typing、拆除订阅；晚到的终态通知由它取代——订阅已拆，
+            // 不会再发。drain 不入串行事件队列，事件队列被挂起也不影响 /stop。
+            await disposeTaskWatcher(auth.context, auth.context.activeTaskId, "stop");
             stopTyping(auth.context.activeTaskId);
             await broadcastTaskListChange(auth.context, auth.context.activeTaskId, "updated");
             return createStatusReply(message.actor, auth.context, auth.locale);
@@ -7365,6 +7588,21 @@ export function createBotsService(
         controller.abort(new Error("Bot service disposed."));
       }
       streamingCardRequestControllers.clear();
+      // Bugfix（F1 specs/bot-message-delivery.md）：服务关闭同样经由单一 drain owner 拆除
+      // watcher（尽力排干未送正文，flush 受 F2 预算约束；随后的 runtime dispose 可能中止
+      // 在途请求，属可接受的最佳努力）。不 await——关闭路径不得被发送链路拖延。
+      const watchers = [...taskWatcherDisposals.values()];
+      taskWatcherDisposals.clear();
+      for (const watcher of watchers) {
+        void watcher
+          .dispose("dispose")
+          .catch((error: unknown) =>
+            botsLogger.warn(
+              undefined,
+              `dispose bot task watcher failed: ${error instanceof Error ? error.message : String(error)}`,
+            ),
+          );
+      }
       for (const subscription of streamSubscriptions.values()) {
         subscription.dispose();
       }

@@ -1826,7 +1826,9 @@ export function createFeishuBotProvider(deps: FeishuProviderDeps): BotProviderAd
     async send(bot, message) {
       const token = await readTenantAccessToken(bot, deps);
       if (!token) {
-        return;
+        // Bugfix（specs/bot-provider-network.md Alpha 1 F6）：凭据缺失静默返回会让调用方
+        // 误以为消息已送达；与 sendAttachment 对齐显式抛错，走既有 catch→warn 路径。
+        throw new Error("Feishu app credentials are missing.");
       }
       const receiveId = message.providerUserId;
       if (message.selection) {
