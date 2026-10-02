@@ -1,5 +1,19 @@
 # Changelog
 
+## [3.14.5-alpha.1](https://github.com/yeyuan98/zodex/compare/v3.14.5-alpha.0...v3.14.5-alpha.1) (2026-10-02)
+
+### Bug Fixes
+
+* **bots:** 3.14.5 Alpha 1——bot 出站消息投递可靠性（卡死/粘连气泡根修） ([2aa645f](https://github.com/yeyuan98/zodex/commit/2aa645ffc441cb02d96d6fe338c793c852683a78))
+  * F1 单一 drain owner（disposeTaskWatcher + taskWatcherDisposals 注册表）：
+  * F2 无损有界 flush（trim-on-success）：缓冲只推进过已成功送出的分块；首个
+  * F3 交互边界 flush：permission/elicitation 提示前文本 provider 先送出已缓冲
+  * F4 微信文本 token 平权：requestWeixinJson 标记 weixinRet；文本 sendmessage
+  * F5 飞书熔断复位 + 终态 half-open：成功同步关闸（旧实现永不复位，卡片冻结
+  * F6 provider 诚实发送：Telegram 检查 plain-text 兜底响应（!ok 即抛，含双状
+  * F7 终态正文先行：drain（含正文 flush）先于 readTerminalTaskMeta/
+  * F10 观测：forced flush（taskId/分块/字节）、watcher create/dispose（含原
+
 ## [3.14.5-alpha.0](https://github.com/yeyuan98/zodex/compare/v3.14.4...v3.14.5-alpha.0) (2026-10-02)
 
 ### Features
