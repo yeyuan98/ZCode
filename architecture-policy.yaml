@@ -17,6 +17,12 @@ modules:
   - id: services
     roots: [packages/services/src]
     managed: false
+  - id: bots
+    roots: [packages/services/src/bots]
+    managed: false
+    requires: [shared, rpc]
+    publicEntrypoints: [packages/services/src/bots/contract.ts]
+    owner: bot-delivery
   - id: session
     roots: [packages/services/src/session]
     managed: false

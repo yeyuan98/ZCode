@@ -184,7 +184,13 @@ export type {
 } from "./zcode-session/zcodeSession.js";
 
 // Bots service — IBotsService is both a type (interface) and value (descriptor).
-export { IBotsService } from "./bots/bots.js";
+// bots 子模块的公共入口是 bots/contract.ts（architecture-policy publicEntrypoints）；
+// 根入口只做再导出，保持单一入口路径。
+export {
+  IBotsService,
+  IBotWorkspaceFileService,
+  IBotShareFileForwardService,
+} from "./bots/contract.js";
 export type {
   BotBindCodeResult,
   BotCreateBindCodeParams,
@@ -192,16 +198,12 @@ export type {
   BotSaveBotParams,
   BotSaveBotResult,
   BotTestResult,
-} from "./bots/bots.js";
-// Bot 出站投递的远端 workspace 文件读取窄化 channel（Phase C Alpha 2）。
-// 只导出 descriptor 与类型：实现（createBotWorkspaceFileService）留在 node 装配，
-// renderer 经根 index 拉进浏览器包时不会连带 Node 依赖。
-export { IBotWorkspaceFileService } from "./bots/botWorkspaceFileService.js";
-export type { BotWorkspaceFileV4Forwarder } from "./bots/botWorkspaceFileService.js";
-// 对话式 share_file 的远端→桌面反向转发窄化 channel（Phase C Alpha 3）。同样只导出
-// descriptor 与类型；桌面 handler / 远端 forwarder / executor 装配工厂在 node 入口。
-export { IBotShareFileForwardService } from "./bots/botShareFileForwardService.js";
-export type { BotShareFileForwarder } from "./bots/botShareFileForwardService.js";
+  BotWorkspaceFileV4Forwarder,
+  BotShareFileForwarder,
+} from "./bots/contract.js";
+// 说明（沿承既有约定）：上面两个窄化 channel 只导出 descriptor 与类型；实现工厂
+// （createBotWorkspaceFileService 等）留在 node 装配，renderer 经根 index 拉进浏览器
+// 包时不会连带 Node 依赖。
 
 // Hooks service — IHooksService is both a type (interface) and value (descriptor).
 export { IHooksService } from "./hooks/hooks.js";
