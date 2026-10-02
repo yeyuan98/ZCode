@@ -756,9 +756,12 @@ Windows desktop path in the prompt text and every tool read failed.
 **Acceptance scenarios.**
 
 1. Services test (red first): with a deliberately deferred `sendAttachment`,
-   `/file` acks immediately; a second inbound command (`/status`) completes
-   while the delivery is still in flight; the final `fileSent` reply arrives
-   only after the deferred resolves, with the existing copy.
+   `/file` acks immediately; a second inbound command (`/status`) AND a `/stop`
+   complete while the delivery is still in flight; the final `fileSent` reply
+   arrives only after the deferred resolves, with the existing copy. (Queue
+   unblocking is command-agnostic — pinned via `/status` + `/stop`; the
+   elicitation/permission-response variant rides the same serialization
+   mechanism and is exercised on the rig.)
 2. Services test: background failure (`not-found`) → localized `fileNotFound`
    reply via `sendOutbound`; no unhandled rejection (process-level
    `unhandledRejection` capture stays empty).

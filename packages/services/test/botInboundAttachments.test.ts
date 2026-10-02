@@ -315,12 +315,14 @@ test("A1 入站 file/pdf/video 附件成为 prompt attachments（localPath + kin
       attachments: [
         inboundAttachment("file", "notes.txt", "text/plain", fileData),
         inboundAttachment("file", "report.pdf", "application/pdf", pdfData),
+        // 评审补充：分号参数 + 大小写混合的 pdf mime 也必须按同一形式识别（与 CLI mapper 一致）。
+        inboundAttachment("file", "scan.pdf", "Application/PDF; charset=binary", pdfData),
         inboundAttachment("video", "clip.mp4", "video/mp4", videoData),
       ],
     });
     const capture = lastSendPrompt(harness);
     assert.ok(capture.attachments, "file/pdf/video 必须产出 prompt attachments");
-    assert.equal(capture.attachments.length, 3);
+    assert.equal(capture.attachments.length, 4);
 
     const fileAttachment = capture.attachments.find((item) => item.filename === "notes.txt");
     assert.ok(fileAttachment, "file 附件必须存在");
@@ -464,6 +466,29 @@ test("A3a /file 不阻塞队列：ack 立即返回，/status 在投递在途时�
     );
     assert.ok(statusReplies.length > 0);
     assert.notEqual(statusReplies[0].text, FILE_FETCH_STARTED_ZH);
+    assert.equal(harness.sentMessages.length, 0, "投递未完成前不得有结果回复");
+
+    // 评审补充：/stop 同样必须在投递在途时完成——用户必须能随时终止会话任务，
+    // 不被慢 /file 挂住（队列解除与命令类型无关，这里钉住 /stop 这一关键命令）。
+    const stopReplies = await withTimeout(
+      harness.service.handleInboundMessage({
+        botId: WEIXIN_BOT_ID,
+        actor: {
+          provider: "weixin",
+          botId: WEIXIN_BOT_ID,
+          providerUserId: "wx-user-1",
+          chatType: "private",
+          chatId: "wx-chat-1",
+          providerMessageId: "msg-stop-during-file",
+        },
+        text: "/stop",
+        receivedAt: Date.now(),
+      }),
+      1000,
+      "/stop 不得排在慢 /file 之后",
+    );
+    assert.ok(stopReplies.length > 0);
+    assert.notEqual(stopReplies[0].text, FILE_FETCH_STARTED_ZH);
     assert.equal(harness.sentMessages.length, 0, "投递未完成前不得有结果回复");
 
     gate.resolve();
