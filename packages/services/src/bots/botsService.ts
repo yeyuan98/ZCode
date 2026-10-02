@@ -39,6 +39,7 @@ import {
   type BotConfig,
   type BotContextState,
   type BotDraftOptions,
+  type BotState,
   type BotCommand,
   type BotInboundAttachment,
   type BotInboundMessage,
@@ -231,6 +232,59 @@ const FEISHU_STREAMING_CARD_FAILURE_BACKOFF_BASE_MS = 1_000;
 const FEISHU_STREAMING_CARD_FAILURE_CIRCUIT_THRESHOLD = 3;
 const BOT_ELICITATION_PROGRESS_BROADCAST_TIMEOUT_MS = 1_000;
 const BOT_PROVIDER_CALLBACK_ACK_TIMEOUT_MS = 3_000;
+
+// F4（specs/bot-provider-network.md）：bot 开启且轮询正常、但此刻没有任何可解析 workspace 时，
+// 游标写入曾被静默丢弃——外部队列（Telegram update offset / 微信 getUpdates buf）失去确认点，
+// 同一批更新每个轮询周期都被重新拉取并重复处理（用户每轮收到重复回复）。
+// 修复：游标无条件落盘，先创建“仅游标”的 state entry，workspace 字段留待首次解析出 workspace 时补齐。
+// schema 要求 workspacePath 非空（min(1)），因此用哨兵路径标记“尚未解析出 workspace”；
+// readContext 识别该哨兵并把此类 entry 视为“尚无 context”，绝不把哨兵路径当成真实任务 cwd。
+const UNRESOLVED_BOT_WORKSPACE_PATH = "zcode://unresolved-bot-workspace";
+
+function isCursorOnlyBotState(entry: BotState | undefined): boolean {
+  return (
+    entry !== undefined &&
+    entry.workspacePath === UNRESOLVED_BOT_WORKSPACE_PATH &&
+    !entry.workspaceIdentity &&
+    !entry.workspaceId
+  );
+}
+
+function createCursorOnlyBotState(
+  botId: string,
+  cursor: Pick<Partial<BotState>, "telegramOffset" | "weixinGetUpdatesBuf">,
+): BotState {
+  return {
+    botId,
+    workspacePath: UNRESOLVED_BOT_WORKSPACE_PATH,
+    mode: "draft",
+    activeTaskId: null,
+    ...cursor,
+    updatedAt: Date.now(),
+  };
+}
+
+/** 仅游标 entry 升级为真实 context 时，必须原样带走的外部队列确认点字段。 */
+function pickPersistedBotCursors(
+  entry: BotState | undefined,
+): Pick<
+  Partial<BotState>,
+  "telegramOffset" | "weixinGetUpdatesBuf" | "weixinActivatedAt" | "weixinContextTokens"
+> {
+  if (!entry) {
+    return {};
+  }
+  return {
+    ...(entry.telegramOffset !== undefined ? { telegramOffset: entry.telegramOffset } : {}),
+    ...(entry.weixinGetUpdatesBuf !== undefined
+      ? { weixinGetUpdatesBuf: entry.weixinGetUpdatesBuf }
+      : {}),
+    ...(entry.weixinActivatedAt !== undefined
+      ? { weixinActivatedAt: entry.weixinActivatedAt }
+      : {}),
+    ...(entry.weixinContextTokens ? { weixinContextTokens: entry.weixinContextTokens } : {}),
+  };
+}
 
 type StreamingCardTimelineBlock =
   | {
@@ -1356,18 +1410,20 @@ export function createBotsService(
     } else {
       const bot = findBot(await repo.readConfig(), botId);
       const workspace = bot ? firstAllowedWorkspace(await listWorkspaceRefs(), bot) : null;
-      if (bot && workspace) {
-        state.bots[botId] = {
-          botId: botId,
-          workspacePath: workspace.workspacePath,
-          workspaceIdentity: workspace.workspaceIdentity,
-          workspaceId: workspace.id,
-          mode: "draft",
-          activeTaskId: null,
-          telegramOffset: offset,
-          updatedAt: Date.now(),
-        };
-      }
+      // F4：游标必须无条件落盘。此前 bot 存在但没有任何可解析 workspace 时这里直接跳过写入，
+      // 外部队列确认点丢失导致同一批 update 无限重投；现在降级为“仅游标”entry（见哨兵注释）。
+      state.bots[botId] = workspace
+        ? {
+            botId,
+            workspacePath: workspace.workspacePath,
+            workspaceIdentity: workspace.workspaceIdentity,
+            workspaceId: workspace.id,
+            mode: "draft",
+            activeTaskId: null,
+            telegramOffset: offset,
+            updatedAt: Date.now(),
+          }
+        : createCursorOnlyBotState(botId, { telegramOffset: offset });
     }
     await repo.writeState(state);
   }
@@ -1388,18 +1444,20 @@ export function createBotsService(
     } else {
       const bot = findBot(await repo.readConfig(), botId);
       const workspace = bot ? firstAllowedWorkspace(await listWorkspaceRefs(), bot) : null;
-      if (bot && workspace) {
-        state.bots[botId] = {
-          botId,
-          workspacePath: workspace.workspacePath,
-          workspaceIdentity: workspace.workspaceIdentity,
-          workspaceId: workspace.id,
-          mode: "draft",
-          activeTaskId: null,
-          weixinGetUpdatesBuf: buf,
-          updatedAt: Date.now(),
-        };
-      }
+      // F4：同 writeTelegramOffset——微信服务端游标（get_updates_buf）必须无条件落盘，
+      // 否则游标回退会让同一批消息重新进入业务处理（重复回复/重复 AskUserQuestion）。
+      state.bots[botId] = workspace
+        ? {
+            botId,
+            workspacePath: workspace.workspacePath,
+            workspaceIdentity: workspace.workspaceIdentity,
+            workspaceId: workspace.id,
+            mode: "draft",
+            activeTaskId: null,
+            weixinGetUpdatesBuf: buf,
+            updatedAt: Date.now(),
+          }
+        : createCursorOnlyBotState(botId, { weixinGetUpdatesBuf: buf });
     }
     await repo.writeState(state);
   }
@@ -1408,32 +1466,41 @@ export function createBotsService(
     await ensureBotStorageMigrated();
     const state = await repo.readState();
     const existing = state.bots[getContextKey(bot)];
-    if (existing) {
+    // F4：仅游标 entry 不构成可用 context——哨兵路径绝不能被当成任务 cwd（否则消息会被
+    // 投递到不存在的目录）。视为“尚无 context”走下方新建分支；workspace 仍解析不出来时
+    // 与修复前一致返回 null（消息回复 noWorkspaceAllowed），解析出来则升级为真实 context。
+    const existingContext: BotState | undefined = isCursorOnlyBotState(existing)
+      ? undefined
+      : existing;
+    if (existingContext) {
       const latestWorkspaces = await listWorkspaceRefs();
-      const canonicalWorkspace = resolveCanonicalContextWorkspace(existing, latestWorkspaces);
+      const canonicalWorkspace = resolveCanonicalContextWorkspace(
+        existingContext,
+        latestWorkspaces,
+      );
       if (!canonicalWorkspace) {
-        return existing;
+        return existingContext;
       }
       const currentWorkspaceKey = getWorkspaceKey(
-        existing.workspacePath,
-        existing.workspaceIdentity,
+        existingContext.workspacePath,
+        existingContext.workspaceIdentity,
       );
       const nextWorkspaceId =
-        existing.workspaceId && existing.workspaceId !== currentWorkspaceKey
-          ? existing.workspaceId
+        existingContext.workspaceId && existingContext.workspaceId !== currentWorkspaceKey
+          ? existingContext.workspaceId
           : canonicalWorkspace.id;
       const nextContext: BotContextState = {
-        ...existing,
+        ...existingContext,
         workspacePath: canonicalWorkspace.workspacePath,
         workspaceIdentity: canonicalWorkspace.workspaceIdentity,
         workspaceId: nextWorkspaceId,
       };
       if (
-        nextContext.workspacePath === existing.workspacePath &&
-        nextContext.workspaceIdentity === existing.workspaceIdentity &&
-        nextContext.workspaceId === existing.workspaceId
+        nextContext.workspacePath === existingContext.workspacePath &&
+        nextContext.workspaceIdentity === existingContext.workspaceIdentity &&
+        nextContext.workspaceId === existingContext.workspaceId
       ) {
-        return existing;
+        return existingContext;
       }
       // Bugfix: 历史 Bot context 可能只有 workspacePath，没有持久化 remote workspaceIdentity。
       // 这样 createTask 虽然还能成功，但后续 bots:task 广播会因为 identity 不匹配被 UI 丢弃，
@@ -1453,6 +1520,8 @@ export function createBotsService(
       mode: "draft",
       activeTaskId: null,
       draftOptions: await buildInitializedDraftOptions(workspace),
+      // F4：从仅游标 entry 升级时带回外部队列确认点，避免首次 context 落盘又丢一批游标。
+      ...pickPersistedBotCursors(existing),
       updatedAt: Date.now(),
     };
   }

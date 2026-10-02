@@ -1,11 +1,15 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, rm, writeFile, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { IDisposable } from "@zcode/rpc";
 import type { BotActor, BotConfig, BotInboundAttachment, BotInboundMessage } from "@zcode/shared";
-import { ZCODE_AGENT_PROVIDER, type ZCodeAutomationBotDeliveryTarget } from "@zcode/shared";
+import {
+  ZCODE_AGENT_PROVIDER,
+  botsStateFileSchema,
+  type ZCodeAutomationBotDeliveryTarget,
+} from "@zcode/shared";
 import { createBotProviderRequester } from "../src/bots/providers/providerRequest.js";
 import {
   encodeWeixinMediaAesKey,
@@ -146,6 +150,15 @@ interface ServiceHarnessOptions {
   getMeOutcome?: (call: CapturedFetchCall) => Response | Promise<Response>;
   /** F0/F0b 场景5、8：接管 getUpdates 应答（按调用序号脚本化成功/失败）。 */
   getUpdatesOutcome?: (call: CapturedFetchCall, count: number) => Response | Promise<Response>;
+  /** F4 场景9：跳过默认 state entry 播种（复现“无 state entry”触发条件）。 */
+  omitBotStateEntries?: boolean;
+  /** F4 场景9：按 botId 追加/覆盖/删除（null）state entry。 */
+  stateBotOverrides?: Record<string, Record<string, unknown> | null>;
+  /** F4 场景9：接管微信 /getupdates 应答（按调用序号脚本化）。 */
+  weixinGetUpdatesOutcome?: (
+    call: CapturedFetchCall,
+    count: number,
+  ) => Response | Promise<Response>;
 }
 
 /**
@@ -177,15 +190,24 @@ async function createServiceHarness(options: ServiceHarnessOptions): Promise<Ser
   await writeFile(join(configDir, BOTS_CONFIG_FILE), JSON.stringify({ version: 3, bots }));
 
   const stateBots: Record<string, unknown> = {};
-  for (const bot of options.bots) {
-    stateBots[bot.id] = {
-      botId: bot.id,
-      workspacePath: workspace,
-      mode: "task",
-      activeTaskId: CONVERSATIONAL_TASK_ID,
-      ...(bot.provider === "weixin" ? { weixinActivatedAt: 1 } : {}),
-      updatedAt: 1,
-    };
+  if (!options.omitBotStateEntries) {
+    for (const bot of options.bots) {
+      stateBots[bot.id] = {
+        botId: bot.id,
+        workspacePath: workspace,
+        mode: "task",
+        activeTaskId: CONVERSATIONAL_TASK_ID,
+        ...(bot.provider === "weixin" ? { weixinActivatedAt: 1 } : {}),
+        updatedAt: 1,
+      };
+    }
+  }
+  for (const [botId, entry] of Object.entries(options.stateBotOverrides ?? {})) {
+    if (entry === null) {
+      delete stateBots[botId];
+    } else {
+      stateBots[botId] = entry;
+    }
   }
   await writeFile(
     join(configDir, BOTS_STATE_FILE),
@@ -193,6 +215,7 @@ async function createServiceHarness(options: ServiceHarnessOptions): Promise<Ser
   );
 
   let getUpdatesCount = 0;
+  let weixinGetUpdatesCount = 0;
   const router: FetchRouter = (call) => {
     const url = call.url;
     if (url.startsWith("https://api.telegram.org/file/bot")) {
@@ -228,6 +251,10 @@ async function createServiceHarness(options: ServiceHarnessOptions): Promise<Ser
       return jsonResponse({ ok: true });
     }
     if (url.startsWith("https://ilinkai.weixin.qq.com/")) {
+      if (url.includes("/getupdates") && options.weixinGetUpdatesOutcome) {
+        weixinGetUpdatesCount += 1;
+        return options.weixinGetUpdatesOutcome(call, weixinGetUpdatesCount);
+      }
       return jsonResponse({ ret: 0, errcode: 0 });
     }
     if (url === "https://cdn.example.weixin.net/c2c/weixin-file") {
@@ -831,6 +858,169 @@ test("场景8：error→polling 恢复触发 syncCommands 恰好一次；后续�
     );
     await sleep(1_000);
     assert.equal(syncCommandsCount(), 3, "每次恢复只触发一次");
+  } finally {
+    await harness.dispose();
+  }
+});
+
+// ---- F4：游标永不静默丢弃（场景 9）----
+
+/** 与 botsService 的“仅游标”哨兵路径约定一致（schema 要求 workspacePath 非空）。 */
+const UNRESOLVED_WORKSPACE_PATH = "zcode://unresolved-bot-workspace";
+
+/** 长轮询挂起应答：等到 runtime dispose 的 abort 再以 AbortError 收口。 */
+function hangUntilAborted(call: CapturedFetchCall): Promise<Response> {
+  return new Promise<Response>((_, reject) => {
+    call.init?.signal?.addEventListener(
+      "abort",
+      () => reject(new DOMException("Aborted", "AbortError")),
+      { once: true },
+    );
+  });
+}
+
+/** 轮询读取 bot-state.v3.json 中目标 bot entry 的指定字段（原子写中途的解析竞态直接吞掉重试）。 */
+async function waitForStateBotField(
+  botId: string,
+  pick: (entry: Record<string, unknown>) => unknown,
+): Promise<unknown> {
+  const path = join(getAppConfigDir(), BOTS_STATE_FILE);
+  const deadline = Date.now() + 10_000;
+  while (Date.now() < deadline) {
+    try {
+      const state = JSON.parse(await readFile(path, "utf8")) as {
+        bots?: Record<string, Record<string, unknown>>;
+      };
+      const entry = state.bots?.[botId];
+      if (entry) {
+        const value = pick(entry);
+        if (value !== undefined) {
+          return value;
+        }
+      }
+    } catch {
+      // 文件尚不存在或原子写替换中途：重试。
+    }
+    await sleep(50);
+  }
+  return undefined;
+}
+
+async function readStateFile(): Promise<unknown> {
+  const path = join(getAppConfigDir(), BOTS_STATE_FILE);
+  return JSON.parse(await readFile(path, "utf8"));
+}
+
+test("场景9(RED)：telegram 无 state entry 且无可解析 workspace 时轮询 offset 必须落盘", async () => {
+  const botId = "bot-telegram-cursor";
+  const harness = await createServiceHarness({
+    // 后台轮询真实启动：走生产路径 拉取→处理→写 offset。
+    runStartupBackgroundTasks: true,
+    omitBotStateEntries: true,
+    bots: [{ id: botId, provider: "telegram", credentialRef: "telegram-token-ref" }],
+    // 首轮返回一条裸 update（无 message，业务回调空转但成功），之后挂起等 dispose。
+    getUpdatesOutcome: (call, count) =>
+      count === 1
+        ? jsonResponse({ ok: true, result: [{ update_id: 4242 }] })
+        : hangUntilAborted(call),
+  });
+  try {
+    const offset = await waitForStateBotField(botId, (entry) => entry.telegramOffset);
+    assert.notEqual(
+      offset,
+      undefined,
+      "游标被静默丢弃：无 state entry 且无可解析 workspace 时 writeTelegramOffset 什么都没写，" +
+        "同一批 update 会每个轮询周期重新拉取并重复处理",
+    );
+    assert.equal(offset, 4243, "offset 必须是已处理 update_id + 1");
+    // 落盘结果必须能原样通过 state schema 校验（含仅游标 entry 的形状）。
+    const parsed = botsStateFileSchema.parse(await readStateFile());
+    assert.equal(parsed.bots[botId]?.telegramOffset, 4243);
+  } finally {
+    await harness.dispose();
+  }
+});
+
+test("场景9(RED)：weixin 无 state entry 且无可解析 workspace 时 getUpdates buf 必须落盘", async () => {
+  const botId = "bot-weixin-cursor";
+  const harness = await createServiceHarness({
+    runStartupBackgroundTasks: true,
+    omitBotStateEntries: true,
+    bots: [{ id: botId, provider: "weixin", credentialRef: "weixin-token-ref" }],
+    // 首轮返回空消息 + 新 buf（纯游标周期，无需任何 workspace），之后挂起等 dispose。
+    weixinGetUpdatesOutcome: (call, count) =>
+      count === 1
+        ? jsonResponse({ ret: 0, errcode: 0, data: { msgs: [], get_updates_buf: "wx-buf-1" } })
+        : hangUntilAborted(call),
+  });
+  try {
+    const buf = await waitForStateBotField(botId, (entry) => entry.weixinGetUpdatesBuf);
+    assert.notEqual(
+      buf,
+      undefined,
+      "游标被静默丢弃：无 state entry 且无可解析 workspace 时 writeWeixinGetUpdatesBuf 什么都没写，" +
+        "微信服务端游标回退会导致同一批消息重新投递",
+    );
+    assert.equal(buf, "wx-buf-1");
+    const parsed = botsStateFileSchema.parse(await readStateFile());
+    assert.equal(parsed.bots[botId]?.weixinGetUpdatesBuf, "wx-buf-1");
+  } finally {
+    await harness.dispose();
+  }
+});
+
+test("场景9：已有 state entry 时游标写入保持 workspace 字段不变（行为不变）", async () => {
+  const botId = "bot-telegram-cursor-existing";
+  const harness = await createServiceHarness({
+    runStartupBackgroundTasks: true,
+    bots: [{ id: botId, provider: "telegram", credentialRef: "telegram-token-ref" }],
+    getUpdatesOutcome: (call, count) =>
+      count === 1
+        ? jsonResponse({ ok: true, result: [{ update_id: 9001 }] })
+        : hangUntilAborted(call),
+  });
+  try {
+    const offset = await waitForStateBotField(botId, (entry) => entry.telegramOffset);
+    assert.equal(offset, 9002, "已有 entry：offset 更新为 update_id + 1");
+    const parsed = botsStateFileSchema.parse(await readStateFile());
+    const entry = parsed.bots[botId];
+    assert.equal(
+      entry?.workspacePath,
+      harness.workspace,
+      "已有 entry 的 workspacePath 必须保持不变",
+    );
+    assert.equal(entry?.activeTaskId, CONVERSATIONAL_TASK_ID, "已有 entry 的任务字段必须保持不变");
+  } finally {
+    await harness.dispose();
+  }
+});
+
+test("场景9：仅游标 entry 不得被当成可用 context（消息必须回复 noWorkspaceAllowed）", async () => {
+  const botId = "bot-telegram-cursor-only-ctx";
+  const harness = await createServiceHarness({
+    runStartupBackgroundTasks: false,
+    omitBotStateEntries: true,
+    bots: [{ id: botId, provider: "telegram", credentialRef: "telegram-token-ref" }],
+    // 手工播种“仅游标”entry：游标已落盘但 workspace 从未解析出来。
+    stateBotOverrides: {
+      [botId]: {
+        botId,
+        workspacePath: UNRESOLVED_WORKSPACE_PATH,
+        mode: "draft",
+        activeTaskId: null,
+        telegramOffset: 4243,
+        updatedAt: 1,
+      },
+    },
+  });
+  try {
+    const replies = await harness.service.handleInboundMessage(buildInbound("telegram", botId, []));
+    const replyText = replies.map((reply) => reply.text).join("\n");
+    assert.ok(
+      replyText.includes("没有可用 workspace"),
+      `仅游标 entry 没有真实 workspace，必须回复 noWorkspaceAllowed，实际回复：${replyText}`,
+    );
+    assert.equal(harness.sendPromptCalls.length, 0, "哨兵路径不得被当成任务 cwd 投递 prompt");
   } finally {
     await harness.dispose();
   }
