@@ -21,7 +21,8 @@ modules:
     roots: [packages/services/src/bots]
     managed: false
     requires: [shared, rpc, provider]
-    publicEntrypoints: [packages/services/src/bots/contract.ts, packages/services/src/bots/contract.node.ts]
+    publicEntrypoints:
+      [packages/services/src/bots/contract.ts, packages/services/src/bots/contract.node.ts]
     owner: bot-delivery
   - id: session
     roots: [packages/services/src/session]

@@ -262,10 +262,7 @@ import {
   IBotWorkspaceFileService,
   type BotWorkspaceFileV4Forwarder,
 } from "./bots/contract.node.js";
-import {
-  createBotsShareFileExecutor,
-  type BotShareFileForwarder,
-} from "./bots/contract.node.js";
+import { createBotsShareFileExecutor, type BotShareFileForwarder } from "./bots/contract.node.js";
 import { IFileWatcherService } from "./fileWatcher/fileWatcher.js";
 import { IUsageStatsService } from "./usage-stats/usageStats.js";
 // P5 D-P5.4：IClientScenesService 已随 endpoint web / clientScenes 链删除。
