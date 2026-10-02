@@ -1,7 +1,10 @@
 # Spec: Bot Provider Network Transport, Observability, Cursor Persistence (Alpha 6)
 
-Status: **Spec'd 2026-10-02 from the owner-approved incident postmortem (all decisions FINAL,
-owner-approved 2026-10-02); implementation pending; targets `3.14.4-alpha.6`.**
+Status: **SHIPPED in `3.14.4-alpha.6` (PR #11, release `cbf6a68`); owner-rig validated
+2026-10-02** (proxy set in app settings → Telegram `/bind` + `/file` + conversational
+delivery all succeed on the previously-failing GFW rig; command menu self-heals; detailed
+error visible with proxy unset; Feishu/WeChat regression clean). Postmortem decisions
+FINAL, owner-approved 2026-10-02; folded into official `3.14.4`.
 Production incident 2026-10-01/02: the owner rig (mainland-China network) could not bind a
 Telegram bot — the desktop UI showed the generic "Bot connection failed"
 (`bots.runtime.connectionFailed`) and bind was blocked. Root cause PROVEN on a live rig (real
