@@ -1,5 +1,41 @@
 # Changelog
 
+## [3.14.5-alpha.0](https://github.com/yeyuan98/zodex/compare/v3.14.4...v3.14.5-alpha.0) (2026-10-02)
+
+### Features
+
+* **bots:** 3.14.5 Alpha 0——入站附件远程可达 + /file 出队 ([012f8e5](https://github.com/yeyuan98/zodex/commit/012f8e58a289cfc34c83f880ca5d1e093ff1a67d))
+  * prepareBotMessageContent 此前只给 image/audio 造 ZCodePromptAttachment，
+  * 现在 file/pdf/video 同样产出 attachment（localPath 必带、sizeBytes 用缓存
+  * image/audio 行为逐字节不变（dataBase64 剥离 deferred 到 preview E2E 后再定）
+  * 本地行为变化（有意、已写入 spec 与发布注记）：bot 发来的 PDF/文件成为原生
+  * /file 此前整体跑在 enqueueInboundProcessing 的 per-actor 串行队列内，远程
+  * 现在快速准入（授权/断连门槛、adapter 能力、空路径——文案与顺序逐字不变）
+  * 不变量：准入每次调用在 ack 前重评；/file 不改写 task/context 状态；微信
+  * 新增 services botInboundAttachments.test.ts（file/pdf/video 矩阵、image/audio
+  * 新增 desktop remotePromptAttachments.test.ts（包装器从零建测：无附件透传、
+  * botFileDelivery.test.ts 6 处 /file 用例改为断言后台结果回复（文案不变）
+  * 验证：services 203/203、desktop 38/38、server bundle E2E 10/10、根
+
+
+### Bug Fixes
+
+* **architecture:** bots 契约拆分浏览器安全子契约与 Node 装配入口（评审 B1/M1） ([5f02052](https://github.com/yeyuan98/zodex/commit/5f020525e13906717fa06217bdb8f04a32e499fc))
+  * 评审复现的 BLOCKER：单一 contract.ts 让根 index（浏览器入口）静态连带
+  * 浏览器 import 图守卫（esbuild --platform=browser 打包 src/index.ts）：构建
+  * 修正 CONTRACT.md 依赖事实（M1）：跨包依赖补 @zcode/provider 与 Node 内置；
+  * 修正 CONTRACT.md 对 node.ts 导出面的事实描述（MINOR-1）：
+
+
+### Chores
+
+* **architecture:** 声明 bots 模块——contract 前门 + 契约文档 + policy 登记 ([61db81d](https://github.com/yeyuan98/zodex/commit/61db81dd3eb489f3f7bbe2b690e7c9b4c2e1b1e4))
+  * architecture-policy.yaml 新增 bots 模块登记（roots=packages/services/src/bots，
+  * 新增 packages/services/src/bots/contract.ts 作为模块唯一公共前门：再导出
+  * 新增 bots/CONTRACT.md：职责、公共面、状态所有者（bot state repo、
+  * services 包入口收敛单一路径：index.ts/node.ts/accessor.ts 的 bots 再导出与
+  * 纯模块图改动，零行为变化：services 198/198 测试通过，tsc/oxlint/oxfmt、
+
 ## [3.14.4](https://github.com/yeyuan98/zodex/compare/v3.14.4-alpha.6...v3.14.4) (2026-10-02)
 
 ### Documentation
