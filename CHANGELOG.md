@@ -1,5 +1,45 @@
 # Changelog
 
+## [3.14.4-alpha.6](https://github.com/yeyuan98/zodex/compare/v3.14.4-alpha.5...v3.14.4-alpha.6) (2026-10-02)
+
+### Features
+
+* **bots:** Alpha 6 F0+F0b——失败自宣（真实原因可见）+ 恢复自愈（菜单自动重同步） ([bf9d863](https://github.com/yeyuan98/zodex/commit/bf9d863d570b97ffb7e657ea0293565c17897e95))
+  * telegram poller catch-all 绑定并透出真实错误：messageId 摘要不变、message 追加根因、logger.warn 落盘（事故根因曾被通用 catch 吞掉，owner 端只看到「机器人连接失败」）
+  * setRuntimeStatus 对进入 error 的转换统一 warn 一次（单点覆盖三家 runtime；仅 provider 错误串，绝不记 token）
+  * UI 全渠道展示错误详情：BotSummaryCard 次行 + tooltip 兜底；ProviderSettingsCard 将飞书专属错误面板镜像到 telegram/weixin（复用 DetailPanel/CircleAlert，新增 errorDetail/unknownError 双语 key）
+  * saveBot 返回新增 resolveNameError（纯增量字段）：token 不可达时 add 流程以 warning toast 显式暴露，配置仍保存为本地事实
+  * F0b 自愈：error→polling 恢复后首个成功 getUpdates 周期触发一次 syncCommands（持续故障期间不刷 setMyCommands），后续周期静默，再次故障-恢复可重触发
+  * 测试：错误根因透传/进入 error 告警、resolveName 失败-成功-无凭据三态、恢复触发恰一次 + 再触发，UI 错误详情契约（无 React 渲染 harness，面板渲染为 typecheck 级，已披露）
+
+* **bots:** Alpha 6 F1——bot provider 全部出站流量走可注入 fetch，桌面复用应用代理设置 ([aa59342](https://github.com/yeyuan98/zodex/commit/aa593422523ac405f51653b94b3bbe925029be07))
+  * providerRequest 重构为 createBotProviderRequester(fetchImpl) 工厂，三个有界助手成为闭包；零模块级单例，既有调用方全部迁移
+  * BotsServiceDeps 新增 providerFetch 注入：单实例 requester 贯穿 5 家 provider 工厂、3 个 channel runtime、attachment 兜底下载与 4 个注册方法
+  * 收编全部裸 fetch 出站点（规格点名 5 处 + rg 追加 3 处：attachment downloadUrl 兜底、飞书/微信应用注册），src/bots 下裸 fetch 清零
+  * 组装根：services/node.ts 传 hostApiNetworkTransport.fetch（settings 代理一处覆盖 AI+bot，零新增 UX）；attached 远端经 host/index.ts 活动传输 fail-closed 注入
+  * 语义：未配置代理 = globalThis.fetch，与 alpha.5 字节级等价（零漂移）；传输销毁错误直传，绝不回退直连
+  * 新增 botProviderNetwork.test.ts 9 例：工厂注入/默认、5 站点路由（含 AES 往返、真实后台轮询 deleteWebhook+getUpdates）、无代理零漂移、fail-closed 零全局兜底调用
+
+
+### Bug Fixes
+
+* **bots:** Alpha 6 F4——外部游标永不静默丢弃，红测先行钉死两类无限重投 ([1642e73](https://github.com/yeyuan98/zodex/commit/1642e73e5da9ee81eee0e5eafabe0ab7620a2e0d))
+  * writeTelegramOffset/writeWeixinGetUpdatesBuf 在无 state entry 且无可解析 workspace 时原样丢弃写入：Telegram offset / 微信 getUpdates buf 丢失后同一批消息每个轮询周期重新拉取、重复回复
+  * 修复：无条件持久化。已有 entry 行为不变；有可解析 workspace 照旧建全量 entry；无可解析 workspace 写「仅游标」entry（workspacePath 用 zcode://unresolved-bot-workspace 哨兵，满足 schema min(1) 且可识别），经 botsStateFileSchema.parse 往返校验
+  * 连带防护：readContext 不得把仅游标 entry 当可用 context（否则哨兵路径会流入任务 cwd）——按「无 context」处理，与修复前 UX 一致；首次真实 context 写入时 pickPersistedBotCursors 携带游标，不丢批次
+  * 红测证据：无 entry+零 workspace 场景在 HEAD bf9d863 上 3 例 fail（telegram/weixin 丢写 + 仅游标被误当 context），修复后 194/194 全绿
+
+
+### Documentation
+
+* **specs:** Alpha 6 规格先行——bot provider 网络走应用代理 + 失败可观测 + 游标永不静默丢弃 ([3e9b5b9](https://github.com/yeyuan98/zodex/commit/3e9b5b9d62eb0fd65218e01bc9ea0fb46fba933f))
+  * 新增 specs/bot-provider-network.md：记录 2026-10-01/02 生产事故（Node fetch 无视代理，GFW 网络下 Telegram 全部超时）与 live-rig 双向验证结论
+  * F1：providerRequest 工厂化 + BotsServiceDeps.providerFetch 注入 + 复用 host API 网络传输（settings 代理一处生效）；5 处裸 fetch 全部收编；无代理零漂移；传输销毁 fail-closed
+  * F0：poller catch-all 绑定并记录真实错误；错误态转换落日志；UI 对全渠道展示详细原因；add 阶段 resolveName 失败显式暴露
+  * F0b：error→polling 恢复时自动重同步 Telegram 命令菜单
+  * F4：writeTelegramOffset/writeWeixinGetUpdatesBuf 无条件持久化（红测先行）
+  * bot-file-delivery.md 状态块追加 Alpha 6 指向
+
 ## [3.14.4-alpha.5](https://github.com/yeyuan98/zodex/compare/v3.14.4-alpha.4...v3.14.4-alpha.5) (2026-10-01)
 
 ### Features
