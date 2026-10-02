@@ -646,3 +646,121 @@ Unit/integration:
    remote workspaces after the desktop upgrade; Feishu — verify the file bubble
    coexists sensibly with the streaming reply card; optional — the stale-remote
    scenario shows the honest error.
+
+## Inbound remote workspaces (3.14.5 Alpha 0)
+
+Spec'd 2026-10-02 from ../ZCode-handoff.md §2 Track A Alpha 0 (A1 + A3a). Targets
+`3.14.5-alpha.0`. Fixes the owner-rig-confirmed gap: images sent to a bot worked on
+remote workspaces, but files/PDFs/videos did not — the remote agent received a
+Windows desktop path in the prompt text and every tool read failed.
+
+### A1. All attachment kinds become real prompt attachments
+
+**Behavior.**
+
+1. `prepareBotMessageContent` (botsService) pushes a `ZCodePromptAttachment`
+   `{kind, filename, mimeType, localPath, sizeBytes}` for inbound kinds
+   `file`/`video` exactly as it already did for `image`/`audio`. Kind mapping:
+   inbound `video` → `video`; inbound `file` with mimeType `application/pdf`
+   (parameters stripped, case-insensitive — same detection form as the CLI
+   protocol mapper) → `pdf`; all other inbound `file` → `file`
+   (`BotInboundAttachmentKind` has no `pdf`; providers never emit one). The
+   existing per-attachment prompt line (`附件：… 已保存到：<localPath>`) is kept
+   verbatim — the desktop remote wrapper rewrites the path substring inside it.
+   `sizeBytes` uses the cached byte length (`cacheResolvedAttachment` always sets
+   it); it is mandatory for kind `file` and set for `pdf`/`video` too.
+2. `dataBase64` is NOT set for the new kinds: the CLI mapper prefers `localPath`
+   for every kind, and `localPath` is guaranteed present because the gateway just
+   wrote the cache file.
+3. **Remote workspaces**: the desktop-host wrapper
+   (`materializeRemotePromptAttachments`, packages/desktop) already uploads any
+   attachment with a `localPath` to `~/.zcode/tmp/prompt-attachments/…` on the
+   remote machine and rewrites both the attachment path and the path embedded in
+   the prompt text (exact-substring replacement; multi-attachment and
+   Windows-separator paths covered by tests). With A1 the attachment list is no
+   longer empty for file/PDF/video, so the existing machinery delivers every kind
+   with zero wrapper changes. Upload failure surfaces as today's honest
+   `taskFailed` reply (unchanged path).
+4. **Local workspaces (intended behavior change, release-noted)**: local PDFs and
+   files become native model attachments instead of a path-only hint — this
+   aligns the bot with how the desktop GUI already sends attachments. PDF kind
+   gets the CLI's special pdf content-block handling (native document reading
+   instead of a tool-read of the prompt path).
+5. Old remote runtime + new desktop: existing honest reconnect/degradation
+   messages (designed degradation; reconnect the workspace to redeploy the
+   matching bundle).
+
+**Invariants.**
+
+- `image`/`audio` behavior is byte-identical to 3.14.4, including `dataBase64`
+  (strip decision DEFERRED pending the preview E2E/rig check — previews must
+  render on desktop transcript AND phone web replay before any strip lands; do
+  not guess).
+- New kinds never carry `dataBase64`.
+- The 5MB / 4-attachments-per-message inbound gates are unchanged in this alpha
+  (A2 in alpha.1 revisits per-file rejection UX).
+- Kind mapping is faithful: inbound kind is never widened; only the pdf mime
+  derivation narrows `file` → `pdf`.
+
+**Acceptance scenarios.**
+
+1. Services red test first (`packages/services/test/botInboundAttachments.test.ts`):
+   inbound file/pdf/video → `sendPrompt` carries attachments with `localPath` +
+   correct kind + `sizeBytes`, no `dataBase64`, prompt line still present.
+2. Regression: image/audio attachments unchanged including `dataBase64` + prompt
+   line.
+3. Remote-context (`workspaceIdentity` set) messages now carry attachments into
+   `sendPrompt` (the wrapper input).
+4. NEW desktop wrapper characterization suite
+   (`packages/desktop/test/remotePromptAttachments.test.ts`): no-attachment
+   passthrough (uploadedCount 0); single attachment upload + attachment-path
+   rewrite + prompt-text rewrite under the resolved remote HOME root; multiple
+   attachments incl. Windows-style localPath — both rewritten, order-stable;
+   `backend.upload` throw → materialize throws with the filename; already-under-
+   remote-root paths untouched (no upload); dataBase64-only attachments passed
+   through unchanged (no upload).
+5. Rig checklist: send file/PDF/video to a remote-workspace bot → agent reads
+   them; previews render on desktop transcript + phone web replay (gates the
+   image `dataBase64` decision); local regression pass.
+
+### A3a. `/file` stops blocking the chat queue
+
+**Behavior.**
+
+1. `/file` keeps its FAST admission steps on the per-actor serialized inbound
+   queue, in the existing order with the existing reply texts:
+   `withAuthorizedContext` (incl. the disconnect/reconnect gate
+   `blockDisconnectedRemoteWorkspace`), adapter `sendAttachment` capability
+   check, empty-path check. After the gates it replies an immediate localized
+   ack (`fileFetchStarted`, zh「正在获取并发送文件…」/ en "Fetching and sending
+   the file…") and releases the queue; `deliverWorkspaceFile` + the result reply
+   run in the background (fire-and-forget mirroring `sendPromptInBackground`).
+2. Result replies reuse the exact existing `/file` copy/mapping (fileSent and
+   every failure reason → localized text), sent via `sendOutbound` from the
+   background task.
+3. Invariants (restated under concurrency): admission gates are evaluated per
+   call before the ack; `/file` never mutates task/context state; the WeChat
+   inbound context-token merge (`persistWeixinContextToken`) stays on-queue (it
+   precedes dispatch); background-leg errors NEVER throw into the polling loop —
+   a catch-all sends a localized failure reply via `sendOutbound`.
+4. Dedupe semantics (unchanged mechanism, documented): `markInboundDelivery`
+   marks the provider message id before processing and the key is released only
+   when `handleInboundMessage` throws synchronously or the reply send fails.
+   Because the ack return is a successful completion, a later background failure
+   cannot re-trigger duplicate processing (the key simply ages out of the TTL
+   window).
+5. Ordering caveat (accepted): the `/file` result may reorder relative to
+   follow-up messages (e.g. a `/stop` acknowledgement arriving before the file
+   result). Fast-failure replies remain synchronous and ordered.
+
+**Acceptance scenarios.**
+
+1. Services test (red first): with a deliberately deferred `sendAttachment`,
+   `/file` acks immediately; a second inbound command (`/status`) completes
+   while the delivery is still in flight; the final `fileSent` reply arrives
+   only after the deferred resolves, with the existing copy.
+2. Services test: background failure (`not-found`) → localized `fileNotFound`
+   reply via `sendOutbound`; no unhandled rejection (process-level
+   `unhandledRejection` capture stays empty).
+3. Rig checklist: slow remote `/file` + immediate `/stop` responds instantly;
+   local `/file` regression (ack then result).

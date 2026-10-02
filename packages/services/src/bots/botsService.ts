@@ -1839,6 +1839,8 @@ export function createBotsService(
     // 仍最先回复；远程 workspace 不再前置拒绝——已连接时 /file 进入 deliverWorkspaceFile
     // 的远程分支正常投递（字节从远端取回），断连仍由 withAuthorizedContext 内的
     // blockDisconnectedRemoteWorkspace 先回复 /重连 提示（顺序不变）。空路径检查位置不变。
+    // 3.14.5 Alpha 0（A3a）：以上快速门槛保持在队列内同步回复；通过后只回 ack，
+    // 投递结果改由后台腿回复（见 deliverWorkspaceFileInBackground）。
     const adapter = providers[auth.bot.provider];
     if (!adapter?.sendAttachment) {
       return [createOutbound(message.actor, msg(auth.locale, "fileCommandUnsupported"))];
@@ -1847,64 +1849,104 @@ export function createBotsService(
     if (!requestedPath) {
       return [createOutbound(message.actor, msg(auth.locale, "fileMissingPath"))];
     }
-    const delivered = await deliverWorkspaceFile(
+    // 3.14.5 Alpha 0（A3a，specs/bot-file-delivery.md「Inbound remote workspaces」）：
+    // /file 最坏情况 ~6 分钟（远程 reader 初始化 60s + 取回预算 120s + provider 上传链
+    // ~225s）。此前整个投递跑在 enqueueInboundProcessing 的 per-actor 串行队列内，会把
+    // 权限回调、/stop 和所有后续消息挂住。现在快速准入（withAuthorizedContext 含断连
+    // /重连 门槛、adapter 能力检查、空路径检查——回复文案与顺序逐字不变）完成后立即回
+    // ack 并释放队列，deliverWorkspaceFile 与结果回复在后台执行（镜像 sendPromptInBackground
+    // 的 fire-and-forget 形态）。不变量：准入每次调用都在 ack 前重新评估；/file 不改写
+    // task/context 状态；微信入站 context_token 合并（persistWeixinContextToken）仍在
+    // 队列内（先于 dispatch）。去重语义（机制不变，记录行为）：markInboundDelivery 在
+    // 处理前落 key，仅当 handleInboundMessage 同步抛错或回复发送失败时才 release；
+    // ack 是成功返回，后台腿失败不会重新触发重复处理（key 自然滑出 TTL 窗口）。
+    deliverWorkspaceFileInBackground(
       auth.bot,
       message.actor,
       auth.context,
+      auth.locale,
       requestedPath,
-      {
-        source: "command",
-      },
     );
+    return [createOutbound(message.actor, msg(auth.locale, "fileFetchStarted"))];
+  }
+
+  /**
+   * 3.14.5 Alpha 0（A3a）：/file 投递的后台腿。错误必须全部圈禁在此（镜像
+   * sendPromptInBackground 的 catch 形态）——后台异常绝不允许抛入 polling loop；
+   * 意外异常用 fileSendFailed 本地化文案经 sendOutbound 如实回复。
+   */
+  function deliverWorkspaceFileInBackground(
+    bot: BotConfig,
+    actor: BotActor,
+    context: Pick<BotContextState, "workspacePath" | "workspaceIdentity">,
+    locale: Locale | undefined,
+    requestedPath: string,
+  ): void {
+    void (async () => {
+      const delivered = await deliverWorkspaceFile(bot, actor, context, requestedPath, {
+        source: "command",
+      });
+      // 成功/失败映射沿用 /file 既有本地化文案（specs Phase B 不变量：文案零变化）。
+      await sendOutbound(
+        bot,
+        createFileDeliveryResultReply(actor, locale, requestedPath, delivered),
+      );
+    })().catch(async (error: unknown) => {
+      const reasonText = error instanceof Error ? error.message : String(error);
+      botsLogger.warn(
+        undefined,
+        `bot file delivery background failed bot=${bot.id} peer=${actor.chatId ?? actor.providerUserId} path=${requestedPath}: ${reasonText}`,
+      );
+      await sendOutbound(
+        bot,
+        createOutbound(actor, msg(locale, "fileSendFailed", { message: reasonText })),
+      ).catch(() => undefined);
+    });
+  }
+
+  /** /file 投递结果 → 既有本地化回复（与 3.14.4 的同步回复文案逐字一致）。 */
+  function createFileDeliveryResultReply(
+    actor: BotActor,
+    locale: Locale | undefined,
+    requestedPath: string,
+    delivered: DeliverWorkspaceFileResult,
+  ): BotOutboundMessage {
     if (delivered.ok) {
-      return [
-        createOutbound(
-          message.actor,
-          msg(auth.locale, "fileSent", {
-            filename: delivered.filename,
-            size: formatAttachmentSize(delivered.sizeBytes),
-          }),
-        ),
-      ];
+      return createOutbound(
+        actor,
+        msg(locale, "fileSent", {
+          filename: delivered.filename,
+          size: formatAttachmentSize(delivered.sizeBytes),
+        }),
+      );
     }
     // 失败映射回 /file 既有本地化文案（specs Phase B 不变量：/file 行为零变化）。
     switch (delivered.reason) {
       case "unsupported-provider":
-        return [createOutbound(message.actor, msg(auth.locale, "fileCommandUnsupported"))];
+        return createOutbound(actor, msg(locale, "fileCommandUnsupported"));
       case "remote-unavailable":
         // Phase C Alpha 2：远程取回失败（bridge 缺席/无路由/初始化失败/超预算）的
         // 如实文案；旧 reason "remote-workspace" 已不再由本 host 产生（enum 保留仅为
         // 旧 CLI 兼容），故不再映射。
-        return [createOutbound(message.actor, msg(auth.locale, "fileRemoteUnavailable"))];
+        return createOutbound(actor, msg(locale, "fileRemoteUnavailable"));
       case "outside-workspace":
-        return [
-          createOutbound(
-            message.actor,
-            msg(auth.locale, "fileOutsideWorkspace", { path: requestedPath }),
-          ),
-        ];
+        return createOutbound(actor, msg(locale, "fileOutsideWorkspace", { path: requestedPath }));
       case "not-found":
-        return [
-          createOutbound(message.actor, msg(auth.locale, "fileNotFound", { path: requestedPath })),
-        ];
+        return createOutbound(actor, msg(locale, "fileNotFound", { path: requestedPath }));
       case "too-large":
-        return [
-          createOutbound(
-            message.actor,
-            msg(auth.locale, "fileTooLargeOutbound", { size: delivered.detail ?? "" }),
-          ),
-        ];
+        return createOutbound(
+          actor,
+          msg(locale, "fileTooLargeOutbound", { size: delivered.detail ?? "" }),
+        );
       case "send-failed":
-        return [
-          createOutbound(
-            message.actor,
-            msg(auth.locale, "fileSendFailed", { message: delivered.detail ?? "" }),
-          ),
-        ];
+        return createOutbound(
+          actor,
+          msg(locale, "fileSendFailed", { message: delivered.detail ?? "" }),
+        );
       default:
         // not-allowed 等：/file 正常在 withAuthorizedContext 内先行回复，这里是竞态兜底，
         // 对齐 commandNotAllowed 文案。
-        return [createOutbound(message.actor, msg(auth.locale, "commandNotAllowed"))];
+        return createOutbound(actor, msg(locale, "commandNotAllowed"));
     }
   }
 
@@ -2045,6 +2087,31 @@ export function createBotsService(
         );
         continue;
       }
+      // 3.14.5 Alpha 0（specs/bot-file-delivery.md「Inbound remote workspaces」A1）：
+      // 修复 owner rig 确认的远程断链——file/pdf/video 之前只写 prompt 行（内嵌桌面本地路径），
+      // 远程 workspace 的 desktop-host 包装器（materializeRemotePromptAttachments）在附件列表
+      // 为空时直接 no-op，桌面路径原样发给远端 agent，所有工具读取必然失败。现在同样产出真实
+      // ZCodePromptAttachment：包装器即可把缓存文件上传到远端 ~/.zcode/tmp/prompt-attachments/
+      // 并改写附件与 prompt 行中的路径。kind 映射：入站 video → video；入站 file 且 mimeType 为
+      // application/pdf → pdf（CLI mapper 对 pdf 有专门 content-block 处理；入站协议没有 pdf kind）；
+      // 其余 file → file。新 kind 不携带 dataBase64——CLI 恒优先 localPath，且缓存文件刚刚写入、
+      // 路径必然存在；sizeBytes 用缓存字节数（file kind 协议必填）。image/audio 行为保持逐字节不变
+      // （dataBase64 是否可剥离 deferred 到 preview E2E 验证后再决定）。
+      const promptAttachmentCommonFields = {
+        filename: cached.filename,
+        mimeType: cached.mimeType,
+        sizeBytes: cached.sizeBytes ?? resolved.data.byteLength,
+        localPath: cached.localPath,
+      };
+      const isPdfByMime =
+        cached.mimeType.split(";", 1)[0]?.trim().toLowerCase() === "application/pdf";
+      const promptAttachment: ZCodePromptAttachment =
+        cached.kind === "video"
+          ? { kind: "video", ...promptAttachmentCommonFields }
+          : isPdfByMime
+            ? { kind: "pdf", ...promptAttachmentCommonFields }
+            : { kind: "file", ...promptAttachmentCommonFields };
+      zcodeAttachments.push(promptAttachment);
       fileLines.push(
         `附件：${cached.filename} (${cached.mimeType}, ${formatAttachmentSize(cached.sizeBytes)})，已保存到：${cached.localPath}`,
       );

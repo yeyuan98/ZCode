@@ -46,6 +46,8 @@ const messages = {
     fileCommandUnsupported: "该渠道暂不支持发送文件，会在后续版本提供。",
     // Phase C Alpha 2：远程取回失败（远端不可达/超时/超预算）的如实文案。
     fileRemoteUnavailable: "远程工作区当前不可用，请稍后重试或先 /重连。",
+    // 3.14.5 Alpha 0（A3a）：/file 立即 ack，投递后台执行，不再阻塞聊天队列。
+    fileFetchStarted: "正在获取并发送文件…",
     fileMissingPath: "请指定要发送的文件路径，例如 **/file reports/result.png**。",
     fileOutsideWorkspace: "只能发送当前 workspace 内的文件：{path}",
     fileNotFound: "文件不存在或不可读：{path}",
@@ -175,6 +177,8 @@ const messages = {
     // Phase C Alpha 2: honest wording for remote fetch failures (unreachable/timeout/budget).
     fileRemoteUnavailable:
       "The remote workspace is currently unavailable. Please retry later or send /reconnect first.",
+    // 3.14.5 Alpha 0 (A3a): /file acks immediately; delivery runs in the background.
+    fileFetchStarted: "Fetching and sending the file…",
     fileMissingPath: "Specify the file to send, e.g. **/file reports/result.png**.",
     fileOutsideWorkspace: "Only files inside the current workspace can be sent: {path}",
     fileNotFound: "File not found or unreadable: {path}",
