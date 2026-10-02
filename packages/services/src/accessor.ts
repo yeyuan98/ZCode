@@ -13,7 +13,7 @@ import type { IZCodeAgentService } from "./zcode-agent/zcodeAgent.js";
 import type { IZCodeSessionService } from "./zcode-session/zcodeSession.js";
 import type { ICuaPermissionService } from "./cua-permission-broker/cuaPermissionService.js";
 import type { IConversationExportService } from "./conversation-export/conversationExport.js";
-import type { IBotsService } from "./bots/bots.js";
+import type { IBotsService } from "./bots/contract.js";
 import type { IFileWatcherService } from "./fileWatcher/fileWatcher.js";
 import type {
   IModelSelectionService,

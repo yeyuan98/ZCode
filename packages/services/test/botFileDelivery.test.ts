@@ -378,6 +378,24 @@ const FEISHU_BOT_ID = "bot-fs";
 const TELEGRAM_BOT_ID = "bot-tg";
 const WEBHOOK_BOT_ID = "bot-wh";
 const CONVERSATIONAL_TASK_ID = "task-conv-1";
+/** messages.ts fileFetchStarted（zh）——A3a ack 钉住值：/file 通过快速门槛后的立即回复。 */
+const FILE_FETCH_STARTED_ZH = "正在获取并发送文件…";
+
+/** 3.14.5 Alpha 0（A3a）：/file 结果回复由后台腿经 sendOutbound 发出；轮询捕获到新增回复即返回。 */
+async function waitForSentMessages(
+  sentMessages: BotOutboundMessage[],
+  sentBefore: number,
+  label: string,
+): Promise<BotOutboundMessage[]> {
+  const deadline = Date.now() + 2000;
+  while (sentMessages.length <= sentBefore) {
+    if (Date.now() > deadline) {
+      assert.fail(`等待超时：${label}`);
+    }
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  return sentMessages.slice(sentBefore);
+}
 
 function baseAllowedCommands() {
   return {
@@ -476,6 +494,8 @@ interface Harness {
   service: IBotsService & { disposeAllAndWait(): Promise<void> };
   registry: ReturnType<typeof createBotTaskDeliveryRegistry>;
   sendAttachmentCalls: SendAttachmentCall[];
+  /** A3a：adapter.send 捕获的出站文本消息（/file 后台结果回复等）。 */
+  sentMessages: BotOutboundMessage[];
   /** fake zcodeTaskService.sendPrompt 捕获的 (taskId, botDeliveryTarget) 序列。 */
   sendPromptCalls: Array<{
     taskId: string;
@@ -580,13 +600,17 @@ async function createHarness(options: HarnessOptions = {}): Promise<Harness> {
 
   const registry = createBotTaskDeliveryRegistry();
   const sendAttachmentCalls: SendAttachmentCall[] = [];
+  const sentMessages: BotOutboundMessage[] = [];
   const adapterControl = {
     error: options.sendAttachmentError as Error | undefined,
     delayMs: options.sendAttachmentDelayMs ?? 0,
   };
   const weixinAdapter: BotProviderAdapter = {
     test: async () => ({ ok: true, message: "stub" }),
-    send: async () => undefined,
+    send: async (_bot, message) => {
+      // A3a：/file 后台结果回复经 sendOutbound → adapter.send 发出，这里捕获供断言。
+      sentMessages.push(message);
+    },
     sendAttachment: async (bot, message, attachment) => {
       if (adapterControl.delayMs > 0) {
         await new Promise((resolve) => setTimeout(resolve, adapterControl.delayMs));
@@ -799,6 +823,7 @@ async function createHarness(options: HarnessOptions = {}): Promise<Harness> {
     service,
     registry,
     sendAttachmentCalls,
+    sentMessages,
     sendPromptCalls,
     adapterControl,
     workspacePath: workspace,
@@ -815,8 +840,17 @@ async function createHarness(options: HarnessOptions = {}): Promise<Harness> {
       const replies = await service.handleInboundMessage(
         buildInbound({ text: `/file ${value}`, ...overrides }),
       );
-      await new Promise((resolve) => setTimeout(resolve, 10));
-      return replies;
+      // A3a：快速门槛失败 → 同步失败回复（无 ack、无后台腿）；通过 → ack + 后台结果回复。
+      const isAck = replies.length === 1 && replies[0].text === FILE_FETCH_STARTED_ZH;
+      if (!isAck) {
+        return replies;
+      }
+      const background = await waitForSentMessages(
+        sentMessages,
+        sentMessages.length,
+        "/file 后台结果回复",
+      );
+      return [...replies, ...background];
     },
     readRawConfig: () => readFile(join(configDir, BOTS_CONFIG_FILE), "utf8"),
     readRawState: () => readFile(join(configDir, BOTS_STATE_FILE), "utf8"),
@@ -1365,10 +1399,10 @@ test("shareFile quota：10 分钟内第 4 次 tool 投递被拒；/file 不受�
     assert.deepEqual(fourth, { ok: false, reason: "quota-exceeded" });
     // 配额拒绝发生在任何文件 IO 之前：adapter 调用数不变。
     assert.equal(harness.sendAttachmentCalls.length, 3);
-    // /file 永不受配额限制：连续 25 次全部尝试投递。
+    // /file 永不受配额限制：连续 25 次全部尝试投递（A3a：ack 后后台结果回复到达）。
     for (let index = 0; index < 25; index += 1) {
       const replies = await harness.sendFileCommand("out/result.txt");
-      assert.match(replies[0].text, /^已发送 result\.txt（\d+B）。$/);
+      assert.match(replies.at(-1)!.text, /^已发送 result\.txt（\d+B）。$/);
     }
     assert.equal(harness.sendAttachmentCalls.length, 28);
   } finally {
@@ -1522,7 +1556,7 @@ test("/file 远程 happy path（Phase C Alpha 2）：已连接远程取回分块
   });
   try {
     const replies = await harness.sendFileCommand("out/remote-result.bin");
-    assert.match(replies[0].text, /^已发送 remote-result\.bin（\d+B）。$/);
+    assert.match(replies.at(-1)!.text, /^已发送 remote-result\.bin（\d+B）。$/);
     assert.equal(harness.sendAttachmentCalls.length, 1);
     const call = harness.sendAttachmentCalls[0];
     // 调用时刻临时文件存在且内容按序重组。
@@ -1570,7 +1604,7 @@ test("/file 远程绝对路径平价（Phase C Alpha 3）：root 内绝对路径
   try {
     const absoluteInside = join(insideHarness.workspacePath, "out/remote-result.bin");
     const replies = await insideHarness.sendFileCommand(absoluteInside);
-    assert.match(replies[0].text, /^已发送 remote-result\.bin（\d+B）。$/);
+    assert.match(replies.at(-1)!.text, /^已发送 remote-result\.bin（\d+B）。$/);
     assert.equal(insideHarness.sendAttachmentCalls.length, 1);
     // 钉住透传不变量：desktop 对远端路径不做任何重写/归一化。
     assert.ok(readerCalls.length > 0, "reader 必须被调用");
@@ -1596,7 +1630,7 @@ test("/file 远程绝对路径平价（Phase C Alpha 3）：root 内绝对路径
     const absoluteOutside = join(tmpdir(), "outside-secret.bin");
     const replies = await outsideHarness.sendFileCommand(absoluteOutside);
     assert.equal(outsideHarness.sendAttachmentCalls.length, 0);
-    assert.equal(replies[0].text, `只能发送当前 workspace 内的文件：${absoluteOutside}`);
+    assert.equal(replies.at(-1)!.text, `只能发送当前 workspace 内的文件：${absoluteOutside}`);
   } finally {
     await outsideHarness.dispose();
   }
@@ -1660,12 +1694,13 @@ test("微信文字模式工具摘要行（review 修复）：share_file 状态�
 test("单一写出核心：/file 失败零投递且回复文案保持既有本地化（pin 既有字符串）", async () => {
   const harness = await createHarness();
   try {
+    // A3a：同步回复是 ack，结果文案（成功与失败）由后台腿发出——文案本身逐字保持。
     const outside = await harness.sendFileCommand("../../outside.txt");
-    assert.equal(outside[0].text, "只能发送当前 workspace 内的文件：../../outside.txt");
+    assert.equal(outside.at(-1)!.text, "只能发送当前 workspace 内的文件：../../outside.txt");
     const missing = await harness.sendFileCommand("missing.bin");
-    assert.equal(missing[0].text, "文件不存在或不可读：missing.bin");
+    assert.equal(missing.at(-1)!.text, "文件不存在或不可读：missing.bin");
     const sent = await harness.sendFileCommand("out/result.txt");
-    assert.equal(sent[0].text, "已发送 result.txt（11B）。");
+    assert.equal(sent.at(-1)!.text, "已发送 result.txt（11B）。");
     assert.equal(harness.sendAttachmentCalls.length, 1);
   } finally {
     await harness.dispose();
@@ -1740,7 +1775,7 @@ test("token 偏好：tool 取最新持久化 token 覆盖陈旧捕获 token；/f
     const commandReplies = await harness.sendFileCommand("out/result.txt", {
       token: "token-per-message",
     });
-    assert.match(commandReplies[0].text, /^已发送/);
+    assert.match(commandReplies.at(-1)!.text, /^已发送/);
     const commandCall = harness.sendAttachmentCalls.at(-1);
     assert.ok(commandCall);
     assert.equal(readRegistryActorToken(commandCall), "token-per-message");
@@ -1984,7 +2019,7 @@ test("/file 远程失败映射：remote-unavailable 回复新本地化文案", a
   });
   try {
     const replies = await harness.sendFileCommand("out/result.txt");
-    assert.equal(replies[0].text, "远程工作区当前不可用，请稍后重试或先 /重连。");
+    assert.equal(replies.at(-1)!.text, "远程工作区当前不可用，请稍后重试或先 /重连。");
     assert.equal(harness.sendAttachmentCalls.length, 0);
   } finally {
     await harness.dispose();
