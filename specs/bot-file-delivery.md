@@ -13,11 +13,14 @@ inputs are dropped by design). Alpha 4 (chain self-announcing diagnostics + thre
 stdio-handshake race fixes, found via the new built-bundle E2E) **shipped** in
 `3.14.4-alpha.4` (PR #8) — **owner-rig validated 2026-10-01**: remote conversational
 `share_file` and `/file` (relative AND absolute-inside paths) all deliver over real SSH.
-Next: **Alpha 5 — Telegram + Feishu/Lark outbound senders (spec'd below — Phase C Alpha 5;
-implementation pending; targets `3.14.4-alpha.5`)** — the last milestone before official
-3.14.4.
-Alpha 6 (bot provider network/proxy + observability + cursor persistence): see
-specs/bot-provider-network.md.
+Alpha 5 (Telegram + Feishu/Lark outbound senders) **shipped** in `3.14.4-alpha.5` (PR #10)
+— **rig-validated 2026-10-02**: Feishu full pass on the owner rig; Telegram was blocked by
+the GFW network incident (bot egress ignored proxies — root cause proven on a live rig,
+see specs/bot-provider-network.md) and validated end-to-end (`/bind`, `/file` incl.
+subfolder paths) after Alpha 6 routed bot traffic through the app proxy.
+Alpha 6 (bot provider network/proxy + observability + cursor persistence) **shipped** in
+`3.14.4-alpha.6` (PR #11) — owner-rig validated 2026-10-02; see
+specs/bot-provider-network.md. **Train complete → official `3.14.4`.**
 Full-feature playbook: ../ZCode-handoff.md.
 Owners: bots service (`packages/services/src/bots/botsService.ts`) — command admission, path
 policy, size gates, `taskDeliveryRegistry` + `deliverWorkspaceFile` single writer + tool-source
