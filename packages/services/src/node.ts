@@ -77,12 +77,13 @@ export { createBroadcastService } from "./broadcast/broadcastService.js";
 export { createZCodeAgentService } from "./zcode-agent/zcodeAgentService.js";
 // Phase C Alpha 3：share_file 跨 Host forward 的三个装配工厂（桌面 handler / 远端
 // forwarder / executor 装配裁决），供 window Host 与 stdio 入口复用并各自单测。
-// bots 子模块公共入口统一走 bots/contract.ts（architecture-policy publicEntrypoints）。
+// bots 子模块公共入口统一走 bots/contract.node.ts（Node 装配；浏览器安全子契约
+// 在 bots/contract.ts，二者均为 architecture-policy publicEntrypoints）。
 export {
   createBotsShareFileExecutor,
   createBotShareFileForwarder,
   createDesktopBotShareFileForwardService,
-} from "./bots/contract.js";
+} from "./bots/contract.node.js";
 export { createZCodeTaskServiceAdapter } from "./zcode-agent/zcodeTaskServiceAdapter.js";
 export { createZCodeSessionService } from "./zcode-session/zcodeSessionService.js";
 export {
@@ -119,7 +120,7 @@ export type {
   CuaHelperInstaller,
   CuaHelperInstallerOptions,
 } from "./cua-permission-broker/index.js";
-export { createBotsService } from "./bots/contract.js";
+export { createBotsService } from "./bots/contract.node.js";
 export { createFileWatcherService } from "./fileWatcher/fileWatcherService.js";
 export { ensureDeviceMid } from "./device/deviceMid.js";
 export type { EnsureDeviceMidOptions } from "./device/deviceMid.js";
@@ -255,16 +256,16 @@ import { IZCodeTaskService } from "./session/zcodeTaskService.js";
 import { IZCodeAgentService } from "./zcode-agent/zcodeAgent.js";
 import type { CuaOperationStateReporter } from "./zcode-agent/cuaOperationTurnTracker.js";
 import { IZCodeSessionService } from "./zcode-session/zcodeSession.js";
-import { IBotsService } from "./bots/contract.js";
+import { IBotsService } from "./bots/contract.node.js";
 import {
   createBotWorkspaceFileService,
   IBotWorkspaceFileService,
   type BotWorkspaceFileV4Forwarder,
-} from "./bots/contract.js";
+} from "./bots/contract.node.js";
 import {
   createBotsShareFileExecutor,
   type BotShareFileForwarder,
-} from "./bots/contract.js";
+} from "./bots/contract.node.js";
 import { IFileWatcherService } from "./fileWatcher/fileWatcher.js";
 import { IUsageStatsService } from "./usage-stats/usageStats.js";
 // P5 D-P5.4：IClientScenesService 已随 endpoint web / clientScenes 链删除。
@@ -301,8 +302,8 @@ import { createZCodeTaskServiceAdapter } from "./zcode-agent/zcodeTaskServiceAda
 import { createZCodeSessionService } from "./zcode-session/zcodeSessionService.js";
 import { createZCodeTaskIndexSyncer } from "./zcode-agent/zcodeTaskIndexSyncer.js";
 import { TaskIndexRepo } from "./session/taskIndexRepo.js";
-import { createBotsService } from "./bots/contract.js";
-import { createBotRemoteWorkspaceService } from "./bots/contract.js";
+import { createBotsService } from "./bots/contract.node.js";
+import { createBotRemoteWorkspaceService } from "./bots/contract.node.js";
 import type { SessionMessageSendRequested } from "#src/session/sessionMailbox.js";
 import { createFileWatcherService } from "./fileWatcher/fileWatcherService.js";
 import { readLegacyZCodeConfigProviders } from "./model-provider/legacyZCodeConfigProviderReader.js";
