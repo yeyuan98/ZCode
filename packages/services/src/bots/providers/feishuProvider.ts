@@ -16,11 +16,13 @@ import type {
   BotTransientInteractionCardHandle,
 } from "./types.js";
 import { formatBotMessage } from "../messages.js";
-import { fetchBotProviderJson } from "#src/bots/providers/providerRequest.js";
+import type { BotProviderRequester } from "#src/bots/providers/providerRequest.js";
 
 interface FeishuProviderDeps {
   loadCredential(key: string): Promise<string | null>;
   onDeliveryResult?(bot: BotConfig, error: string | undefined): void;
+  /** 全部飞书 API/资源出站请求的唯一出口（specs/bot-provider-network.md F1）。 */
+  requester: BotProviderRequester;
 }
 
 export interface FeishuWebSocketClient {
@@ -1088,7 +1090,7 @@ async function readTenantAccessToken(
   if (cached && cached.expiresAt > Date.now() + 60_000) {
     return cached.token;
   }
-  const response = await fetchBotProviderJson<FeishuAccessTokenResponse>(
+  const response = await deps.requester.fetchBotProviderJson<FeishuAccessTokenResponse>(
     `${getFeishuBaseUrl(bot)}/open-apis/auth/v3/tenant_access_token/internal`,
     {
       method: "POST",
@@ -1142,12 +1144,13 @@ function createFeishuMessageError(
 
 async function sendFeishuInteractiveCard(
   bot: BotConfig,
+  deps: FeishuProviderDeps,
   token: string,
   receiveId: string,
   card: Record<string, unknown>,
   signal?: AbortSignal,
 ): Promise<string | null> {
-  const response = await fetchBotProviderJson<FeishuSendMessageResponse>(
+  const response = await deps.requester.fetchBotProviderJson<FeishuSendMessageResponse>(
     `${getFeishuBaseUrl(bot)}/open-apis/im/v1/messages?receive_id_type=${resolveFeishuReceiveIdType(receiveId)}`,
     {
       method: "POST",
@@ -1202,6 +1205,7 @@ function mapFeishuUploadFileType(attachment: Pick<BotOutboundAttachment, "filena
 
 async function uploadFeishuImage(
   bot: BotConfig,
+  deps: FeishuProviderDeps,
   token: string,
   bytes: Uint8Array<ArrayBuffer>,
 ): Promise<string> {
@@ -1209,7 +1213,7 @@ async function uploadFeishuImage(
   const form = new FormData();
   form.append("image_type", "message_type");
   form.append("image", new Blob([bytes]));
-  const response = await fetchBotProviderJson<FeishuMediaUploadResponse>(
+  const response = await deps.requester.fetchBotProviderJson<FeishuMediaUploadResponse>(
     `${getFeishuBaseUrl(bot)}/open-apis/im/v1/images`,
     {
       method: "POST",
@@ -1237,6 +1241,7 @@ async function uploadFeishuImage(
 
 async function uploadFeishuFile(
   bot: BotConfig,
+  deps: FeishuProviderDeps,
   token: string,
   attachment: Pick<BotOutboundAttachment, "filename" | "mimeType">,
   bytes: Uint8Array<ArrayBuffer>,
@@ -1245,7 +1250,7 @@ async function uploadFeishuFile(
   form.append("file_type", mapFeishuUploadFileType(attachment));
   form.append("file_name", attachment.filename);
   form.append("file", new Blob([bytes]), attachment.filename);
-  const response = await fetchBotProviderJson<FeishuMediaUploadResponse>(
+  const response = await deps.requester.fetchBotProviderJson<FeishuMediaUploadResponse>(
     `${getFeishuBaseUrl(bot)}/open-apis/im/v1/files`,
     {
       method: "POST",
@@ -1271,12 +1276,13 @@ async function uploadFeishuFile(
  */
 async function sendFeishuMediaMessage(
   bot: BotConfig,
+  deps: FeishuProviderDeps,
   token: string,
   receiveId: string,
   msgType: "image" | "file",
   content: Record<string, unknown>,
 ): Promise<void> {
-  const response = await fetchBotProviderJson<FeishuSendMessageResponse>(
+  const response = await deps.requester.fetchBotProviderJson<FeishuSendMessageResponse>(
     `${getFeishuBaseUrl(bot)}/open-apis/im/v1/messages?receive_id_type=${resolveFeishuReceiveIdType(receiveId)}`,
     {
       method: "POST",
@@ -1306,12 +1312,13 @@ async function sendFeishuMediaMessage(
 
 async function updateFeishuInteractiveMessage(
   bot: BotConfig,
+  deps: FeishuProviderDeps,
   token: string,
   handle: BotStreamingReplyCardHandle,
   card: Record<string, unknown>,
   signal?: AbortSignal,
 ): Promise<void> {
-  const response = await fetchBotProviderJson<FeishuSendMessageResponse>(
+  const response = await deps.requester.fetchBotProviderJson<FeishuSendMessageResponse>(
     `${getFeishuBaseUrl(bot)}/open-apis/im/v1/messages/${encodeURIComponent(handle.providerMessageId)}`,
     {
       method: "PATCH",
@@ -1340,10 +1347,11 @@ async function updateFeishuInteractiveMessage(
 
 async function deleteFeishuInteractiveMessage(
   bot: BotConfig,
+  deps: FeishuProviderDeps,
   token: string,
   handle: BotTransientInteractionCardHandle,
 ): Promise<void> {
-  const response = await fetchBotProviderJson<FeishuSendMessageResponse>(
+  const response = await deps.requester.fetchBotProviderJson<FeishuSendMessageResponse>(
     `${getFeishuBaseUrl(bot)}/open-apis/im/v1/messages/${encodeURIComponent(handle.providerMessageId)}`,
     {
       method: "DELETE",
@@ -1379,10 +1387,11 @@ function resolveFeishuAppDisplayName(payload: FeishuAppInfoResponse): string | n
 
 async function fetchFeishuAppDisplayName(
   bot: BotConfig,
+  deps: FeishuProviderDeps,
   token: string,
   appId: string,
 ): Promise<string | null> {
-  const response = await fetchBotProviderJson<FeishuAppInfoResponse>(
+  const response = await deps.requester.fetchBotProviderJson<FeishuAppInfoResponse>(
     `${getFeishuBaseUrl(bot)}/open-apis/application/v6/applications/${appId}?lang=zh_cn`,
     {
       headers: {
@@ -1413,7 +1422,7 @@ async function readFeishuAppDisplayName(
   }
   let appIdError: unknown;
   try {
-    const appName = await fetchFeishuAppDisplayName(bot, token, bot.feishuAppId);
+    const appName = await fetchFeishuAppDisplayName(bot, deps, token, bot.feishuAppId);
     if (appName?.trim()) {
       return appName;
     }
@@ -1422,7 +1431,7 @@ async function readFeishuAppDisplayName(
   }
   try {
     // Bugfix: 飞书 / Lark 扫码创建后 app_id 路径可能因为权限或同步延迟暂不可读；me 路径更适合读取当前应用名称。
-    return await fetchFeishuAppDisplayName(bot, token, "me");
+    return await fetchFeishuAppDisplayName(bot, deps, token, "me");
   } catch (error) {
     throw appIdError ?? error;
   }
@@ -1462,7 +1471,7 @@ async function readFeishuUserDisplayName(
     return null;
   }
   const userIdType = resolveFeishuUserIdType(trimmedUserId);
-  const response = await fetchBotProviderJson<FeishuUserInfoResponse>(
+  const response = await deps.requester.fetchBotProviderJson<FeishuUserInfoResponse>(
     `${getFeishuBaseUrl(bot)}/open-apis/contact/v3/users/${encodeURIComponent(trimmedUserId)}?user_id_type=${userIdType}`,
     {
       headers: {
@@ -1504,7 +1513,7 @@ async function addFeishuTypingReaction(
   if (typingReactionIds.has(key)) {
     return;
   }
-  const response = await fetchBotProviderJson<FeishuReactionResponse>(
+  const response = await deps.requester.fetchBotProviderJson<FeishuReactionResponse>(
     `${getFeishuBaseUrl(bot)}/open-apis/im/v1/messages/${messageId}/reactions`,
     {
       method: "POST",
@@ -1545,7 +1554,7 @@ async function deleteFeishuTypingReaction(
   if (!token) {
     return;
   }
-  const response = await fetchBotProviderJson<FeishuReactionResponse>(
+  const response = await deps.requester.fetchBotProviderJson<FeishuReactionResponse>(
     `${getFeishuBaseUrl(bot)}/open-apis/im/v1/messages/${messageId}/reactions/${reactionId}`,
     {
       method: "DELETE",
@@ -1766,10 +1775,26 @@ export function createFeishuBotProvider(deps: FeishuProviderDeps): BotProviderAd
       throw error;
     }
   }
-  const sendCard = (...args: Parameters<typeof sendFeishuInteractiveCard>) =>
-    trackDelivery(args[0], args[4], () => sendFeishuInteractiveCard(...args));
-  const updateCard = (...args: Parameters<typeof updateFeishuInteractiveMessage>) =>
-    trackDelivery(args[0], args[4], () => updateFeishuInteractiveMessage(...args));
+  const sendCard = (
+    bot: BotConfig,
+    token: string,
+    receiveId: string,
+    card: Record<string, unknown>,
+    signal?: AbortSignal,
+  ) =>
+    trackDelivery(bot, signal, () =>
+      sendFeishuInteractiveCard(bot, deps, token, receiveId, card, signal),
+    );
+  const updateCard = (
+    bot: BotConfig,
+    token: string,
+    handle: BotStreamingReplyCardHandle,
+    card: Record<string, unknown>,
+    signal?: AbortSignal,
+  ) =>
+    trackDelivery(bot, signal, () =>
+      updateFeishuInteractiveMessage(bot, deps, token, handle, card, signal),
+    );
   return {
     splitStreamingReplyCardStates: splitFeishuStreamingCardStates,
     async test(bot) {
@@ -1845,8 +1870,8 @@ export function createFeishuBotProvider(deps: FeishuProviderDeps): BotProviderAd
       const receiveId = message.providerUserId;
       if (attachment.kind === "image") {
         // 图片走 im/v1/images（10MB API 限制，内联渲染），随后独立气泡发送。
-        const imageKey = await uploadFeishuImage(bot, token, bytes);
-        await sendFeishuMediaMessage(bot, token, receiveId, "image", { image_key: imageKey });
+        const imageKey = await uploadFeishuImage(bot, deps, token, bytes);
+        await sendFeishuMediaMessage(bot, deps, token, receiveId, "image", { image_key: imageKey });
         return;
       }
       // 飞书 im/v1/files 会拒绝 0 字节文件：上传前如实失败，
@@ -1855,8 +1880,8 @@ export function createFeishuBotProvider(deps: FeishuProviderDeps): BotProviderAd
         throw new Error(`Feishu upload file rejected: ${attachment.filename} is empty (0 bytes).`);
       }
       // video/file 一律走 im/v1/files 文件通道（30MB API 限制）。
-      const fileKey = await uploadFeishuFile(bot, token, attachment, bytes);
-      await sendFeishuMediaMessage(bot, token, receiveId, "file", { file_key: fileKey });
+      const fileKey = await uploadFeishuFile(bot, deps, token, attachment, bytes);
+      await sendFeishuMediaMessage(bot, deps, token, receiveId, "file", { file_key: fileKey });
     },
 
     async createStreamingReplyCard(bot, state, signal) {
@@ -1918,7 +1943,7 @@ export function createFeishuBotProvider(deps: FeishuProviderDeps): BotProviderAd
       if (!token) {
         return;
       }
-      await deleteFeishuInteractiveMessage(bot, token, handle);
+      await deleteFeishuInteractiveMessage(bot, deps, token, handle);
     },
 
     async sendTyping(bot, target) {
@@ -1959,7 +1984,7 @@ export function createFeishuBotProvider(deps: FeishuProviderDeps): BotProviderAd
       // 非共享卡片延时更新还需要带 open_ids，否则飞书会返回 300090，旧卡片会继续留在会话里。
       // Bugfix: 用户选择后应保留原问题文案并移除按钮；仅依赖 WebSocket 回调 return 的卡片更新不稳定。
       // 因此即使按钮 value 里带了原文，也必须继续调用 card/update，只是更新文案优先使用原文。
-      const response = await fetchBotProviderJson<FeishuSendMessageResponse>(
+      const response = await deps.requester.fetchBotProviderJson<FeishuSendMessageResponse>(
         `${getFeishuBaseUrl(bot)}/open-apis/interactive/v1/card/update`,
         {
           method: "POST",
@@ -2006,7 +2031,8 @@ export function createFeishuBotProvider(deps: FeishuProviderDeps): BotProviderAd
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), FEISHU_ATTACHMENT_DOWNLOAD_TIMEOUT_MS);
       try {
-        const response = await fetch(
+        // 修复原因：飞书资源下载此前走裸 fetch，绕过应用代理；统一改走注入的 requester。
+        const response = await deps.requester.fetch(
           `${getFeishuBaseUrl(bot)}/open-apis/im/v1/messages/${encodeURIComponent(actor.providerMessageId)}/resources/${encodeURIComponent(attachment.providerFileId)}?type=${attachment.kind === "image" ? "image" : attachment.kind === "video" ? "media" : attachment.kind}`,
           {
             headers: {

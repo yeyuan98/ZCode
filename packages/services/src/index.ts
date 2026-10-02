@@ -190,6 +190,7 @@ export type {
   BotCreateBindCodeParams,
   BotListWorkspaceRefsParams,
   BotSaveBotParams,
+  BotSaveBotResult,
   BotTestResult,
 } from "./bots/bots.js";
 // Bot 出站投递的远端 workspace 文件读取窄化 channel（Phase C Alpha 2）。

@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import type { BotConfig, BotOutboundAttachment, BotOutboundMessage } from "@zcode/shared";
 import { createTelegramBotProvider } from "../src/bots/providers/telegramProvider.js";
+import { createBotProviderRequester } from "../src/bots/providers/providerRequest.js";
 
 // specs/bot-file-delivery.md Phase C Alpha 5 验收场景 3：Telegram adapter
 // sendAttachment —— 全程 stub 全局 fetch，无真实网络；只走 sendDocument 文档通道。
@@ -111,6 +112,8 @@ test("telegram sendAttachment：sendDocument multipart + 显式 60s 超时", asy
   try {
     const provider = createTelegramBotProvider({
       loadCredential: async () => TELEGRAM_TOKEN,
+      // Alpha 6 F1：adapter 出站改走注入 requester；stub 安装后构造即捕获 stub 后的 global fetch。
+      requester: createBotProviderRequester(),
     });
     const sendAttachment = provider.sendAttachment;
     assert.ok(sendAttachment, "telegram adapter must implement sendAttachment");
@@ -156,6 +159,8 @@ test("telegram sendAttachment：payload.ok=false → 抛错携带 description �
   try {
     const provider = createTelegramBotProvider({
       loadCredential: async () => TELEGRAM_TOKEN,
+      // Alpha 6 F1：adapter 出站改走注入 requester；stub 安装后构造即捕获 stub 后的 global fetch。
+      requester: createBotProviderRequester(),
     });
     const sendAttachment = provider.sendAttachment;
     assert.ok(sendAttachment, "telegram adapter must implement sendAttachment");
@@ -183,6 +188,7 @@ test("telegram sendAttachment：缺少 token → 拒绝且不发起任何请求"
   try {
     const provider = createTelegramBotProvider({
       loadCredential: async () => null,
+      requester: createBotProviderRequester(),
     });
     const sendAttachment = provider.sendAttachment;
     assert.ok(sendAttachment, "telegram adapter must implement sendAttachment");
@@ -218,6 +224,8 @@ async function readSyncedCommands(
   try {
     const provider = createTelegramBotProvider({
       loadCredential: async () => TELEGRAM_TOKEN,
+      // Alpha 6 F1：adapter 出站改走注入 requester；stub 安装后构造即捕获 stub 后的 global fetch。
+      requester: createBotProviderRequester(),
     });
     const bot = buildTelegramBot();
     if (botOverrides && "file" in botOverrides) {

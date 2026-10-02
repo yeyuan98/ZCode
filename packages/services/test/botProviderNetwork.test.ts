@@ -1,0 +1,1166 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+import { mkdtemp, mkdir, rm, writeFile, readFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import type { IDisposable } from "@zcode/rpc";
+import type { BotActor, BotConfig, BotInboundAttachment, BotInboundMessage } from "@zcode/shared";
+import {
+  ZCODE_AGENT_PROVIDER,
+  botsStateFileSchema,
+  type ZCodeAutomationBotDeliveryTarget,
+} from "@zcode/shared";
+import { createBotProviderRequester } from "../src/bots/providers/providerRequest.js";
+import {
+  encodeWeixinMediaAesKey,
+  encryptWeixinCdnMediaForTest,
+} from "../src/bots/providers/weixinProvider.js";
+import { createBotsService } from "../src/bots/botsService.js";
+import { BOTS_CONFIG_FILE, BOTS_STATE_FILE } from "../src/bots/config.js";
+import { getAppConfigDir, setDataBaseDir } from "../src/paths.js";
+import type { IBotsService } from "../src/bots/bots.js";
+import type { IZCodeTaskService } from "../src/session/zcodeTaskService.js";
+import type { ICredentialService } from "../src/credential/credential.js";
+import type { IModelSelectionService } from "../src/model-provider/providerFacadeServices.js";
+
+// specs/bot-provider-network.md F1 验收场景 1-4、10：bot provider 全部出站 HTTP 走注入
+// requester（providerFetch 组合缝）；缺省回落 globalThis.fetch 零漂移；transport 销毁
+// fail-closed 不回退直连。全程 stub 注入 fetch / global fetch，无真实网络。
+// F0/F0b 验收场景 5、7、8：poller 错误携带真实原因（状态 + warn 日志）、saveBot 的
+// resolveName 失败带回添加流程、error→polling 恢复后 syncCommands 自愈恰好一次。
+// Review alpha.6 FIX1：补齐通用 downloadUrl 附件回落、飞书一键建应用、微信扫码登录
+// 三处 requester 路由出口的注入断言（providerFetch 被调用且 globalThis.fetch 零调用）。
+
+interface CapturedFetchCall {
+  url: string;
+  init: RequestInit | undefined;
+}
+
+type FetchRouter = (call: CapturedFetchCall) => Response | Promise<Response>;
+
+function jsonResponse(payload: unknown, headers?: Record<string, string>): Response {
+  return new Response(JSON.stringify(payload), {
+    status: 200,
+    headers: { "content-type": "application/json", ...headers },
+  });
+}
+
+/** 捕获型 fetch stub：记录全部调用并按 URL 路由应答。 */
+function createRecordingFetch(router: FetchRouter): {
+  fetch: typeof globalThis.fetch;
+  calls: CapturedFetchCall[];
+} {
+  const calls: CapturedFetchCall[] = [];
+  const stub = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const call = { url: String(input), init };
+    calls.push(call);
+    return router(call);
+  }) as typeof globalThis.fetch;
+  return { fetch: stub, calls };
+}
+
+/**
+ * 间谍 globalThis.fetch：任何直连回退都会计数（review FIX1 断言“注入 fetch 被调用
+ * 且 globalThis.fetch 未被调用”的负侧）。只在单个 test 内安装并在 finally 恢复。
+ */
+function spyGlobalFetch(): { calls: string[]; restore(): void } {
+  const calls: string[] = [];
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = (async (input: RequestInfo | URL) => {
+    calls.push(String(input));
+    return jsonResponse({ ok: true });
+  }) as typeof globalThis.fetch;
+  return {
+    calls,
+    restore: () => {
+      globalThis.fetch = realFetch;
+    },
+  };
+}
+
+// ---- 场景 1：requester 工厂单元 ----
+
+test("requester 工厂：三个 helper 全部使用注入的 fetch", async () => {
+  const recorder = createRecordingFetch(() => jsonResponse({ ok: true, answer: 42 }));
+  const requester = createBotProviderRequester(recorder.fetch);
+
+  const plain = await requester.fetchBotProvider("https://bot.example/plain");
+  assert.deepEqual(plain, { ok: true, status: 200 });
+
+  const json = await requester.fetchBotProviderJson<{ answer: number }>("https://bot.example/json");
+  assert.equal(json.payload?.answer, 42);
+  assert.equal(json.responseLogId, undefined);
+
+  const withHeaders = await requester.fetchBotProviderWithHeaders("https://bot.example/headers");
+  assert.equal(withHeaders.ok, true);
+  assert.equal(withHeaders.headers["content-type"], "application/json");
+
+  // 三个 helper 各命中注入 fetch 一次；deadline 信号由 requester 统一接线。
+  assert.deepEqual(
+    recorder.calls.map((call) => call.url),
+    ["https://bot.example/plain", "https://bot.example/json", "https://bot.example/headers"],
+  );
+  for (const call of recorder.calls) {
+    assert.ok(call.init?.signal instanceof AbortSignal);
+  }
+});
+
+test("requester 工厂：缺省构造使用 globalThis.fetch（身份路由）", async () => {
+  const recorder = createRecordingFetch(() => jsonResponse({ ok: true }));
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = recorder.fetch;
+  try {
+    // 缺省参数在构造时捕获 globalThis.fetch——stub 安装后构造即走 stub。
+    const requester = createBotProviderRequester();
+    await requester.fetchBotProvider("https://bot.example/default");
+    await requester.fetchBotProviderJson("https://bot.example/default-json");
+    assert.equal(recorder.calls.length, 2);
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
+// ---- 服务级路由覆盖（场景 2）：createBotsService + providerFetch，无 providerOverrides ----
+
+const TELEGRAM_TOKEN = "tg-token-net-1";
+const WEIXIN_TOKEN = "wx-token-net-1";
+const FEISHU_APP_ID = "cli_9000000000000001";
+const FEISHU_SECRET = "feishu-app-secret-net-1";
+const WEBHOOK_SECRET = "wh-secret-net-1";
+const CONVERSATIONAL_TASK_ID = "task-net-conv-1";
+
+const TELEGRAM_FILE_BYTES = Buffer.from(
+  "telegram inbound file payload (network transport)",
+  "utf8",
+);
+const WEIXIN_FILE_PLAINTEXT = Buffer.from("weixin inbound cdn payload (network transport)", "utf8");
+const WEIXIN_AES_KEY_HEX = "0f1e2d3c4b5a69788796a5b4c3d2e1f0";
+const FEISHU_FILE_BYTES = Buffer.from(
+  "feishu inbound resource payload (network transport)",
+  "utf8",
+);
+// Review alpha.6 FIX1：通用 downloadUrl 回落下载（webhook 等无 provider 专用下载器的通道）。
+const GENERIC_ATTACHMENT_DOWNLOAD_URL = "https://files.example.net/attach/dl-fallback.bin";
+const GENERIC_ATTACHMENT_BYTES = Buffer.from(
+  "generic downloadUrl fallback payload (network transport)",
+  "utf8",
+);
+// Review alpha.6 FIX1：一键建应用 / 扫码登录 registration 端点（feishuAppRegistration / weixinRegistration）。
+const FEISHU_REGISTRATION_URL = "https://accounts.feishu.cn/oauth/v1/app/registration";
+
+function baseAllowedCommands() {
+  return {
+    status: true,
+    new: true,
+    workspace: true,
+    model: true,
+    thoughtLevel: true,
+    reply: true,
+  };
+}
+
+interface ServiceHarness {
+  service: IBotsService;
+  calls: CapturedFetchCall[];
+  sendPromptCalls: Array<{ taskId: string }>;
+  dataRoot: string;
+  workspace: string;
+  dispose(): Promise<void>;
+}
+
+interface ServiceHarnessOptions {
+  bots: Array<Partial<BotConfig> & { id: string; provider: BotConfig["provider"] }>;
+  providerFetch?: typeof globalThis.fetch;
+  /** 显式不注入 providerFetch（缺省组合回落 globalThis.fetch，场景 3）。 */
+  omitProviderFetch?: boolean;
+  runStartupBackgroundTasks?: boolean;
+  getUpdatesAfterFirstHang?: boolean;
+  /** F0 场景7：覆盖 telegram getMe 应答（resolveName 路径）。 */
+  getMeOutcome?: (call: CapturedFetchCall) => Response | Promise<Response>;
+  /** F0/F0b 场景5、8：接管 getUpdates 应答（按调用序号脚本化成功/失败）。 */
+  getUpdatesOutcome?: (call: CapturedFetchCall, count: number) => Response | Promise<Response>;
+  /** F4 场景9：跳过默认 state entry 播种（复现“无 state entry”触发条件）。 */
+  omitBotStateEntries?: boolean;
+  /** F4 场景9：按 botId 追加/覆盖/删除（null）state entry。 */
+  stateBotOverrides?: Record<string, Record<string, unknown> | null>;
+  /** F4 场景9：接管微信 /getupdates 应答（按调用序号脚本化）。 */
+  weixinGetUpdatesOutcome?: (
+    call: CapturedFetchCall,
+    count: number,
+  ) => Response | Promise<Response>;
+}
+
+/**
+ * 真实 provider 装配的服务级 harness：临时 data 目录 + 配置/状态落盘 +
+ * 全端点 fetch 路由 stub。不传 providerOverrides——出站全部走真实 adapter，
+ * 用于证明 providerFetch 注入覆盖所有原裸 fetch 出口。
+ */
+async function createServiceHarness(options: ServiceHarnessOptions): Promise<ServiceHarness> {
+  const dataRoot = await mkdtemp(join(tmpdir(), "zcode-bot-net-"));
+  setDataBaseDir(dataRoot);
+  const workspace = await mkdtemp(join(tmpdir(), "zcode-bot-net-ws-"));
+  await writeFile(join(workspace, "out.txt"), "hello");
+  const configDir = getAppConfigDir();
+  await mkdir(configDir, { recursive: true });
+
+  const botDefaults = {
+    enabled: true,
+    allowedWorkspaces: ["*"],
+    allowedCommands: baseAllowedCommands(),
+    currentOptions: {},
+    replyMode: "assistant_changes",
+  };
+  const bots = options.bots.map((bot) => ({
+    name: bot.id,
+    providerUserId: "net-user-1",
+    ...botDefaults,
+    ...bot,
+  }));
+  await writeFile(join(configDir, BOTS_CONFIG_FILE), JSON.stringify({ version: 3, bots }));
+
+  const stateBots: Record<string, unknown> = {};
+  if (!options.omitBotStateEntries) {
+    for (const bot of options.bots) {
+      stateBots[bot.id] = {
+        botId: bot.id,
+        workspacePath: workspace,
+        mode: "task",
+        activeTaskId: CONVERSATIONAL_TASK_ID,
+        ...(bot.provider === "weixin" ? { weixinActivatedAt: 1 } : {}),
+        updatedAt: 1,
+      };
+    }
+  }
+  for (const [botId, entry] of Object.entries(options.stateBotOverrides ?? {})) {
+    if (entry === null) {
+      delete stateBots[botId];
+    } else {
+      stateBots[botId] = entry;
+    }
+  }
+  await writeFile(
+    join(configDir, BOTS_STATE_FILE),
+    JSON.stringify({ version: 3, bots: stateBots }),
+  );
+
+  let getUpdatesCount = 0;
+  let weixinGetUpdatesCount = 0;
+  const router: FetchRouter = (call) => {
+    const url = call.url;
+    if (url.startsWith("https://api.telegram.org/file/bot")) {
+      return new Response(new Uint8Array(TELEGRAM_FILE_BYTES));
+    }
+    if (url.startsWith("https://api.telegram.org/bot")) {
+      if (url.endsWith("/getFile")) {
+        return jsonResponse({
+          ok: true,
+          result: { file_path: "docs/report.txt", file_size: TELEGRAM_FILE_BYTES.length },
+        });
+      }
+      if (url.endsWith("/getMe") && options.getMeOutcome) {
+        return options.getMeOutcome(call);
+      }
+      if (url.endsWith("/getUpdates")) {
+        getUpdatesCount += 1;
+        if (options.getUpdatesOutcome) {
+          return options.getUpdatesOutcome(call, getUpdatesCount);
+        }
+        if (options.getUpdatesAfterFirstHang && getUpdatesCount > 1) {
+          // 首轮空结果后挂起第二次长轮询，等待 runtime dispose 的 abort 收口。
+          return new Promise<Response>((_, reject) => {
+            call.init?.signal?.addEventListener(
+              "abort",
+              () => reject(new DOMException("Aborted", "AbortError")),
+              { once: true },
+            );
+          });
+        }
+        return jsonResponse({ ok: true, result: [] });
+      }
+      return jsonResponse({ ok: true });
+    }
+    if (url.startsWith("https://ilinkai.weixin.qq.com/")) {
+      if (url.includes("/ilink/bot/get_bot_qrcode")) {
+        return jsonResponse({
+          ret: 0,
+          errcode: 0,
+          qrcode: "wx-qr-net-1",
+          qrcode_img_content: "https://qr.example.net/weixin-login",
+          expires_in: 120,
+        });
+      }
+      if (url.includes("/getupdates") && options.weixinGetUpdatesOutcome) {
+        weixinGetUpdatesCount += 1;
+        return options.weixinGetUpdatesOutcome(call, weixinGetUpdatesCount);
+      }
+      return jsonResponse({ ret: 0, errcode: 0 });
+    }
+    if (url === "https://cdn.example.weixin.net/c2c/weixin-file") {
+      const ciphertext = encryptWeixinCdnMediaForTest(WEIXIN_FILE_PLAINTEXT, WEIXIN_AES_KEY_HEX);
+      return new Response(new Uint8Array(ciphertext));
+    }
+    if (url === GENERIC_ATTACHMENT_DOWNLOAD_URL) {
+      return new Response(new Uint8Array(GENERIC_ATTACHMENT_BYTES));
+    }
+    if (url.startsWith("https://open.feishu.cn/")) {
+      if (url.includes("/auth/v3/tenant_access_token/internal")) {
+        return jsonResponse({ code: 0, tenant_access_token: "t-net-feishu", expire: 7200 });
+      }
+      if (url.includes("/messages/") && url.includes("/resources/")) {
+        return new Response(new Uint8Array(FEISHU_FILE_BYTES));
+      }
+      return jsonResponse({ code: 0, data: { message_id: "om-net-1" } });
+    }
+    if (url === FEISHU_REGISTRATION_URL) {
+      // feishuAppRegistration：init + begin 两次 POST 都打到同一 URL，按 body 的 action 分流。
+      const action = new URLSearchParams(String(call.init?.body)).get("action");
+      if (action === "init") {
+        return jsonResponse({ supported_auth_methods: ["client_secret"] });
+      }
+      return jsonResponse({
+        device_code: "fs-device-code-net-1",
+        verification_uri_complete: "https://accounts.feishu.cn/qr/verify?code=fs-device-code-net-1",
+        user_code: "FSQR-9001",
+        interval: 5,
+        expire_in: 600,
+      });
+    }
+    if (url === "https://hooks.example.net/wh") {
+      return jsonResponse({ received: true });
+    }
+    throw new Error(`unexpected bot egress url: ${url}`);
+  };
+
+  const recorder = createRecordingFetch(router);
+  const sendPromptCalls: Array<{ taskId: string }> = [];
+  const fakeTaskService = {
+    listDeletedTaskIds: async () => [] as string[],
+    resumeTask: async () => undefined,
+    createTask: async () => ({ taskId: "task-created" }),
+    deleteTask: async () => undefined,
+    getTaskModelSelection: async () => ({
+      providerId: ZCODE_AGENT_PROVIDER,
+      modelId: "glm-test",
+    }),
+    getTaskConfigOptions: async () => [],
+    listTasks: async () => [],
+    getTaskSnapshot: async () => null,
+    sendPrompt: async (request: {
+      taskId: string;
+      botDeliveryTarget?: ZCodeAutomationBotDeliveryTarget;
+    }) => {
+      sendPromptCalls.push({ taskId: request.taskId });
+    },
+    setMode: async () => undefined,
+    onDynamicStreamEvent: () => (): IDisposable => ({ dispose: () => undefined }),
+  };
+  const modelSelection = { providerId: ZCODE_AGENT_PROVIDER, modelId: "glm-test" };
+  const modelSelectionService = {
+    getView: async () =>
+      ({
+        revision: 1,
+        providers: [],
+        preferredSelection: modelSelection,
+        effectiveSelection: modelSelection,
+      }) as unknown as Awaited<ReturnType<IModelSelectionService["getView"]>>,
+  };
+  const credentialValues: Record<string, string> = {
+    "telegram-token-ref": TELEGRAM_TOKEN,
+    "weixin-token-ref": WEIXIN_TOKEN,
+    [`feishu-secret-${FEISHU_APP_ID}`]: FEISHU_SECRET,
+    "webhook-secret-ref": WEBHOOK_SECRET,
+  };
+  const credentialService = {
+    load: async (key: string) => credentialValues[key] ?? null,
+    // F0 场景7：saveBot 携带 credentialValue 时需要真实落盘，供 resolveName 读取。
+    save: async (key: string, value: string) => {
+      credentialValues[key] = value;
+    },
+  } as unknown as ICredentialService;
+
+  const service = createBotsService({
+    credentialService,
+    zcodeTaskService: fakeTaskService as unknown as IZCodeTaskService,
+    modelSelectionService,
+    ...(options.runStartupBackgroundTasks === false ? { runStartupBackgroundTasks: false } : {}),
+    // 显式传入才注入；不传时服务缺省回落 globalThis.fetch（场景 3 零漂移组合）。
+    ...(!options.omitProviderFetch
+      ? { providerFetch: options.providerFetch ?? recorder.fetch }
+      : {}),
+  });
+
+  return {
+    service,
+    calls: recorder.calls,
+    sendPromptCalls,
+    dataRoot,
+    workspace,
+    async dispose() {
+      await service.disposeAllAndWait().catch(() => undefined);
+      setDataBaseDir(null);
+      await rm(dataRoot, { recursive: true, force: true });
+      await rm(workspace, { recursive: true, force: true });
+    },
+  };
+}
+
+function buildInbound(
+  provider: BotActor["provider"],
+  botId: string,
+  attachments: BotInboundAttachment[],
+): BotInboundMessage {
+  return {
+    botId,
+    text: "继续分析",
+    attachments,
+    receivedAt: Date.now(),
+    actor: {
+      provider,
+      botId,
+      providerUserId: "net-user-1",
+      chatType: "private",
+      chatId: `${provider}-chat-1`,
+      providerMessageId: `msg-${provider}-1`,
+    },
+  };
+}
+
+test("场景2：telegram getFile + 文件下载走注入 providerFetch（原裸 fetch 站点 ~548/~562）", async () => {
+  const harness = await createServiceHarness({
+    runStartupBackgroundTasks: false,
+    bots: [
+      {
+        id: "bot-telegram-net",
+        provider: "telegram",
+        credentialRef: "telegram-token-ref",
+      },
+    ],
+  });
+  try {
+    await harness.service.handleInboundMessage(
+      buildInbound("telegram", "bot-telegram-net", [
+        {
+          id: "tg-file-1",
+          kind: "file",
+          filename: "report.txt",
+          mimeType: "text/plain",
+          providerFileId: "tg-file-id-1",
+          sizeBytes: TELEGRAM_FILE_BYTES.length,
+        },
+      ]),
+    );
+    const urls = harness.calls.map((call) => call.url);
+    assert.ok(
+      urls.some((url) => url === `https://api.telegram.org/bot${TELEGRAM_TOKEN}/getFile`),
+      "getFile 必须走注入 fetch",
+    );
+    assert.ok(
+      urls.some(
+        (url) => url === `https://api.telegram.org/file/bot${TELEGRAM_TOKEN}/docs/report.txt`,
+      ),
+      "文件下载必须走注入 fetch",
+    );
+    assert.ok(harness.sendPromptCalls.length >= 1, "附件解析后继续投递任务");
+  } finally {
+    await harness.dispose();
+  }
+});
+
+test("场景2：weixin CDN 下载走注入 providerFetch（原裸 fetch 站点 ~1086）", async () => {
+  const harness = await createServiceHarness({
+    runStartupBackgroundTasks: false,
+    bots: [
+      {
+        id: "bot-weixin-net",
+        provider: "weixin",
+        credentialRef: "weixin-token-ref",
+      },
+    ],
+  });
+  try {
+    await harness.service.handleInboundMessage(
+      buildInbound("weixin", "bot-weixin-net", [
+        {
+          id: "wx-file-1",
+          kind: "file",
+          filename: "report.txt",
+          mimeType: "text/plain",
+          downloadUrl: "https://cdn.example.weixin.net/c2c/weixin-file",
+          providerMetadata: { weixinAesKey: encodeWeixinMediaAesKey(WEIXIN_AES_KEY_HEX) },
+        },
+      ]),
+    );
+    const cdnCall = harness.calls.find(
+      (call) => call.url === "https://cdn.example.weixin.net/c2c/weixin-file",
+    );
+    assert.ok(cdnCall, "微信 CDN 下载必须走注入 fetch");
+    assert.ok(harness.sendPromptCalls.length >= 1, "CDN 解密成功后继续投递任务");
+  } finally {
+    await harness.dispose();
+  }
+});
+
+test("场景2：feishu 资源下载走注入 providerFetch（原裸 fetch 站点 ~2009）", async () => {
+  const harness = await createServiceHarness({
+    runStartupBackgroundTasks: false,
+    bots: [
+      {
+        id: "bot-feishu-net",
+        provider: "feishu",
+        feishuAppId: FEISHU_APP_ID,
+        credentialRef: `feishu-secret-${FEISHU_APP_ID}`,
+      },
+    ],
+  });
+  try {
+    await harness.service.handleInboundMessage(
+      buildInbound("feishu", "bot-feishu-net", [
+        {
+          id: "fs-file-1",
+          kind: "file",
+          filename: "report.pdf",
+          mimeType: "application/pdf",
+          providerFileId: "file_v2_net_1",
+        },
+      ]),
+    );
+    const resourceCall = harness.calls.find((call) =>
+      call.url.includes("/open-apis/im/v1/messages/msg-feishu-1/resources/file_v2_net_1"),
+    );
+    assert.ok(resourceCall, "飞书资源下载必须走注入 fetch");
+    assert.match(resourceCall.url, /type=file/u);
+    assert.ok(harness.sendPromptCalls.length >= 1, "资源下载成功后继续投递任务");
+  } finally {
+    await harness.dispose();
+  }
+});
+
+test("场景2：webhook 出站走注入 providerFetch（原裸 fetch 站点 ~116）", async () => {
+  const harness = await createServiceHarness({
+    runStartupBackgroundTasks: false,
+    bots: [
+      {
+        id: "bot-webhook-net",
+        provider: "webhook",
+        webhookUrl: "https://hooks.example.net/wh",
+        webhookSecretRef: "webhook-secret-ref",
+      },
+    ],
+  });
+  try {
+    const result = await harness.service.testBot("bot-webhook-net");
+    assert.equal(result.ok, true, result.message);
+    const webhookCall = harness.calls.find((call) => call.url === "https://hooks.example.net/wh");
+    assert.ok(webhookCall, "webhook 出站必须走注入 fetch");
+    const body = JSON.parse(String(webhookCall.init?.body)) as { type: string; botId: string };
+    assert.equal(body.type, "zcode.bot.test");
+    const headers = (webhookCall.init?.headers ?? {}) as Record<string, string>;
+    assert.equal(headers["x-zcode-bot-secret"], WEBHOOK_SECRET);
+  } finally {
+    await harness.dispose();
+  }
+});
+
+// ---- 场景 2 补充（review alpha.6 FIX1）：其余三处 requester 路由出口 ----
+
+test("场景2：通用 downloadUrl 附件回落走注入 providerFetch（botsService fetchAttachmentDownloadUrl，原裸 fetch 站点 ~1939）", async () => {
+  // webhook provider 没有 downloadAttachment adapter，入站附件携带 downloadUrl 时
+  // 恰好落入 fetchAttachmentDownloadUrl 的通用回落路径。
+  const globalSpy = spyGlobalFetch();
+  let harness: ServiceHarness | undefined;
+  try {
+    harness = await createServiceHarness({
+      runStartupBackgroundTasks: false,
+      bots: [
+        {
+          id: "bot-webhook-attach",
+          provider: "webhook",
+          webhookUrl: "https://hooks.example.net/wh",
+          webhookSecretRef: "webhook-secret-ref",
+        },
+      ],
+    });
+    await harness.service.handleInboundMessage(
+      buildInbound("webhook", "bot-webhook-attach", [
+        {
+          id: "dl-file-1",
+          kind: "file",
+          filename: "fallback.bin",
+          mimeType: "application/octet-stream",
+          downloadUrl: GENERIC_ATTACHMENT_DOWNLOAD_URL,
+          sizeBytes: GENERIC_ATTACHMENT_BYTES.length,
+        },
+      ]),
+    );
+    const downloadCall = harness.calls.find((call) => call.url === GENERIC_ATTACHMENT_DOWNLOAD_URL);
+    assert.ok(downloadCall, "downloadUrl 回落下载必须走注入 providerFetch");
+    assert.ok(harness.sendPromptCalls.length >= 1, "附件下载成功后继续投递任务");
+    assert.equal(globalSpy.calls.length, 0, "全程不得回退 globalThis.fetch");
+  } finally {
+    globalSpy.restore();
+    await harness?.dispose();
+  }
+});
+
+test("场景2：飞书一键建应用 registration 出站走注入 providerFetch（feishuAppRegistration，原裸 fetch 站点 ~99）", async () => {
+  const globalSpy = spyGlobalFetch();
+  let harness: ServiceHarness | undefined;
+  try {
+    harness = await createServiceHarness({
+      runStartupBackgroundTasks: false,
+      bots: [],
+    });
+    const begun = await harness.service.beginFeishuRegistration();
+    assert.equal(begun.deviceCode, "fs-device-code-net-1");
+    assert.ok(begun.qrUrl.startsWith("https://accounts.feishu.cn/qr/verify"));
+    assert.equal(begun.pollDomain, "feishu");
+    const registrationCalls = harness.calls.filter((call) => call.url === FEISHU_REGISTRATION_URL);
+    assert.equal(registrationCalls.length, 2, "init + begin 两次出站都必须走注入 providerFetch");
+    assert.equal(globalSpy.calls.length, 0, "全程不得回退 globalThis.fetch");
+  } finally {
+    globalSpy.restore();
+    await harness?.dispose();
+  }
+});
+
+test("场景2：微信扫码登录 registration 出站走注入 providerFetch（weixinRegistration，原裸 fetch 站点 ~92）", async () => {
+  const globalSpy = spyGlobalFetch();
+  let harness: ServiceHarness | undefined;
+  try {
+    harness = await createServiceHarness({
+      runStartupBackgroundTasks: false,
+      bots: [],
+    });
+    const begun = await harness.service.beginWeixinRegistration();
+    assert.equal(begun.qrCode, "wx-qr-net-1");
+    assert.ok(begun.qrUrl.startsWith("https://qr.example.net/weixin-login"));
+    const qrCall = harness.calls.find((call) =>
+      call.url.endsWith("/ilink/bot/get_bot_qrcode?bot_type=3"),
+    );
+    assert.ok(qrCall, "get_bot_qrcode 出站必须走注入 providerFetch");
+    assert.equal(globalSpy.calls.length, 0, "全程不得回退 globalThis.fetch");
+  } finally {
+    globalSpy.restore();
+    await harness?.dispose();
+  }
+});
+
+test("场景2：telegram deleteWebhook + getUpdates 长轮询走注入 providerFetch（telegramChannelRuntime）", async () => {
+  const harness = await createServiceHarness({
+    // 后台轮询必须真实启动（构造即 refresh）。
+    runStartupBackgroundTasks: true,
+    getUpdatesAfterFirstHang: true,
+    bots: [
+      {
+        id: "bot-telegram-poll",
+        provider: "telegram",
+        credentialRef: "telegram-token-ref",
+      },
+    ],
+  });
+  try {
+    const deadline = Date.now() + 10_000;
+    while (
+      Date.now() < deadline &&
+      !(
+        harness.calls.some((call) => call.url.endsWith("/deleteWebhook")) &&
+        harness.calls.some((call) => call.url.endsWith("/getUpdates"))
+      )
+    ) {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+    const urls = harness.calls.map((call) => call.url);
+    assert.ok(
+      urls.some((url) => url === `https://api.telegram.org/bot${TELEGRAM_TOKEN}/deleteWebhook`),
+      "deleteWebhook 必须走注入 fetch",
+    );
+    assert.ok(
+      urls.some((url) => url === `https://api.telegram.org/bot${TELEGRAM_TOKEN}/getUpdates`),
+      "getUpdates 长轮询必须走注入 fetch",
+    );
+    // 命令菜单同步同样经由注入出口（bonus：setMyCommands 路由覆盖）。
+    assert.ok(urls.some((url) => url.endsWith("/setMyCommands")));
+  } finally {
+    // 第二轮 getUpdates 挂起中：dispose 必须 abort 并等待轮询退出。
+    await harness.dispose();
+  }
+});
+
+// ---- 场景 3 + 10：无代理组合零漂移 ----
+
+test("场景3/10：未传 providerFetch 时回落 globalThis.fetch（零漂移）", async () => {
+  // 复用路由 stub，但替换 globalThis.fetch 而不是注入 providerFetch。
+  const router: FetchRouter = (call) => {
+    if (call.url.startsWith("https://api.telegram.org/file/bot")) {
+      return new Response(new Uint8Array(TELEGRAM_FILE_BYTES));
+    }
+    if (call.url.endsWith("/getFile")) {
+      return jsonResponse({
+        ok: true,
+        result: { file_path: "docs/report.txt", file_size: TELEGRAM_FILE_BYTES.length },
+      });
+    }
+    return jsonResponse({ ok: true });
+  };
+  const recorder = createRecordingFetch(router);
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = recorder.fetch;
+  let harness: ServiceHarness | undefined;
+  try {
+    harness = await createServiceHarness({
+      runStartupBackgroundTasks: false,
+      bots: [
+        {
+          id: "bot-telegram-default",
+          provider: "telegram",
+          credentialRef: "telegram-token-ref",
+        },
+      ],
+      // 不注入 providerFetch：requester 缺省捕获 globalThis.fetch（此刻是 stub），
+      // 服务出站与 alpha.5 直连行为零漂移。
+      omitProviderFetch: true,
+    });
+    await harness.service.handleInboundMessage(
+      buildInbound("telegram", "bot-telegram-default", [
+        {
+          id: "tg-file-1",
+          kind: "file",
+          filename: "report.txt",
+          mimeType: "text/plain",
+          providerFileId: "tg-file-id-1",
+          sizeBytes: TELEGRAM_FILE_BYTES.length,
+        },
+      ]),
+    );
+    const urls = recorder.calls.map((call) => call.url);
+    assert.ok(
+      urls.some((url) => url.endsWith("/getFile")),
+      "缺省组合走 globalThis.fetch",
+    );
+    assert.ok(
+      urls.some((url) => url.endsWith("/docs/report.txt")),
+      "缺省组合文件下载走 globalThis.fetch",
+    );
+    assert.ok(harness.sendPromptCalls.length >= 1);
+  } finally {
+    globalThis.fetch = realFetch;
+    await harness?.dispose();
+  }
+});
+
+// ---- 场景 4：transport 销毁 fail-closed ----
+
+test("场景4：providerFetch 销毁后请求失败且绝不回退 globalThis.fetch", async () => {
+  const disposedError = "Host API network transport has been disposed";
+  const realFetch = globalThis.fetch;
+  let globalFallbackCalls = 0;
+  // 间谍 global fetch：若发生直连回退会计数（任何调用都判定失败）。
+  globalThis.fetch = (async () => {
+    globalFallbackCalls += 1;
+    return jsonResponse({ ok: true });
+  }) as typeof globalThis.fetch;
+  let harness: ServiceHarness | undefined;
+  try {
+    harness = await createServiceHarness({
+      runStartupBackgroundTasks: false,
+      bots: [
+        {
+          id: "bot-webhook-disposed",
+          provider: "webhook",
+          webhookUrl: "https://hooks.example.net/wh",
+          webhookSecretRef: "webhook-secret-ref",
+        },
+      ],
+      providerFetch: (async () => {
+        throw new Error(disposedError);
+      }) as typeof globalThis.fetch,
+    });
+    // webhook provider 的 test 出站必须以 transport 的结构化错误失败，
+    // 重试 3 次后上抛；期间不允许任何直连回退。
+    await assert.rejects(
+      harness.service.testBot("bot-webhook-disposed"),
+      new RegExp(disposedError, "u"),
+    );
+    assert.equal(globalFallbackCalls, 0, "fail-closed：销毁后不得回退 globalThis.fetch");
+  } finally {
+    globalThis.fetch = realFetch;
+    await harness?.dispose();
+  }
+});
+
+// ---- F0/F0b：失败可观测 + 自愈（场景 5、7、8）----
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function waitForCondition(condition: () => boolean, deadlineMs: number): Promise<boolean> {
+  const deadline = Date.now() + deadlineMs;
+  while (Date.now() < deadline) {
+    if (condition()) {
+      return true;
+    }
+    await sleep(50);
+  }
+  return condition();
+}
+
+/**
+ * 捕获 console.warn（createServiceLogger("bots") 的缺省 sink）。
+ * 只在单个 test 内安装并在 finally 恢复，避免污染并行输出。
+ */
+function captureConsoleWarn(): { warns: string[]; restore(): void } {
+  const warns: string[] = [];
+  const original = console.warn;
+  console.warn = (...args: unknown[]) => {
+    warns.push(args.map((arg) => String(arg)).join(" "));
+  };
+  return {
+    warns,
+    restore: () => {
+      console.warn = original;
+    },
+  };
+}
+
+test("场景5：telegram poller catch-all 绑定真实错误——状态 message 携带原因 + warn 日志 + 进入 error 转换日志", async () => {
+  const cause = "fetch failed: ETIMEDOUT (api.telegram.org)";
+  const botId = "bot-telegram-cause";
+  const harness = await createServiceHarness({
+    // 后台轮询必须真实启动（构造即 refresh）。
+    runStartupBackgroundTasks: true,
+    bots: [{ id: botId, provider: "telegram", credentialRef: "telegram-token-ref" }],
+    // getUpdates 一律以网络错误拒绝：fetchBotProviderJson 抛错 → poller catch-all。
+    getUpdatesOutcome: () => Promise.reject(new Error(cause)),
+  });
+  const warnCapture = captureConsoleWarn();
+  try {
+    const deadline = Date.now() + 15_000;
+    let errorRuntime: { status?: string; message?: string; messageId?: string } | undefined;
+    while (Date.now() < deadline) {
+      const runtime = (await harness.service.getStatus()).botRuntime.find(
+        (item) => item.botId === botId,
+      );
+      if (runtime?.status === "error") {
+        errorRuntime = runtime;
+        break;
+      }
+      await sleep(50);
+    }
+    assert.ok(errorRuntime, "poller 必须进入 error 状态");
+    // i18n 摘要保留（messageId 不变），详情追加在 message 中。
+    assert.equal(errorRuntime?.messageId, "bots.runtime.telegramPollingFailedRetrying");
+    assert.match(errorRuntime?.message ?? "", /Telegram polling failed; retrying/u);
+    assert.match(errorRuntime?.message ?? "", /ETIMEDOUT/u, "状态详情必须携带真实网络原因");
+    // poller 自身的 warn 携带 botId + 原因。
+    assert.ok(
+      warnCapture.warns.some(
+        (line) =>
+          line.includes("Telegram polling failed") &&
+          line.includes(botId) &&
+          line.includes("ETIMEDOUT"),
+      ),
+      "logger.warn 必须记录 catch-all 的真实原因",
+    );
+    // setRuntimeStatus 单点记录“进入 error”转换（三条 runtime 链路共用）。
+    assert.ok(
+      warnCapture.warns.some(
+        (line) =>
+          line.includes("entered error state") &&
+          line.includes(botId) &&
+          line.includes("provider=telegram") &&
+          line.includes("ETIMEDOUT"),
+      ),
+      "进入 error 状态的转换必须落 warn 日志",
+    );
+  } finally {
+    warnCapture.restore();
+    await harness.dispose();
+  }
+});
+
+function draftTelegramBot(id: string): BotConfig {
+  return {
+    id,
+    name: "",
+    provider: "telegram",
+    enabled: true,
+    allowedWorkspaces: ["*"],
+    allowedCommands: baseAllowedCommands(),
+    currentOptions: {},
+    replyMode: "assistant_changes",
+  };
+}
+
+test("场景7：saveBot 携带凭据且 resolveName 失败——返回 resolveNameError 且 bot 仍保存", async () => {
+  const harness = await createServiceHarness({
+    runStartupBackgroundTasks: false,
+    bots: [],
+    getMeOutcome: () => Promise.reject(new Error("fetch failed: ETIMEDOUT")),
+  });
+  try {
+    const saved = await harness.service.saveBot({
+      bot: draftTelegramBot("bot-telegram-add-fail"),
+      credentialValue: TELEGRAM_TOKEN,
+    });
+    assert.match(saved.resolveNameError ?? "", /ETIMEDOUT/u, "失败原因必须带回添加流程");
+    assert.equal(saved.id, "bot-telegram-add-fail");
+    const stored = (await harness.service.listBots()).find(
+      (bot) => bot.id === "bot-telegram-add-fail",
+    );
+    assert.ok(stored, "本地配置是事实源：resolveName 失败不阻塞保存");
+    assert.equal(stored?.name, "", "解析失败时不得虚构名称");
+  } finally {
+    await harness.dispose();
+  }
+});
+
+test("场景7：resolveName 成功回填名称且不带 resolveNameError；无凭据草稿不产生误报", async () => {
+  const harness = await createServiceHarness({
+    runStartupBackgroundTasks: false,
+    bots: [],
+    getMeOutcome: () => jsonResponse({ ok: true, result: { first_name: "Rig Bot" } }),
+  });
+  try {
+    const saved = await harness.service.saveBot({
+      bot: draftTelegramBot("bot-telegram-add-ok"),
+      credentialValue: TELEGRAM_TOKEN,
+    });
+    assert.equal(saved.resolveNameError, undefined, "成功路径不得携带错误字段");
+    assert.equal(saved.name, "Rig Bot");
+
+    // 无凭据草稿（名称为空触发 resolveName，但无 token 时 getMe 返回 null 而非抛错）
+    // 不得产生 resolveNameError 误报。
+    const draft = await harness.service.saveBot({
+      bot: draftTelegramBot("bot-telegram-draft"),
+    });
+    assert.equal(draft.resolveNameError, undefined, "缺省凭据的草稿创建不得误报校验失败");
+    assert.ok((await harness.service.listBots()).some((bot) => bot.id === "bot-telegram-draft"));
+  } finally {
+    await harness.dispose();
+  }
+});
+
+test("场景8：error→polling 恢复触发 syncCommands 恰好一次；后续周期安静；再次恢复会重新触发", async () => {
+  const botId = "bot-telegram-heal";
+  // 按调用序号脚本化 getUpdates 结局：ok 周期带 250ms 延迟模拟长轮询节奏，
+  // 避免瞬时响应让内层循环空转。
+  type ScriptOutcome = "ok" | "http500" | "reject";
+  const script: ScriptOutcome[] = [
+    "ok", // #1 启动正常周期（reconcile 已 syncCommands 一次）
+    "ok", // #2 正常周期（安静）
+    "http500", // #3 内层 HTTP 错误路径 → error
+    "ok", // #4 恢复 → 触发 syncCommands #2
+    "ok", // #5 安静
+    "ok", // #6 安静
+    "reject", // #7 catch-all 网络异常路径 → error（外层重启）
+    "ok", // #8 恢复 → 触发 syncCommands #3
+    "ok", // #9 安静
+  ];
+  const harness = await createServiceHarness({
+    runStartupBackgroundTasks: true,
+    bots: [{ id: botId, provider: "telegram", credentialRef: "telegram-token-ref" }],
+    getUpdatesOutcome: (_call, count) => {
+      const outcome = script[count - 1] ?? "ok";
+      if (outcome === "http500") {
+        return new Response(JSON.stringify({ ok: false, description: "Internal Server Error" }), {
+          status: 500,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      if (outcome === "reject") {
+        return Promise.reject(new Error("fetch failed: ECONNRESET"));
+      }
+      return new Promise<Response>((resolve) => {
+        setTimeout(() => resolve(jsonResponse({ ok: true, result: [] })), 250);
+      });
+    },
+  });
+  try {
+    const syncCommandsCount = () =>
+      harness.calls.filter((call) => call.url.endsWith("/setMyCommands")).length;
+
+    assert.ok(
+      await waitForCondition(() => syncCommandsCount() >= 1, 10_000),
+      "启动 reconcile 必须同步一次命令菜单",
+    );
+    assert.ok(
+      await waitForCondition(() => syncCommandsCount() >= 2, 20_000),
+      "第一次 error→polling 恢复后必须补一次 syncCommands",
+    );
+    // 安静窗口：恢复后的成功周期 + 下一次故障退避期（无成功周期）都不得重复触发。
+    await sleep(1_500);
+    assert.equal(syncCommandsCount(), 2, "恢复后的后续周期不得重复触发 syncCommands");
+    assert.ok(
+      await waitForCondition(() => syncCommandsCount() >= 3, 20_000),
+      "第二次 error→polling 恢复后必须再次触发 syncCommands",
+    );
+    await sleep(1_000);
+    assert.equal(syncCommandsCount(), 3, "每次恢复只触发一次");
+  } finally {
+    await harness.dispose();
+  }
+});
+
+// ---- F4：游标永不静默丢弃（场景 9）----
+
+/** 与 botsService 的“仅游标”哨兵路径约定一致（schema 要求 workspacePath 非空）。 */
+const UNRESOLVED_WORKSPACE_PATH = "zcode://unresolved-bot-workspace";
+
+/** 长轮询挂起应答：等到 runtime dispose 的 abort 再以 AbortError 收口。 */
+function hangUntilAborted(call: CapturedFetchCall): Promise<Response> {
+  return new Promise<Response>((_, reject) => {
+    call.init?.signal?.addEventListener(
+      "abort",
+      () => reject(new DOMException("Aborted", "AbortError")),
+      { once: true },
+    );
+  });
+}
+
+/** 轮询读取 bot-state.v3.json 中目标 bot entry 的指定字段（原子写中途的解析竞态直接吞掉重试）。 */
+async function waitForStateBotField(
+  botId: string,
+  pick: (entry: Record<string, unknown>) => unknown,
+): Promise<unknown> {
+  const path = join(getAppConfigDir(), BOTS_STATE_FILE);
+  const deadline = Date.now() + 10_000;
+  while (Date.now() < deadline) {
+    try {
+      const state = JSON.parse(await readFile(path, "utf8")) as {
+        bots?: Record<string, Record<string, unknown>>;
+      };
+      const entry = state.bots?.[botId];
+      if (entry) {
+        const value = pick(entry);
+        if (value !== undefined) {
+          return value;
+        }
+      }
+    } catch {
+      // 文件尚不存在或原子写替换中途：重试。
+    }
+    await sleep(50);
+  }
+  return undefined;
+}
+
+async function readStateFile(): Promise<unknown> {
+  const path = join(getAppConfigDir(), BOTS_STATE_FILE);
+  return JSON.parse(await readFile(path, "utf8"));
+}
+
+test("场景9(RED)：telegram 无 state entry 且无可解析 workspace 时轮询 offset 必须落盘", async () => {
+  const botId = "bot-telegram-cursor";
+  const harness = await createServiceHarness({
+    // 后台轮询真实启动：走生产路径 拉取→处理→写 offset。
+    runStartupBackgroundTasks: true,
+    omitBotStateEntries: true,
+    bots: [{ id: botId, provider: "telegram", credentialRef: "telegram-token-ref" }],
+    // 首轮返回一条裸 update（无 message，业务回调空转但成功），之后挂起等 dispose。
+    getUpdatesOutcome: (call, count) =>
+      count === 1
+        ? jsonResponse({ ok: true, result: [{ update_id: 4242 }] })
+        : hangUntilAborted(call),
+  });
+  try {
+    const offset = await waitForStateBotField(botId, (entry) => entry.telegramOffset);
+    assert.notEqual(
+      offset,
+      undefined,
+      "游标被静默丢弃：无 state entry 且无可解析 workspace 时 writeTelegramOffset 什么都没写，" +
+        "同一批 update 会每个轮询周期重新拉取并重复处理",
+    );
+    assert.equal(offset, 4243, "offset 必须是已处理 update_id + 1");
+    // 落盘结果必须能原样通过 state schema 校验（含仅游标 entry 的形状）。
+    const parsed = botsStateFileSchema.parse(await readStateFile());
+    assert.equal(parsed.bots[botId]?.telegramOffset, 4243);
+  } finally {
+    await harness.dispose();
+  }
+});
+
+test("场景9(RED)：weixin 无 state entry 且无可解析 workspace 时 getUpdates buf 必须落盘", async () => {
+  const botId = "bot-weixin-cursor";
+  const harness = await createServiceHarness({
+    runStartupBackgroundTasks: true,
+    omitBotStateEntries: true,
+    bots: [{ id: botId, provider: "weixin", credentialRef: "weixin-token-ref" }],
+    // 首轮返回空消息 + 新 buf（纯游标周期，无需任何 workspace），之后挂起等 dispose。
+    weixinGetUpdatesOutcome: (call, count) =>
+      count === 1
+        ? jsonResponse({ ret: 0, errcode: 0, data: { msgs: [], get_updates_buf: "wx-buf-1" } })
+        : hangUntilAborted(call),
+  });
+  try {
+    const buf = await waitForStateBotField(botId, (entry) => entry.weixinGetUpdatesBuf);
+    assert.notEqual(
+      buf,
+      undefined,
+      "游标被静默丢弃：无 state entry 且无可解析 workspace 时 writeWeixinGetUpdatesBuf 什么都没写，" +
+        "微信服务端游标回退会导致同一批消息重新投递",
+    );
+    assert.equal(buf, "wx-buf-1");
+    const parsed = botsStateFileSchema.parse(await readStateFile());
+    assert.equal(parsed.bots[botId]?.weixinGetUpdatesBuf, "wx-buf-1");
+  } finally {
+    await harness.dispose();
+  }
+});
+
+test("场景9：已有 state entry 时游标写入保持 workspace 字段不变（行为不变）", async () => {
+  const botId = "bot-telegram-cursor-existing";
+  const harness = await createServiceHarness({
+    runStartupBackgroundTasks: true,
+    bots: [{ id: botId, provider: "telegram", credentialRef: "telegram-token-ref" }],
+    getUpdatesOutcome: (call, count) =>
+      count === 1
+        ? jsonResponse({ ok: true, result: [{ update_id: 9001 }] })
+        : hangUntilAborted(call),
+  });
+  try {
+    const offset = await waitForStateBotField(botId, (entry) => entry.telegramOffset);
+    assert.equal(offset, 9002, "已有 entry：offset 更新为 update_id + 1");
+    const parsed = botsStateFileSchema.parse(await readStateFile());
+    const entry = parsed.bots[botId];
+    assert.equal(
+      entry?.workspacePath,
+      harness.workspace,
+      "已有 entry 的 workspacePath 必须保持不变",
+    );
+    assert.equal(entry?.activeTaskId, CONVERSATIONAL_TASK_ID, "已有 entry 的任务字段必须保持不变");
+  } finally {
+    await harness.dispose();
+  }
+});
+
+test("场景9：仅游标 entry 不得被当成可用 context（消息必须回复 noWorkspaceAllowed）", async () => {
+  const botId = "bot-telegram-cursor-only-ctx";
+  const harness = await createServiceHarness({
+    runStartupBackgroundTasks: false,
+    omitBotStateEntries: true,
+    bots: [{ id: botId, provider: "telegram", credentialRef: "telegram-token-ref" }],
+    // 手工播种“仅游标”entry：游标已落盘但 workspace 从未解析出来。
+    stateBotOverrides: {
+      [botId]: {
+        botId,
+        workspacePath: UNRESOLVED_WORKSPACE_PATH,
+        mode: "draft",
+        activeTaskId: null,
+        telegramOffset: 4243,
+        updatedAt: 1,
+      },
+    },
+  });
+  try {
+    const replies = await harness.service.handleInboundMessage(buildInbound("telegram", botId, []));
+    const replyText = replies.map((reply) => reply.text).join("\n");
+    assert.ok(
+      replyText.includes("没有可用 workspace"),
+      `仅游标 entry 没有真实 workspace，必须回复 noWorkspaceAllowed，实际回复：${replyText}`,
+    );
+    assert.equal(harness.sendPromptCalls.length, 0, "哨兵路径不得被当成任务 cwd 投递 prompt");
+  } finally {
+    await harness.dispose();
+  }
+});

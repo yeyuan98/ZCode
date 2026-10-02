@@ -70,6 +70,12 @@ export function createRemoteWorkspaceServiceCollection(params: {
   runtimePreferencesBridge: {
     onError: (error: unknown) => void;
   };
+  /**
+   * specs/bot-provider-network.md F1：attached-remote bots 的出站 fetch。
+   * 传入桌面 host 的网络 transport fetch 时 bot 流量走同一代理设置；
+   * 缺省（调用方未提供）时回落 globalThis.fetch。
+   */
+  providerFetch?: typeof globalThis.fetch;
 }): ServiceCollection {
   assertLegacyRemoteWorkspaceRpcContract(params.connectionServices);
   const localSettingService = createSettingService();
@@ -234,6 +240,9 @@ export function createRemoteWorkspaceServiceCollection(params: {
         // 修复原因：remote workspace host 首屏只需要远端文件/agent 能力；
         // bot 启动后台任务如果立即轮询或 getAll，会重复拉本机 preset 并放大 SSH/Docker 连接耗时。
         runStartupBackgroundTasks: false,
+        // specs/bot-provider-network.md F1：attached-remote bots 出站走注入的 transport
+        // fetch；调用方未提供时缺省 global fetch（本集合自身不创建 transport）。
+        ...(params.providerFetch ? { providerFetch: params.providerFetch } : {}),
       }),
     )
     .register(IFileWatcherService, params.connectionServices.fileWatcherService)

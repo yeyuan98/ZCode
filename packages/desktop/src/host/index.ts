@@ -1633,6 +1633,10 @@ async function createWindowRemoteConnectionHandle(params: {
     connectionServices: backendConnection.services,
     sourceServices: activeServices ?? undefined,
     parentPort,
+    // specs/bot-provider-network.md F1：attached-remote bots 出站复用桌面 host 的
+    // 网络 transport fetch（与上方 setupRemoteConnection 同一 fail-closed 语义：
+    // transport 未初始化即报错，不回退 global fetch 绕过设置页代理）。
+    providerFetch: requireActiveHostApiNetworkTransport().fetch,
     createRemotePromptAttachmentSessionService: (service) =>
       createRemotePromptAttachmentSessionService(service, {
         materializePromptAttachments,

@@ -2099,6 +2099,10 @@ export function createLocalServices(options: {
           // 远端与本地 Bot 都读取所属 Environment 的 Model Selection View。
           // 远端启动期不再轮询旧 Preset，避免重新制造一套模型候选事实。
           runStartupBackgroundTasks: !isDesktopAttachedRemote,
+          // specs/bot-provider-network.md F1：bot provider 出站复用既有 host API 网络
+          // transport（设置页 httpProxy → undici ProxyAgent），一处代理配置覆盖 AI + bots。
+          // transport 销毁后错误原样上抛，绝不回退直连（fail-closed）。
+          providerFetch: hostApiNetworkTransport.fetch,
         });
         // 回写前向引用，供 zcodeAgentService 的 bots/shareFile 协议 handler 调用。
         botsServiceForAgent = botsService;

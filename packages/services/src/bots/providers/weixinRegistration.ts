@@ -1,4 +1,5 @@
 import { DEFAULT_WEIXIN_ILINK_BASE_URL } from "./weixinProvider.js";
+import type { BotProviderRequester } from "#src/bots/providers/providerRequest.js";
 
 interface WeixinRegistrationBeginResult {
   qrCode: string;
@@ -87,10 +88,12 @@ function unwrapData(payload: unknown): Record<string, unknown> {
 }
 
 async function getWeixinRegistrationJson<T>(
+  requester: BotProviderRequester,
   baseUrl: string,
   path: string,
 ): Promise<T & Record<string, unknown>> {
-  const response = await fetch(`${baseUrl}${WEIXIN_BOT_API_PREFIX}${path}`, {
+  // 修复原因：扫码登录出站此前走裸 fetch，绕过应用代理；统一改走注入的 requester。
+  const response = await requester.fetch(`${baseUrl}${WEIXIN_BOT_API_PREFIX}${path}`, {
     method: "GET",
     headers: { "iLink-App-ClientVersion": "1" },
     signal: AbortSignal.timeout(WEIXIN_LOGIN_REQUEST_TIMEOUT_MS),
@@ -137,9 +140,12 @@ function normalizeQrStatus(
   return "pending";
 }
 
-export async function beginWeixinRegistration(): Promise<WeixinRegistrationBeginResult> {
+export async function beginWeixinRegistration(
+  requester: BotProviderRequester,
+): Promise<WeixinRegistrationBeginResult> {
   const baseUrl = getWeixinRegistrationBaseUrl();
   const payload = await getWeixinRegistrationJson<WeixinQrBeginResponse>(
+    requester,
     baseUrl,
     "/get_bot_qrcode?bot_type=3",
   );
@@ -159,12 +165,13 @@ export async function beginWeixinRegistration(): Promise<WeixinRegistrationBegin
 }
 
 export async function pollWeixinRegistration(
-  params: WeixinRegistrationPollParams,
+  params: WeixinRegistrationPollParams & { requester: BotProviderRequester },
 ): Promise<WeixinRegistrationPollResult> {
   const baseUrl = getWeixinRegistrationBaseUrl();
   let payload: WeixinQrPollResponse & Record<string, unknown>;
   try {
     payload = await getWeixinRegistrationJson<WeixinQrPollResponse>(
+      params.requester,
       baseUrl,
       `/get_qrcode_status?qrcode=${encodeURIComponent(params.qrCode)}`,
     );

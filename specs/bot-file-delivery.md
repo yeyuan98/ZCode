@@ -16,6 +16,8 @@ stdio-handshake race fixes, found via the new built-bundle E2E) **shipped** in
 Next: **Alpha 5 — Telegram + Feishu/Lark outbound senders (spec'd below — Phase C Alpha 5;
 implementation pending; targets `3.14.4-alpha.5`)** — the last milestone before official
 3.14.4.
+Alpha 6 (bot provider network/proxy + observability + cursor persistence): see
+specs/bot-provider-network.md.
 Full-feature playbook: ../ZCode-handoff.md.
 Owners: bots service (`packages/services/src/bots/botsService.ts`) — command admission, path
 policy, size gates, `taskDeliveryRegistry` + `deliverWorkspaceFile` single writer + tool-source

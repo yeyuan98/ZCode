@@ -1,4 +1,4 @@
-import type { BotConfig, BotProvider, BotReplyGranularity } from "@zcode/shared";
+import type { BotConfig, BotProvider, BotReplyGranularity, BotServiceStatus } from "@zcode/shared";
 import { getSupportedBotReplyGranularities } from "@zcode/shared";
 
 export type BotProviderEntryId = BotProvider | "dingding";
@@ -95,4 +95,18 @@ export function resolveBotProviderEntry(
   }
 
   return { mode: "create", provider };
+}
+
+/**
+ * F0（specs/bot-provider-network.md）：错误详情对所有 provider 可见。
+ * 返回运行时原始 message（provider 错误串，含真实原因）；仅在 error 状态且有内容时
+ * 返回，供汇总卡片次行/设置卡详情面板展示；无内容时由调用方回退到 i18n unknownError。
+ */
+export function getBotRuntimeErrorDetail(
+  runtime: BotServiceStatus["botRuntime"][number] | undefined,
+): string | null {
+  if (runtime?.status !== "error") {
+    return null;
+  }
+  return runtime.message?.trim() || null;
 }

@@ -581,6 +581,7 @@ const enUS: Record<string, string> = {
   "bots.loadFailed": "Failed to load bots: {error}",
   "bots.saveSuccess": "Bot saved",
   "bots.saveFailed": "Failed to save bot: {error}",
+  "bots.resolveNameFailed": "Bot saved, but credential check failed: {error}",
   "bots.testFailed": "Bot test failed: {error}",
   "bots.bindCodeCreated": "Binding code created",
   "bots.bindCodeFailed": "Failed to create binding code: {error}",

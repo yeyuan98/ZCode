@@ -15,6 +15,7 @@ import { SettingsGroupCard, SettingsRow } from "@/settings/SettingsPageParts.js"
 import {
   getBotReplyGranularitiesForProvider,
   getBotReplyGranularityEntryForProvider,
+  getBotRuntimeErrorDetail,
 } from "@/botsUi.js";
 import { cn } from "@/components/lib/utils.js";
 import { ProviderIcon, runtimeDot, runtimeText } from "./shared.js";
@@ -67,6 +68,9 @@ export function BotSummaryCard({
         ? runtimeText(runtime, bot.enabled, (id) => intl.formatMessage({ id }))
         : intl.formatMessage({ id: "bots.unbound" });
   const nameEditorText = selectedBotName || fallbackBotName;
+  // F0：错误详情对所有 provider 可见——汇总行保留通用 i18n 标签，原始运行时 message
+  // 作为次行展示（title 提示完整内容），不再只对 feishu 暴露细节。
+  const runtimeErrorDetail = getBotRuntimeErrorDetail(runtime);
 
   useLayoutEffect(() => {
     if (!renaming) {
@@ -152,6 +156,14 @@ export function BotSummaryCard({
       <div className="min-w-0 flex-1 space-y-1">
         {botNameControl}
         {botIdentityDescription}
+        {runtimeErrorDetail ? (
+          <div
+            className="min-w-0 truncate text-ui-sm leading-4 text-foreground-subtle"
+            title={runtimeErrorDetail}
+          >
+            {runtimeErrorDetail}
+          </div>
+        ) : null}
       </div>
       <div className="shrink-0">
         <Switch checked={bot.enabled} onCheckedChange={(enabled) => onPatchBot({ enabled })} />

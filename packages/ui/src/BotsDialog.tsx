@@ -320,17 +320,26 @@ export function BotsDialog({
         bot,
         credentialValue: secrets?.credentialValue,
       });
+      // F0 add-time fail-fast：Bot 仍已保存（本地配置是事实源），但凭据校验失败必须让
+      // 添加流程看见，不能只有服务端 warn。剥离该附加字段，避免回写进 UI 配置状态。
+      const { resolveNameError, ...savedBot } = saved;
+      if (resolveNameError) {
+        logger.warn("[BotsDialog] Bot 凭据校验失败", resolveNameError);
+        toast(intl.formatMessage({ id: "bots.resolveNameFailed" }, { error: resolveNameError }), {
+          variant: "warning",
+        });
+      }
       setConfig((previous) => ({
         ...previous,
-        bots: [...previous.bots.filter((item) => item.id !== saved.id), saved],
+        bots: [...previous.bots.filter((item) => item.id !== savedBot.id), savedBot],
       }));
-      setSelectedBotId(saved.id);
+      setSelectedBotId(savedBot.id);
       setCreatingBot(false);
       setCredentialValue("");
       void refresh();
-      return saved;
+      return savedBot;
     },
-    [botsService, refresh],
+    [botsService, intl, refresh],
   );
 
   const createBindCodeForBot = useCallback(

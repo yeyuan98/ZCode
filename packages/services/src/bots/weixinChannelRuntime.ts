@@ -1,6 +1,7 @@
 import type { BotConfig, BotProviderCallbackResult, BotsConfigFile } from "@zcode/shared";
 import type { ICredentialService } from "../credential/credential.js";
 import { getWeixinUpdates } from "./providers/weixinProvider.js";
+import type { BotProviderRequester } from "./providers/providerRequest.js";
 import {
   acquireWeixinPollingLock,
   assertBotCallbackSucceeded,
@@ -15,6 +16,8 @@ import {
 interface WeixinChannelRuntimeDeps {
   runBackgroundTasks?: boolean;
   credentialService: ICredentialService;
+  /** 微信轮询出站请求的唯一出口（specs/bot-provider-network.md F1）。 */
+  requester: BotProviderRequester;
   logger: BotRuntimeLogger;
   statusSink: BotRuntimeStatusSink;
   ensureBotStorageMigrated(): Promise<void>;
@@ -96,7 +99,10 @@ export function createWeixinChannelRuntime(deps: WeixinChannelRuntimeDeps) {
           const buf = await deps.readWeixinGetUpdatesBuf(bot.id);
           const result = await getWeixinUpdates({
             bot,
-            deps: { loadCredential: (key) => deps.credentialService.load(key) },
+            deps: {
+              loadCredential: (key) => deps.credentialService.load(key),
+              requester: deps.requester,
+            },
             buf,
             signal,
           });

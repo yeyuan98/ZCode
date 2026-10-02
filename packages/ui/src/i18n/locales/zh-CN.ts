@@ -544,6 +544,7 @@ const zhCN: Record<string, string> = {
   "bots.loadFailed": "加载机器人失败：{error}",
   "bots.saveSuccess": "机器人已保存",
   "bots.saveFailed": "保存机器人失败：{error}",
+  "bots.resolveNameFailed": "机器人已保存，但凭据校验失败：{error}",
   "bots.testFailed": "机器人测试失败：{error}",
   "bots.bindCodeCreated": "绑定码已生成",
   "bots.bindCodeFailed": "生成绑定码失败：{error}",

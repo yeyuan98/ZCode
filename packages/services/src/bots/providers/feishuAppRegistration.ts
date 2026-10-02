@@ -1,3 +1,5 @@
+import type { BotProviderRequester } from "#src/bots/providers/providerRequest.js";
+
 type FeishuAppRegistrationDomain = "feishu" | "lark";
 
 interface FeishuAppRegistrationBeginResult {
@@ -93,37 +95,51 @@ function readRegistrationAppName(response: FeishuAppRegistrationPollResponse): s
 }
 
 async function postRegistration<T>(
+  requester: BotProviderRequester,
   domain: FeishuAppRegistrationDomain,
   body: Record<string, string>,
 ): Promise<T> {
-  const response = await fetch(`${getAccountsBaseUrl(domain)}${FEISHU_APP_REGISTRATION_PATH}`, {
-    method: "POST",
-    headers: { "content-type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams(body).toString(),
-    signal: AbortSignal.timeout(FEISHU_APP_REGISTRATION_TIMEOUT_MS),
-  });
+  // 修复原因：一键建应用出站此前走裸 fetch，绕过应用代理；统一改走注入的 requester。
+  const response = await requester.fetch(
+    `${getAccountsBaseUrl(domain)}${FEISHU_APP_REGISTRATION_PATH}`,
+    {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams(body).toString(),
+      signal: AbortSignal.timeout(FEISHU_APP_REGISTRATION_TIMEOUT_MS),
+    },
+  );
   return (await response.json()) as T;
 }
 
 export async function beginFeishuAppRegistration(
+  requester: BotProviderRequester,
   domain: FeishuAppRegistrationDomain = "feishu",
 ): Promise<FeishuAppRegistrationBeginResult> {
   // Bugfix: 对齐 @larksuiteoapi/node-sdk registerApp：一键创建应用总是先从 Feishu accounts issuer
   // 获取二维码，Lark 租户在 poll 阶段根据 tenant_brand 再切到 accounts.larksuite.com。
   const pollDomain: FeishuAppRegistrationDomain = "feishu";
-  const initResponse = await postRegistration<FeishuAppRegistrationInitResponse>(pollDomain, {
-    action: "init",
-  });
+  const initResponse = await postRegistration<FeishuAppRegistrationInitResponse>(
+    requester,
+    pollDomain,
+    {
+      action: "init",
+    },
+  );
   if (!initResponse.supported_auth_methods?.includes("client_secret")) {
     throw new Error("Current Feishu environment does not support client_secret registration.");
   }
 
-  const beginResponse = await postRegistration<FeishuAppRegistrationBeginResponse>(pollDomain, {
-    action: "begin",
-    archetype: "PersonalAgent",
-    auth_method: "client_secret",
-    request_user_info: "open_id",
-  });
+  const beginResponse = await postRegistration<FeishuAppRegistrationBeginResponse>(
+    requester,
+    pollDomain,
+    {
+      action: "begin",
+      archetype: "PersonalAgent",
+      auth_method: "client_secret",
+      request_user_info: "open_id",
+    },
+  );
   if (!beginResponse.device_code || !beginResponse.verification_uri_complete) {
     throw new Error("Feishu app registration did not return a device code.");
   }
@@ -145,16 +161,21 @@ export async function beginFeishuAppRegistration(
 }
 
 export async function pollFeishuAppRegistration(params: {
+  requester: BotProviderRequester;
   deviceCode: string;
   domain?: FeishuAppRegistrationDomain;
   pollDomain?: FeishuAppRegistrationDomain;
 }): Promise<FeishuAppRegistrationPollResult> {
   const domain = params.domain ?? "feishu";
   const pollDomain = params.pollDomain ?? domain;
-  const pollResponse = await postRegistration<FeishuAppRegistrationPollResponse>(pollDomain, {
-    action: "poll",
-    device_code: params.deviceCode,
-  });
+  const pollResponse = await postRegistration<FeishuAppRegistrationPollResponse>(
+    params.requester,
+    pollDomain,
+    {
+      action: "poll",
+      device_code: params.deviceCode,
+    },
+  );
   const resultDomain = pollResponse.user_info?.tenant_brand ?? domain;
   if (pollResponse.user_info?.tenant_brand === "lark" && pollDomain !== "lark") {
     return {

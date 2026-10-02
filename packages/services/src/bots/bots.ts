@@ -29,6 +29,15 @@ export interface BotSaveBotParams {
   webhookSecretValue?: string;
 }
 
+/**
+ * F0（specs/bot-provider-network.md）：saveBot 始终保存配置（本地配置是事实源），
+ * 但当携带凭据且 resolveName 校验失败时，通过该附加字段把失败原因带回给添加流程
+ * 做非阻塞提示。字段可省略且向后兼容（旧调用方仍可按 BotConfig 消费）。
+ */
+export interface BotSaveBotResult extends BotConfig {
+  resolveNameError?: string;
+}
+
 export interface BotTestResult {
   ok: boolean;
   message: string;
@@ -157,7 +166,7 @@ export interface IBotsService {
   ): Promise<BotWeixinRegistrationPollResult>;
   saveConfig(config: BotsConfigFile): Promise<BotsConfigFile>;
   listBots(): Promise<BotConfig[]>;
-  saveBot(params: BotSaveBotParams): Promise<BotConfig>;
+  saveBot(params: BotSaveBotParams): Promise<BotSaveBotResult>;
   removeBotSecret(botId: string): Promise<BotConfig>;
   deleteBot(botId: string): Promise<void>;
   testBot(botId: string): Promise<BotTestResult>;

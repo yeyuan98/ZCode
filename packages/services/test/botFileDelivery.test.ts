@@ -13,8 +13,10 @@ import { parseBotCommand } from "../src/bots/commandParser.js";
 import { formatBotToolCallSummaryLine } from "../src/bots/replyFormatter.js";
 import {
   botAllowedCommandsSchema,
+  botsConfigFileSchema,
   ZCODE_AGENT_PROVIDER,
   type BotActor,
+  type BotConfig,
   type BotOutboundAttachment,
   type BotOutboundMessage,
   type ZCodeAutomationBotDeliveryTarget,
@@ -860,6 +862,54 @@ test("taskDeliveryRegistry：remember 有界 200 淘汰最旧，重写刷新顺�
   assert.equal(registry.get("task-new"), undefined);
   registry.clear();
   assert.equal(registry.size, 0);
+});
+
+test("normalizeBotConfig 剥离未知顶层字段：携带 resolveNameError 的配置经 saveConfig 往返不被 strict schema 拒绝", async () => {
+  // Review alpha.6 FIX2：saveBot 返回 additive 的 resolveNameError；旧 UI 把返回的 bot
+  // 合并回配置再整份 saveConfig 时，未知顶层键必须被 normalizeBotConfig 丢弃，
+  // 否则 botConfigSchema 的 strict 解析会拒绝整份配置（old-UI/new-host 兼容）。
+  const harness = await createHarness();
+  try {
+    const bots = await harness.service.listBots();
+    const weixinBot = bots.find((bot) => bot.id === WEIXIN_BOT_ID);
+    const feishuBot = bots.find((bot) => bot.id === FEISHU_BOT_ID);
+    assert.ok(weixinBot && feishuBot);
+    // 模拟旧 UI 合并：additive 字段（resolveNameError）+ 一个任意未知键一起带进配置。
+    const legacyMerged = {
+      ...weixinBot,
+      resolveNameError: "fetch failed: ETIMEDOUT (api.telegram.org)",
+      someFutureAdditiveField: { nested: true },
+    } as BotConfig;
+    const saved = await harness.service.saveConfig({
+      version: 3,
+      bots: [legacyMerged, feishuBot],
+    });
+    assert.equal(saved.bots.find((bot) => bot.id === WEIXIN_BOT_ID)?.name, weixinBot.name);
+    const persisted = JSON.parse(await harness.readRawConfig()) as {
+      bots: Array<Record<string, unknown>>;
+    };
+    const persistedWeixin = persisted.bots.find((bot) => bot.id === WEIXIN_BOT_ID);
+    assert.ok(persistedWeixin, "微信 bot 必须仍被保存");
+    assert.equal(
+      "resolveNameError" in persistedWeixin,
+      false,
+      "additive 的 resolveNameError 必须在归一化时丢弃",
+    );
+    assert.equal(
+      "someFutureAdditiveField" in persistedWeixin,
+      false,
+      "任意未知顶层键必须在归一化时丢弃",
+    );
+    // 落盘文件必须原样通过 strict schema（旧配置再读入不得炸）。
+    assert.equal(botsConfigFileSchema.safeParse(persisted).success, true);
+    // 已知字段不得被误删：weixin 归一化语义（webhookUrl 清理）与权限边界保持不变。
+    assert.deepEqual(persistedWeixin.allowedWorkspaces, ["*"]);
+    assert.equal("webhookUrl" in persistedWeixin, false, "weixin 保存后不得残留 webhookUrl");
+    // 保存后的服务视角仍能列出两个 bot（读写往返完整）。
+    assert.equal((await harness.service.listBots()).length, 2);
+  } finally {
+    await harness.dispose();
+  }
 });
 
 test("shareFile 配额：10 分钟窗口 3 次上限，按 (botId, peerKey) 隔离", () => {

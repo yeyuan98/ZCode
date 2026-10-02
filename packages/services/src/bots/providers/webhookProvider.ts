@@ -7,9 +7,12 @@ import type {
   SelectionPrompt,
 } from "@zcode/shared";
 import type { BotProviderAdapter } from "./types.js";
+import type { BotProviderRequester } from "./providerRequest.js";
 
 interface WebhookProviderDeps {
   loadCredential(key: string): Promise<string | null>;
+  /** 全部 webhook 出站请求的唯一出口（specs/bot-provider-network.md F1）。 */
+  requester: BotProviderRequester;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -105,7 +108,11 @@ function parseWebhookElicitationResponse(
   };
 }
 
-async function postWebhookWithRetry(url: string, init: RequestInit): Promise<Response> {
+async function postWebhookWithRetry(
+  requester: BotProviderRequester,
+  url: string,
+  init: RequestInit,
+): Promise<Response> {
   let lastResponse: Response | null = null;
   let lastError: unknown;
   for (const retryDelayMs of [0, 500, 1_500]) {
@@ -113,7 +120,8 @@ async function postWebhookWithRetry(url: string, init: RequestInit): Promise<Res
       await delay(retryDelayMs);
     }
     try {
-      const response = await fetch(url, init);
+      // 修复原因：webhook 出站此前走裸 fetch，绕过应用代理；统一改走注入的 requester。
+      const response = await requester.fetch(url, init);
       if (response.ok || (response.status >= 400 && response.status < 500)) {
         return response;
       }
@@ -143,7 +151,7 @@ export function createWebhookBotProvider(deps: WebhookProviderDeps): BotProvider
       }
       if (bot.webhookUrl) {
         const secret = await deps.loadCredential(bot.webhookSecretRef);
-        const response = await postWebhookWithRetry(bot.webhookUrl, {
+        const response = await postWebhookWithRetry(deps.requester, bot.webhookUrl, {
           method: "POST",
           headers: {
             "content-type": "application/json",
@@ -180,7 +188,7 @@ export function createWebhookBotProvider(deps: WebhookProviderDeps): BotProvider
       if (secret) {
         headers[bot.webhookAuthHeaderName || "x-zcode-bot-secret"] = secret;
       }
-      const response = await postWebhookWithRetry(bot.webhookUrl, {
+      const response = await postWebhookWithRetry(deps.requester, bot.webhookUrl, {
         method: "POST",
         headers,
         body: JSON.stringify({

@@ -19,6 +19,7 @@ import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import { SettingsGroupCard, SettingsRow } from "@/settings/SettingsPageParts.js";
 import { cn } from "@/components/lib/utils.js";
 import { logger } from "@/logger.js";
+import { getBotRuntimeErrorDetail } from "@/botsUi.js";
 import type { BindCodeState, FeishuRegistrationState, WeixinRegistrationState } from "./shared.js";
 import { TELEGRAM_BOTFATHER_URL, formatBindCountdown } from "./shared.js";
 
@@ -292,6 +293,38 @@ export function ProviderSettingsCard({
               </dt>
               <dd className="min-w-0 break-words text-foreground">
                 {runtime.message ?? intl.formatMessage({ id: "bots.runtime.unknownError" })}
+              </dd>
+            </dl>
+          </div>
+        </div>
+      </DetailPanel>
+    );
+  } else if (hasRuntimeError) {
+    // F0（specs/bot-provider-network.md）：错误详情面板此前只对 feishu/lark 开放，
+    // telegram/weixin 只能看到通用“连接失败”标签。这里镜像同一面板模式，
+    // 用通用文案 + 原始 runtime message 让真实失败原因（如 ETIMEDOUT）对所有 provider 可见。
+    detail = (
+      <DetailPanel>
+        <div className="flex items-start gap-2">
+          <CircleAlert className="mt-0.5 size-4 shrink-0 text-destructive" />
+          <div className="min-w-0 flex-1">
+            <div className="text-ui-base font-medium text-foreground">
+              {intl.formatMessage({ id: "bots.runtime.connectionFailed" })}
+            </div>
+            <div className="mt-1 text-ui-base leading-5 text-foreground-subtle">
+              {intl.formatMessage({
+                id: isConnected
+                  ? "bots.runtime.boundConnectionInterruptedDescription"
+                  : "bots.runtime.credentialsSavedConnectionFailedDescription",
+              })}
+            </div>
+            <dl className="mt-3 grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1 text-ui-base leading-5">
+              <dt className="text-foreground-subtle">
+                {intl.formatMessage({ id: "bots.runtime.errorDetail" })}
+              </dt>
+              <dd className="min-w-0 break-words text-foreground">
+                {getBotRuntimeErrorDetail(runtime) ??
+                  intl.formatMessage({ id: "bots.runtime.unknownError" })}
               </dd>
             </dl>
           </div>

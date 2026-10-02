@@ -17,10 +17,7 @@ import type {
   BotOutboundMessage,
 } from "@zcode/shared";
 import type { BotProviderAdapter, BotTypingTarget } from "./types.js";
-import {
-  fetchBotProviderJson,
-  fetchBotProviderWithHeaders,
-} from "#src/bots/providers/providerRequest.js";
+import type { BotProviderRequester } from "#src/bots/providers/providerRequest.js";
 
 export const DEFAULT_WEIXIN_ILINK_BASE_URL = "https://ilinkai.weixin.qq.com";
 const WEIXIN_BOT_API_PREFIX = "/ilink/bot";
@@ -43,6 +40,8 @@ const WEIXIN_MESSAGE_ITEM_TYPE = { text: 1, image: 2, file: 4, video: 5 } as con
 
 interface WeixinProviderDeps {
   loadCredential(key: string): Promise<string | null>;
+  /** 全部微信 iLink/CDN 出站请求的唯一出口（specs/bot-provider-network.md F1）。 */
+  requester: BotProviderRequester;
 }
 
 interface WeixinGetUpdatesResult {
@@ -193,7 +192,7 @@ async function requestWeixinJson(
   if (!token?.trim()) {
     throw new Error("Weixin iLink bot token is missing. Scan the Weixin login QR code first.");
   }
-  const response = await fetchBotProviderJson<unknown>(
+  const response = await deps.requester.fetchBotProviderJson<unknown>(
     `${getWeixinApiBaseUrl()}${WEIXIN_BOT_API_PREFIX}${path}`,
     {
       method: "POST",
@@ -257,7 +256,7 @@ async function requestWeixinMediaJson(
   if (!token?.trim()) {
     throw new Error("Weixin iLink bot token is missing. Scan the Weixin login QR code first.");
   }
-  const response = await fetchBotProviderJson<unknown>(
+  const response = await deps.requester.fetchBotProviderJson<unknown>(
     `${getWeixinApiBaseUrl()}${WEIXIN_BOT_API_PREFIX}${path}`,
     {
       method: "POST",
@@ -372,6 +371,7 @@ async function getWeixinUploadUrl(params: {
 }
 
 async function uploadWeixinCdnBuffer(params: {
+  deps: WeixinProviderDeps;
   plaintext: Uint8Array;
   aesKey: Buffer;
   filekey: string;
@@ -388,7 +388,7 @@ async function uploadWeixinCdnBuffer(params: {
   let lastError: unknown;
   for (let attempt = 1; attempt <= WEIXIN_CDN_UPLOAD_MAX_RETRIES; attempt++) {
     try {
-      const response = await fetchBotProviderWithHeaders(
+      const response = await params.deps.requester.fetchBotProviderWithHeaders(
         cdnUrl,
         {
           method: "POST",
@@ -493,6 +493,7 @@ async function uploadAndSendWeixinAttachment(params: {
     aesKeyHex,
   });
   const { downloadParam } = await uploadWeixinCdnBuffer({
+    deps: params.deps,
     plaintext,
     aesKey,
     filekey,
@@ -1083,7 +1084,8 @@ export function createWeixinBotProvider(deps: WeixinProviderDeps): BotProviderAd
       if (!attachment.downloadUrl || !aesKey) {
         return null;
       }
-      const response = await fetch(attachment.downloadUrl);
+      // 修复原因：CDN 下载此前走裸 fetch，绕过应用代理；统一改走注入的 requester。
+      const response = await deps.requester.fetch(attachment.downloadUrl);
       if (!response.ok) {
         throw new Error(`Weixin attachment download failed: HTTP ${response.status}`);
       }
