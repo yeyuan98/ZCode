@@ -111,6 +111,10 @@ import type {
   BotTypingTarget,
 } from "./providers/types.js";
 import { createTelegramBotProvider } from "./providers/telegramProvider.js";
+import {
+  createBotProviderRequester,
+  type BotProviderRequester,
+} from "./providers/providerRequest.js";
 import { createWebhookBotProvider } from "./providers/webhookProvider.js";
 import { createWeixinBotProvider } from "./providers/weixinProvider.js";
 import {
@@ -300,6 +304,13 @@ interface BotsServiceDeps {
   taskDeliveryRegistry?: BotTaskDeliveryRegistry;
   /** 测试注入：缩短远端文件分块读取的 deadline/总预算，避免测试真实等待 20s/120s。 */
   remoteFileDeliveryTimeouts?: { chunkDeadlineMs?: number; totalBudgetMs?: number };
+  /**
+   * specs/bot-provider-network.md F1：bot provider 全部出站 HTTP 的注入出口。
+   * 缺省 undefined → globalThis.fetch（与既有直连行为零漂移）；桌面组合根注入
+   * host API 网络 transport 的 fetch（设置页 httpProxy 一处配置同时覆盖 AI 与 bots）。
+   * transport 已销毁时错误原样上抛，绝不回退直连（fail-closed，防代理外泄流）。
+   */
+  providerFetch?: typeof globalThis.fetch;
 }
 
 interface BotRemoteWorkspaceTarget {
@@ -1216,23 +1227,31 @@ export function createBotsService(
     { expiresAt: number; value: BotWorkspaceRef[] }
   >();
   let cachedLocale: Locale | undefined;
+  // F1：本服务实例内唯一 requester；所有 provider/通道出站都从这里走，
+  // 保证注入的 providerFetch（如代理 transport）覆盖轮询、发送、上传、下载与 webhook。
+  const providerRequester: BotProviderRequester = createBotProviderRequester(deps.providerFetch);
   const providers: Record<BotProvider, BotProviderAdapter | null> = {
     telegram: createTelegramBotProvider({
       loadCredential: (key) => deps.credentialService.load(key),
+      requester: providerRequester,
     }),
     webhook: createWebhookBotProvider({
       loadCredential: (key) => deps.credentialService.load(key),
+      requester: providerRequester,
     }),
     feishu: createFeishuBotProvider({
       onDeliveryResult,
       loadCredential: (key) => deps.credentialService.load(key),
+      requester: providerRequester,
     }),
     lark: createFeishuBotProvider({
       onDeliveryResult,
       loadCredential: (key) => deps.credentialService.load(key),
+      requester: providerRequester,
     }),
     weixin: createWeixinBotProvider({
       loadCredential: (key) => deps.credentialService.load(key),
+      requester: providerRequester,
     }),
     discord: null,
     wecom: null,
@@ -1277,6 +1296,7 @@ export function createBotsService(
     runBackgroundTasks: runStartupBackgroundTasks,
     credentialService: deps.credentialService,
     telegramProvider: providers.telegram,
+    requester: providerRequester,
     logger: botsLogger,
     statusSink,
     ensureBotStorageMigrated,
@@ -1288,6 +1308,7 @@ export function createBotsService(
   const weixinRuntime = createWeixinChannelRuntime({
     runBackgroundTasks: runStartupBackgroundTasks,
     credentialService: deps.credentialService,
+    requester: providerRequester,
     logger: botsLogger,
     statusSink,
     ensureBotStorageMigrated,
@@ -1299,6 +1320,7 @@ export function createBotsService(
   const feishuRuntime = createFeishuChannelRuntime({
     runBackgroundTasks: runStartupBackgroundTasks,
     credentialService: deps.credentialService,
+    requester: providerRequester,
     logger: botsLogger,
     statusSink,
     ensureBotStorageMigrated,
@@ -1834,7 +1856,8 @@ export function createBotsService(
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), BOT_ATTACHMENT_DOWNLOAD_TIMEOUT_MS);
     try {
-      const response = await fetch(attachment.downloadUrl, {
+      // 修复原因：附件 URL 下载此前走裸 fetch，绕过应用代理；统一改走注入的 requester。
+      const response = await providerRequester.fetch(attachment.downloadUrl, {
         signal: controller.signal,
       });
       if (!response.ok) {
@@ -5971,16 +5994,16 @@ export function createBotsService(
     listWorkspaceRefs,
     getUserConfigOptions: listUserConfigOptions,
     beginFeishuRegistration(params) {
-      return beginFeishuAppRegistration(params?.domain);
+      return beginFeishuAppRegistration(providerRequester, params?.domain);
     },
     pollFeishuRegistration(params) {
-      return pollFeishuAppRegistration(params);
+      return pollFeishuAppRegistration({ ...params, requester: providerRequester });
     },
     beginWeixinRegistration() {
-      return beginWeixinQrRegistration();
+      return beginWeixinQrRegistration(providerRequester);
     },
     pollWeixinRegistration(params) {
-      return pollWeixinQrRegistration(params);
+      return pollWeixinQrRegistration({ ...params, requester: providerRequester });
     },
     async saveConfig(config) {
       const savedConfig = await repo.writeConfig(normalizeConfigBots(config));

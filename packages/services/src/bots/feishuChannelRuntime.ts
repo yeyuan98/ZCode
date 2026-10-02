@@ -7,6 +7,7 @@ import {
 } from "@zcode/shared";
 import type { ICredentialService } from "../credential/credential.js";
 import { startFeishuBotWebSocket, type FeishuWebSocketClient } from "./providers/feishuProvider.js";
+import type { BotProviderRequester } from "./providers/providerRequest.js";
 import {
   acquireFeishuWebSocketLock,
   assertBotCallbackSucceeded,
@@ -22,6 +23,8 @@ import {
 interface FeishuChannelRuntimeDeps {
   runBackgroundTasks?: boolean;
   credentialService: ICredentialService;
+  /** 飞书 WebSocket 事件链路的出站请求出口（specs/bot-provider-network.md F1）。 */
+  requester: BotProviderRequester;
   logger: BotRuntimeLogger;
   statusSink: BotRuntimeStatusSink;
   ensureBotStorageMigrated(): Promise<void>;
@@ -119,6 +122,7 @@ export function createFeishuChannelRuntime(deps: FeishuChannelRuntimeDeps) {
           },
           deps: {
             loadCredential: (key) => deps.credentialService.load(key),
+            requester: deps.requester,
           },
           onPayload: async (payload) => {
             if (signal.aborted) {

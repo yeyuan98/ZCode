@@ -10,10 +10,12 @@ import type {
 } from "@zcode/shared";
 import { BOT_MENU_COMMAND_ORDER } from "../commandOrder.js";
 import type { BotProviderAdapter } from "./types.js";
-import { fetchBotProvider, fetchBotProviderJson } from "#src/bots/providers/providerRequest.js";
+import type { BotProviderRequester } from "#src/bots/providers/providerRequest.js";
 
 interface TelegramProviderDeps {
   loadCredential(key: string): Promise<string | null>;
+  /** 全部 Telegram 出站请求的唯一出口（specs/bot-provider-network.md F1）。 */
+  requester: BotProviderRequester;
 }
 
 interface TelegramBotCommand {
@@ -340,6 +342,8 @@ function buildTelegramCommands(bot: BotConfig): TelegramBotCommand[] {
 }
 
 export function createTelegramBotProvider(deps: TelegramProviderDeps): BotProviderAdapter {
+  const { fetchBotProvider, fetchBotProviderJson } = deps.requester;
+
   async function loadToken(bot: BotConfig): Promise<string | null> {
     return bot.credentialRef ? deps.loadCredential(bot.credentialRef) : null;
   }
@@ -545,12 +549,15 @@ export function createTelegramBotProvider(deps: TelegramProviderDeps): BotProvid
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), TELEGRAM_ATTACHMENT_DOWNLOAD_TIMEOUT_MS);
       try {
-        const fileResponse = await fetch(`https://api.telegram.org/bot${token}/getFile`, {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ file_id: attachment.providerFileId }),
-          signal: controller.signal,
-        });
+        const fileResponse = await deps.requester.fetch(
+          `https://api.telegram.org/bot${token}/getFile`,
+          {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ file_id: attachment.providerFileId }),
+            signal: controller.signal,
+          },
+        );
         if (!fileResponse.ok) {
           throw new Error(`Telegram getFile failed: HTTP ${fileResponse.status}`);
         }
@@ -559,9 +566,12 @@ export function createTelegramBotProvider(deps: TelegramProviderDeps): BotProvid
         if (filePayload.ok !== true || !filePath) {
           throw new Error(filePayload.description ?? "Telegram getFile did not return file_path.");
         }
-        const response = await fetch(`https://api.telegram.org/file/bot${token}/${filePath}`, {
-          signal: controller.signal,
-        });
+        const response = await deps.requester.fetch(
+          `https://api.telegram.org/file/bot${token}/${filePath}`,
+          {
+            signal: controller.signal,
+          },
+        );
         if (!response.ok) {
           throw new Error(`Telegram file download failed: HTTP ${response.status}`);
         }

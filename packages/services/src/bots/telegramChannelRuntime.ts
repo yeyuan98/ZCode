@@ -1,7 +1,7 @@
 import type { BotConfig, BotProviderCallbackResult, BotsConfigFile } from "@zcode/shared";
 import type { ICredentialService } from "../credential/credential.js";
 import type { BotProviderAdapter } from "./providers/types.js";
-import { fetchBotProvider, fetchBotProviderJson } from "./providers/providerRequest.js";
+import type { BotProviderRequester } from "./providers/providerRequest.js";
 import {
   acquireTelegramPollingLock,
   assertBotCallbackSucceeded,
@@ -27,6 +27,8 @@ interface TelegramChannelRuntimeDeps {
   runBackgroundTasks?: boolean;
   credentialService: ICredentialService;
   telegramProvider: BotProviderAdapter | null;
+  /** Telegram 长轮询出站请求的唯一出口（specs/bot-provider-network.md F1）。 */
+  requester: BotProviderRequester;
   logger: BotRuntimeLogger;
   statusSink: BotRuntimeStatusSink;
   ensureBotStorageMigrated(): Promise<void>;
@@ -44,6 +46,8 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 export function createTelegramChannelRuntime(deps: TelegramChannelRuntimeDeps) {
+  const { fetchBotProvider, fetchBotProviderJson } = deps.requester;
+
   interface RuntimeEntry {
     controller: AbortController;
     fingerprint: string;

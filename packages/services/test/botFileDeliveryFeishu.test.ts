@@ -10,6 +10,7 @@ import type {
   BotOutboundMessage,
 } from "@zcode/shared";
 import { createFeishuBotProvider } from "../src/bots/providers/feishuProvider.js";
+import { createBotProviderRequester } from "../src/bots/providers/providerRequest.js";
 
 // specs/bot-file-delivery.md Phase C Alpha 5 验收场景 4：Feishu adapter
 // sendAttachment —— 全程 stub 全局 fetch，无真实网络；上传-再发送，按 kind 分流
@@ -132,6 +133,8 @@ async function runSendAttachment(options: {
   try {
     const provider = createFeishuBotProvider({
       loadCredential: async () => "feishu-app-secret-value",
+      // Alpha 6 F1：adapter 出站改走注入 requester；stub 安装后构造即捕获 stub 后的 global fetch。
+      requester: createBotProviderRequester(),
     });
     const sendAttachment = provider.sendAttachment;
     assert.ok(sendAttachment, "feishu adapter must implement sendAttachment");
@@ -398,6 +401,7 @@ test("feishu sendAttachment：凭据缺失 → 显式拒绝且不发起任何请
   try {
     const provider = createFeishuBotProvider({
       loadCredential: async () => null,
+      requester: createBotProviderRequester(),
     });
     const sendAttachment = provider.sendAttachment;
     assert.ok(sendAttachment, "feishu adapter must implement sendAttachment");
