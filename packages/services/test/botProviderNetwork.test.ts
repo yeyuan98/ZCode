@@ -28,6 +28,8 @@ import type { IModelSelectionService } from "../src/model-provider/providerFacad
 // fail-closed 不回退直连。全程 stub 注入 fetch / global fetch，无真实网络。
 // F0/F0b 验收场景 5、7、8：poller 错误携带真实原因（状态 + warn 日志）、saveBot 的
 // resolveName 失败带回添加流程、error→polling 恢复后 syncCommands 自愈恰好一次。
+// Review alpha.6 FIX1：补齐通用 downloadUrl 附件回落、飞书一键建应用、微信扫码登录
+// 三处 requester 路由出口的注入断言（providerFetch 被调用且 globalThis.fetch 零调用）。
 
 interface CapturedFetchCall {
   url: string;
@@ -55,6 +57,25 @@ function createRecordingFetch(router: FetchRouter): {
     return router(call);
   }) as typeof globalThis.fetch;
   return { fetch: stub, calls };
+}
+
+/**
+ * 间谍 globalThis.fetch：任何直连回退都会计数（review FIX1 断言“注入 fetch 被调用
+ * 且 globalThis.fetch 未被调用”的负侧）。只在单个 test 内安装并在 finally 恢复。
+ */
+function spyGlobalFetch(): { calls: string[]; restore(): void } {
+  const calls: string[] = [];
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = (async (input: RequestInfo | URL) => {
+    calls.push(String(input));
+    return jsonResponse({ ok: true });
+  }) as typeof globalThis.fetch;
+  return {
+    calls,
+    restore: () => {
+      globalThis.fetch = realFetch;
+    },
+  };
 }
 
 // ---- 场景 1：requester 工厂单元 ----
@@ -118,6 +139,14 @@ const FEISHU_FILE_BYTES = Buffer.from(
   "feishu inbound resource payload (network transport)",
   "utf8",
 );
+// Review alpha.6 FIX1：通用 downloadUrl 回落下载（webhook 等无 provider 专用下载器的通道）。
+const GENERIC_ATTACHMENT_DOWNLOAD_URL = "https://files.example.net/attach/dl-fallback.bin";
+const GENERIC_ATTACHMENT_BYTES = Buffer.from(
+  "generic downloadUrl fallback payload (network transport)",
+  "utf8",
+);
+// Review alpha.6 FIX1：一键建应用 / 扫码登录 registration 端点（feishuAppRegistration / weixinRegistration）。
+const FEISHU_REGISTRATION_URL = "https://accounts.feishu.cn/oauth/v1/app/registration";
 
 function baseAllowedCommands() {
   return {
@@ -251,6 +280,15 @@ async function createServiceHarness(options: ServiceHarnessOptions): Promise<Ser
       return jsonResponse({ ok: true });
     }
     if (url.startsWith("https://ilinkai.weixin.qq.com/")) {
+      if (url.includes("/ilink/bot/get_bot_qrcode")) {
+        return jsonResponse({
+          ret: 0,
+          errcode: 0,
+          qrcode: "wx-qr-net-1",
+          qrcode_img_content: "https://qr.example.net/weixin-login",
+          expires_in: 120,
+        });
+      }
       if (url.includes("/getupdates") && options.weixinGetUpdatesOutcome) {
         weixinGetUpdatesCount += 1;
         return options.weixinGetUpdatesOutcome(call, weixinGetUpdatesCount);
@@ -261,6 +299,9 @@ async function createServiceHarness(options: ServiceHarnessOptions): Promise<Ser
       const ciphertext = encryptWeixinCdnMediaForTest(WEIXIN_FILE_PLAINTEXT, WEIXIN_AES_KEY_HEX);
       return new Response(new Uint8Array(ciphertext));
     }
+    if (url === GENERIC_ATTACHMENT_DOWNLOAD_URL) {
+      return new Response(new Uint8Array(GENERIC_ATTACHMENT_BYTES));
+    }
     if (url.startsWith("https://open.feishu.cn/")) {
       if (url.includes("/auth/v3/tenant_access_token/internal")) {
         return jsonResponse({ code: 0, tenant_access_token: "t-net-feishu", expire: 7200 });
@@ -269,6 +310,20 @@ async function createServiceHarness(options: ServiceHarnessOptions): Promise<Ser
         return new Response(new Uint8Array(FEISHU_FILE_BYTES));
       }
       return jsonResponse({ code: 0, data: { message_id: "om-net-1" } });
+    }
+    if (url === FEISHU_REGISTRATION_URL) {
+      // feishuAppRegistration：init + begin 两次 POST 都打到同一 URL，按 body 的 action 分流。
+      const action = new URLSearchParams(String(call.init?.body)).get("action");
+      if (action === "init") {
+        return jsonResponse({ supported_auth_methods: ["client_secret"] });
+      }
+      return jsonResponse({
+        device_code: "fs-device-code-net-1",
+        verification_uri_complete: "https://accounts.feishu.cn/qr/verify?code=fs-device-code-net-1",
+        user_code: "FSQR-9001",
+        interval: 5,
+        expire_in: 600,
+      });
     }
     if (url === "https://hooks.example.net/wh") {
       return jsonResponse({ received: true });
@@ -503,6 +558,90 @@ test("场景2：webhook 出站走注入 providerFetch（原裸 fetch 站点 ~116
     assert.equal(headers["x-zcode-bot-secret"], WEBHOOK_SECRET);
   } finally {
     await harness.dispose();
+  }
+});
+
+// ---- 场景 2 补充（review alpha.6 FIX1）：其余三处 requester 路由出口 ----
+
+test("场景2：通用 downloadUrl 附件回落走注入 providerFetch（botsService fetchAttachmentDownloadUrl，原裸 fetch 站点 ~1939）", async () => {
+  // webhook provider 没有 downloadAttachment adapter，入站附件携带 downloadUrl 时
+  // 恰好落入 fetchAttachmentDownloadUrl 的通用回落路径。
+  const globalSpy = spyGlobalFetch();
+  let harness: ServiceHarness | undefined;
+  try {
+    harness = await createServiceHarness({
+      runStartupBackgroundTasks: false,
+      bots: [
+        {
+          id: "bot-webhook-attach",
+          provider: "webhook",
+          webhookUrl: "https://hooks.example.net/wh",
+          webhookSecretRef: "webhook-secret-ref",
+        },
+      ],
+    });
+    await harness.service.handleInboundMessage(
+      buildInbound("webhook", "bot-webhook-attach", [
+        {
+          id: "dl-file-1",
+          kind: "file",
+          filename: "fallback.bin",
+          mimeType: "application/octet-stream",
+          downloadUrl: GENERIC_ATTACHMENT_DOWNLOAD_URL,
+          sizeBytes: GENERIC_ATTACHMENT_BYTES.length,
+        },
+      ]),
+    );
+    const downloadCall = harness.calls.find((call) => call.url === GENERIC_ATTACHMENT_DOWNLOAD_URL);
+    assert.ok(downloadCall, "downloadUrl 回落下载必须走注入 providerFetch");
+    assert.ok(harness.sendPromptCalls.length >= 1, "附件下载成功后继续投递任务");
+    assert.equal(globalSpy.calls.length, 0, "全程不得回退 globalThis.fetch");
+  } finally {
+    globalSpy.restore();
+    await harness?.dispose();
+  }
+});
+
+test("场景2：飞书一键建应用 registration 出站走注入 providerFetch（feishuAppRegistration，原裸 fetch 站点 ~99）", async () => {
+  const globalSpy = spyGlobalFetch();
+  let harness: ServiceHarness | undefined;
+  try {
+    harness = await createServiceHarness({
+      runStartupBackgroundTasks: false,
+      bots: [],
+    });
+    const begun = await harness.service.beginFeishuRegistration();
+    assert.equal(begun.deviceCode, "fs-device-code-net-1");
+    assert.ok(begun.qrUrl.startsWith("https://accounts.feishu.cn/qr/verify"));
+    assert.equal(begun.pollDomain, "feishu");
+    const registrationCalls = harness.calls.filter((call) => call.url === FEISHU_REGISTRATION_URL);
+    assert.equal(registrationCalls.length, 2, "init + begin 两次出站都必须走注入 providerFetch");
+    assert.equal(globalSpy.calls.length, 0, "全程不得回退 globalThis.fetch");
+  } finally {
+    globalSpy.restore();
+    await harness?.dispose();
+  }
+});
+
+test("场景2：微信扫码登录 registration 出站走注入 providerFetch（weixinRegistration，原裸 fetch 站点 ~92）", async () => {
+  const globalSpy = spyGlobalFetch();
+  let harness: ServiceHarness | undefined;
+  try {
+    harness = await createServiceHarness({
+      runStartupBackgroundTasks: false,
+      bots: [],
+    });
+    const begun = await harness.service.beginWeixinRegistration();
+    assert.equal(begun.qrCode, "wx-qr-net-1");
+    assert.ok(begun.qrUrl.startsWith("https://qr.example.net/weixin-login"));
+    const qrCall = harness.calls.find((call) =>
+      call.url.endsWith("/ilink/bot/get_bot_qrcode?bot_type=3"),
+    );
+    assert.ok(qrCall, "get_bot_qrcode 出站必须走注入 providerFetch");
+    assert.equal(globalSpy.calls.length, 0, "全程不得回退 globalThis.fetch");
+  } finally {
+    globalSpy.restore();
+    await harness?.dispose();
   }
 });
 

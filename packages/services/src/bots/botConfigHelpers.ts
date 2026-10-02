@@ -59,8 +59,23 @@ export function findBoundUser(bot: BotConfig, actor: BotActor): BotConfig | null
 }
 
 export function normalizeBotConfig(bot: BotConfig): BotConfig {
-  const normalized = {
-    ...bot,
+  // Bugfix（review alpha.6）：显式构造已知字段而不是展开原对象。saveBot 会返回 additive 的
+  // resolveNameError；旧 UI 把返回的 bot 合并回配置再 saveConfig 时，未知顶层键会让
+  // botConfigSchema 的 strict 解析拒绝整份配置。归一化必须丢弃一切未知顶层字段。
+  const normalized: BotConfig = {
+    id: bot.id,
+    name: bot.name,
+    provider: bot.provider,
+    enabled: bot.enabled,
+    ...(bot.credentialRef !== undefined ? { credentialRef: bot.credentialRef } : {}),
+    ...(bot.webhookSecretRef !== undefined ? { webhookSecretRef: bot.webhookSecretRef } : {}),
+    ...(bot.webhookUrl !== undefined ? { webhookUrl: bot.webhookUrl } : {}),
+    ...(bot.webhookAuthHeaderName !== undefined
+      ? { webhookAuthHeaderName: bot.webhookAuthHeaderName }
+      : {}),
+    ...(bot.feishuAppId !== undefined ? { feishuAppId: bot.feishuAppId } : {}),
+    ...(bot.providerUserId !== undefined ? { providerUserId: bot.providerUserId } : {}),
+    ...(bot.displayName !== undefined ? { displayName: bot.displayName } : {}),
     // Bot 配置化后 allowedWorkspaces 是唯一 workspace 权限边界；空数组统一落成 "*"。
     allowedWorkspaces: normalizeAllowedWorkspaces(bot.allowedWorkspaces),
     allowedCommands: normalizeBotCommandPolicy(bot.allowedCommands),
