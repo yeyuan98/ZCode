@@ -3010,12 +3010,26 @@ export function createBotsService(
     ].join("::");
   }
 
-  function releaseInboundDelivery(message: BotInboundMessage): void {
+  // specs/bot-inbound-resilience.md §B.1(b)/§B2：入站消息业务失败后，若会话失败信号
+  // （respondElicitation decline+failureReason 等）已“确认送达”到会话，则该消息视为已消费。
+  // Worker C（B2 wiring）在 resolve 成功后调用 markInboundSessionSignalConfirmed 标记；
+  // 键与 markInboundDelivery 的去重键同构，随同一 2 分钟 TTL 清理，无新 timer。
+  const inboundSessionSignalConfirmedKeys = new Set<string>();
+
+  function markInboundSessionSignalConfirmed(message: BotInboundMessage): void {
     const deliveryKey = buildInboundDeliveryKey(message);
     if (deliveryKey) {
-      recentInboundDeliveryAtByKey.delete(deliveryKey);
+      inboundSessionSignalConfirmedKeys.add(deliveryKey);
     }
   }
+
+  function isInboundSessionSignalConfirmed(message: BotInboundMessage): boolean {
+    const deliveryKey = buildInboundDeliveryKey(message);
+    return deliveryKey !== null && inboundSessionSignalConfirmedKeys.has(deliveryKey);
+  }
+
+  // B2 wiring（Worker C）接入前暂无调用方；显式引用避免 unused 告警，接入后删除本行。
+  void markInboundSessionSignalConfirmed;
 
   async function enqueueInboundProcessing<T>(actor: BotActor, task: () => Promise<T>): Promise<T> {
     const actorContextKey = getActorContextKey(actor);
@@ -3047,6 +3061,9 @@ export function createBotsService(
     for (const [key, at] of recentInboundDeliveryAtByKey) {
       if (now - at >= BOT_INBOUND_DELIVERY_DEDUPE_TTL_MS) {
         recentInboundDeliveryAtByKey.delete(key);
+        // specs/bot-inbound-resilience.md §B.1(b)：会话信号确认标记与去重键同生命周期，
+        // 随同一次 TTL 清理过期，避免集合无界增长（无新 timer）。
+        inboundSessionSignalConfirmedKeys.delete(key);
       }
     }
   }
@@ -3614,7 +3631,7 @@ export function createBotsService(
       );
     }
     const replies: BotOutboundMessage[] = [];
-    let hadBusinessFailure = false;
+    let hadUnconsumedFailure = false;
     const inboundSecret =
       isRecord(preparedPayload) && typeof preparedPayload.webhookSecret === "string"
         ? preparedPayload.webhookSecret
@@ -3698,8 +3715,10 @@ export function createBotsService(
           outbound = await service.handleInboundMessage(inboundMessage);
         }
       } catch (error) {
-        releaseInboundDelivery(inboundMessage);
-        hadBusinessFailure = true;
+        // specs/bot-inbound-resilience.md §C：业务失败不再释放入站去重键——键随既有
+        // 2 分钟 TTL 过期，同 id 重投被去重吞并（配合 §B.2 的一次重投周期静默丢弃）；
+        // 用户修复后的真实重试是新 provider message id，永不误伤。
+        // 是否计入未消费失败（最终 ok=false）由下方 failure 分支的 consumed 判定决定。
         inboundBusinessFailure = true;
         const message = error instanceof Error ? error.message : String(error);
         const userFacingMessage = formatUserFacingBotError(error, locale);
@@ -3721,18 +3740,45 @@ export function createBotsService(
       }
       replies.push(...outbound);
       if (inboundBusinessFailure) {
-        // Bugfix：错误提示发送成功不等于业务消息已经消费成功。此处不能执行 callback ACK，
-        // 否则飞书会移除按钮；最终 ok=false 也会阻止 Telegram/微信提交外部游标。
+        // specs/bot-inbound-resilience.md §B.1：失败消息的 consumed 判定只认“确认送达”：
+        // (a) 失败通知 sendOutbound 成功；或 (b) 会话失败信号确认（B2 hook）。“尝试过”不算。
+        // consumed ⇒ 消息计入已处理：本条 continue（批内后续消息继续），最终 ok=true 让
+        // runtime 照常提交游标（weixin buf / telegram offset / feishu ACK——失败带通知即 ACK，
+        // 旧交互按钮可能残留，requestId first-wins 使其无害，spec §B.5 接受）。
+        let noticeDeliveredCount = 0;
         if (bot) {
           for (const outboundMessage of outbound) {
-            await sendOutbound(bot, outboundMessage).catch((sendError) => {
-              botsLogger.warn(
-                undefined,
-                `provider callback failure notice failed provider=${provider} bot=${bot.id}: ${sendError instanceof Error ? sendError.message : String(sendError)}`,
-              );
-            });
+            await sendOutbound(bot, outboundMessage)
+              .then(() => {
+                noticeDeliveredCount += 1;
+              })
+              .catch((sendError: unknown) => {
+                botsLogger.warn(
+                  undefined,
+                  `provider callback failure notice failed provider=${provider} bot=${bot.id}: ${sendError instanceof Error ? sendError.message : String(sendError)}`,
+                );
+              });
           }
           await stopInboundTyping(bot, inboundMessage.actor).catch(() => undefined);
+        }
+        const noticeDelivered = noticeDeliveredCount === outbound.length && outbound.length > 0;
+        const sessionSignalConfirmed = isInboundSessionSignalConfirmed(inboundMessage);
+        const outcome = noticeDelivered
+          ? "consumed-notice-delivered"
+          : sessionSignalConfirmed
+            ? "consumed-session-confirmed"
+            : "hole-not-consumed";
+        // 每个 consumed 判定恰好一行 info（specs/bot-inbound-resilience.md Invariants，
+        // 遵守 log-diagnostics-hygiene 的 level 契约：一次性决策用 info）。
+        botsLogger.info(
+          undefined,
+          `provider callback failure outcome=${outcome} provider=${provider} bot=${inboundMessage.botId} messageId=${inboundMessage.actor.providerMessageId ?? ""}`,
+        );
+        if (outcome === "hole-not-consumed") {
+          // 洞规则（§B.2）：通知未送达且无会话信号 ⇒ NOT consumed ⇒ 保持 abort-不提交。
+          // 配合 §C 的去重保留，同 id 首次重投被去重吞并 ⇒ ok=true ⇒ 游标提交，
+          // 毒批在一次重投周期内被静默丢弃（有界自愈）。
+          hadUnconsumedFailure = true;
         }
         continue;
       }
@@ -3821,39 +3867,38 @@ export function createBotsService(
         }
         // Bugfix: /reconnect 的“正在重连”必须在 ensureConnected 前实时发送。
         // handleReconnect 只返回最终结果，避免重连完成后才把过期的开始状态一起吐给用户。
-        try {
-          for (const outboundMessage of callbackHandledByCardUpdate ? [] : outbound) {
-            if (transientCard) {
-              if (outboundMessage.selection || outboundMessage.elicitation?.status === "pending") {
-                await upsertTransientInteractionCard(
-                  bot,
-                  inboundMessage.actor,
-                  transientCard.taskId,
-                  outboundMessage,
-                );
-                continue;
-              }
-              if (
-                outboundMessage.elicitation ||
-                /^\/(?:approve|deny)(?:\s|$)/u.test(inboundMessage.text)
-              ) {
-                await finalizeTransientInteractionCard(inboundMessage.actor, outboundMessage);
-                continue;
-              }
+        // specs/bot-inbound-resilience.md §C：本段发送失败直接上抛（abort-不提交游标，行为
+        // 不变），且不再释放入站去重键——键随既有 2 分钟 TTL 过期。
+        for (const outboundMessage of callbackHandledByCardUpdate ? [] : outbound) {
+          if (transientCard) {
+            if (outboundMessage.selection || outboundMessage.elicitation?.status === "pending") {
+              await upsertTransientInteractionCard(
+                bot,
+                inboundMessage.actor,
+                transientCard.taskId,
+                outboundMessage,
+              );
+              continue;
             }
-            await sendOutbound(bot, outboundMessage);
+            if (
+              outboundMessage.elicitation ||
+              /^\/(?:approve|deny)(?:\s|$)/u.test(inboundMessage.text)
+            ) {
+              await finalizeTransientInteractionCard(inboundMessage.actor, outboundMessage);
+              continue;
+            }
           }
-          await stopInboundTyping(bot, inboundMessage.actor);
-        } catch (error) {
-          releaseInboundDelivery(inboundMessage);
-          throw error;
+          await sendOutbound(bot, outboundMessage);
         }
+        await stopInboundTyping(bot, inboundMessage.actor);
       }
     }
     return {
-      ok: !hadBusinessFailure,
+      // specs/bot-inbound-resilience.md §B.1：ok=true 当且仅当批内所有失败都已消费
+      // （通知送达或会话信号确认）；未消费失败（洞）才携带 503 阻止游标提交。
+      ok: !hadUnconsumedFailure,
       replies,
-      ...(hadBusinessFailure ? { status: 503 } : {}),
+      ...(hadUnconsumedFailure ? { status: 503 } : {}),
     };
   }
 
