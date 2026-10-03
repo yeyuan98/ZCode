@@ -1,5 +1,29 @@
 # Changelog
 
+## [3.14.5-alpha.2](https://github.com/yeyuan98/zodex/compare/v3.14.5-alpha.1...v3.14.5-alpha.2) (2026-10-03)
+
+### Features
+
+* **bots:** 3.14.5 Alpha 2 PR1——通道观测埋点 + 日志治理（零行为变化） ([95480df](https://github.com/yeyuan98/zodex/commit/95480df751a00d1335ad7e179c5390fcbc3852fc))
+  * 微信错误结构化打标：两个 request 助手补 weixinErrcode，HTTP !ok 补
+  * sendOutbound 结果线：两条出站路径（缓冲流式回复 + 终态文书）的唯一汇合点
+  * 微信 typing 观测：失败 warn 30s 限频（惰性时间戳，非 timer）附 ret/errcode；
+  * 计数器注册表聚合（R1 bots.* 恒零根修）：同名多实例由"后者覆盖"改为全部
+  * D1 rpc 轮询治理：四个高频轮询方法 OK 降 debug（实测占 2026-10-02 全天日志
+  * D2 心跳降频：默认心跳 5→15 分钟；计数器提前写盘收紧为诊断相关键集合
+  * D4 设置日志自包含：每本地自然日一条脱敏全量快照（进程首写/当日首写/60s
+  * D3 入站消息全文保留（owner 决定）：provider callback 不截断
+
+
+### Bug Fixes
+
+* **bots:** Alpha 2 PR1 评审收口——file= 路径保留 / capped 标记 / D4 模块拆分 ([a87684f](https://github.com/yeyuan98/zodex/commit/a87684f4039eab1bf9f9d8aca51218cc3d055f7b))
+  * MINOR：设置快照/增量行补回 file=<settingsFile>（旧 "writing settings to" 行
+  * NIT：增量上限改 capped 标记——恰好 30 条自然变更不再误报 "(+more)"
+  * NIT：删除无断言的空测试；快照行断言补 file= 存在性
+  * NIT：readPersistedWeixinPeerToken 派生自 entry 读取器（读/写口径唯一）
+  * max-lines 门禁：D4 助手拆分为 setting/settingLogHygiene.ts（纯日志模块，
+
 ## [3.14.5-alpha.1](https://github.com/yeyuan98/zodex/compare/v3.14.5-alpha.0...v3.14.5-alpha.1) (2026-10-02)
 
 ### Bug Fixes
