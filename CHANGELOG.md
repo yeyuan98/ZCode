@@ -1,5 +1,60 @@
 # Changelog
 
+## [3.14.5-alpha.3](https://github.com/yeyuan98/zodex/compare/v3.14.5-alpha.2...v3.14.5-alpha.3) (2026-10-03)
+
+### Bug Fixes
+
+* **bots:** [ulw] 评审收口——会话信号标记一次性读取 + 权限兜底注释 + spec 补记 ([587f16c](https://github.com/yeyuan98/zodex/commit/587f16cba4c42d1c425b62d64e5e596ab033f2ee))
+  * isInboundSessionSignalConfirmed 改为 delete-on-read：业务处理慢于 2 分钟 TTL 时去重键先被 prune 而标记残留，孤儿标记不会再把同 id 后续重投误判为 consumed-session-confirmed
+  * 权限休眠分支合成 optionId:"deny" 兜底加注释说明（Track B 继承时须知）
+  * spec §B2.1 补记 resolve 回复丢弃口径；§B.6 记录 webhook 验收证据口径（服务级 status proxy）
+
+* **bots:** B2 会话失败信号双向接线 + CLI broker content 透传（alpha.3 B2） ([539fd9d](https://github.com/yeyuan98/zodex/commit/539fd9dc0a55b4d950d1c32cf5149c17cb1ebd0b))
+  * submitPendingElicitation 改返回 {confirmed, replies}：confirmed 仅在
+  * B2 出站方向（handleElicitationRequest）：提问发送失败（死通道）⇒ 立即以
+  * B2 入站方向（processProviderCallback 失败分支，先于 consumed 判定）：
+  * B2 权限休眠分支（为 3.15.0 Track B 预铺，force-yolo 下生产不触发）：
+  * CLI broker 透传（B2 前置条件）：v4AnswerToUserInputResponse 与 plan-approval
+  * 测试（红测先行）：services 场景 7/8/9/12/13（提问发送失败/回答处理失败/
+  * 删除 Worker A 预留的 void markInboundSessionSignalConfirmed 占位引用。
+
+* **bots:** 入站毒消息 consumed 契约 + 失败路径去重键保留（alpha.3 B1/C） ([3fe593f](https://github.com/yeyuan98/zodex/commit/3fe593f7b62cf2a7e42049b7802be0d266282189))
+  * processProviderCallback 业务失败按"确认送达"判定 consumed：失败通知 sendOutbound 成功，或会话失败信号确认（B2 hook，Worker C 接线）；每个判定恰一行 info（consumed-notice-delivered / consumed-session-confirmed / hole-not-consumed）
+  * consumed ⇒ 最终 ok=true 且不携带错误状态：weixin buf / telegram offset / feishu ACK 照常提交，批内后续消息继续处理；仅未消费失败（洞：通知未送达且无会话信号）保持 ok=false + 503 abort-不提交
+  * 删除两处失败路径 releaseInboundDelivery 及函数本身：去重键随既有 2 分钟 TTL 过期，同 id 重投被去重吞并 ⇒ 洞规则毒批在一次重投周期内静默丢弃（场景 4/5 钉住）
+  * 新增 markInboundSessionSignalConfirmed/isInboundSessionSignalConfirmed（键与去重表同构，随同一次 TTL 清理）供 B2 wiring 标记会话信号确认
+  * http.ts 503 映射注释更新为 §B.6 语义（consumed 失败 ⇒ 200）；feishu runtime 补 ACK 策略注释（§B.5 残留按钮接受），无行为改动
+  * 新增 test/botInboundResilience.test.ts：spec 场景 1/2/3/4/5/11（服务级 + weixin/telegram 轮询级游标断言），红测先行
+
+* **bots:** 无模型草稿可执行指引 + /status //new 未设置标签（alpha.3 A） ([aa1bd82](https://github.com/yeyuan98/zodex/commit/aa1bd82d767db1071ee3f4636c5aeef59f3a0c44))
+  * 草稿首发路径（无 preferred 可解析或 selectionIssue）不再 throw
+  * 新增 locale key（zh/en）：draftModelMissing（从未选择——引导 /model
+  * formatStatusModelLabel 增加 locale 参数并贯穿 4 个调用点
+  * Step-0 预检结论：桌面端同形态由 useDraftModelReadinessGate 在 UI
+  * 测试（红测先行）：botInboundResilience 场景 6——无模型 prompt
+
+* **bots:** 轮询错误 backoff 递增 5s→60s 封顶 + 成功复位（alpha.3 D） ([b476e20](https://github.com/yeyuan98/zodex/commit/b476e20ceecaf4f646eb9c0edaeb6512a3b73708))
+  * channelRuntime 新增纯状态机 createPollErrorBackoff()（nextDelayMs/recordSuccess，
+  * weixin：poll-error catch 的固定 5s 改为递增退避；成功周期（读取→处理→buf 提交
+  * telegram：内层 getUpdates 循环三个 error-catch 等待（非 409 HTTP 错误 / 无效
+  * 语义不变边界：409 专属 10s、weixin/telegram lock 竞争 10s 与锁 I/O 失败 5s
+  * 场景 10 红测先行：纯单元序列 5/10/20/40/60/60 + 复位；telegram 双 bot 接线级
+
+
+### Documentation
+
+* **specs:** bot-provider-network F4 游标重划定落地为 alpha.3 指针 ([aa7fb58](https://github.com/yeyuan98/zodex/commit/aa7fb5847b6fa6991525e220eac26cb3edfe8b0a))
+  * F4 deferral note（deferred to alpha.2）标记 SUPERSEDED——由 bot-inbound-resilience.md §B 拥有
+  * telegram cursor dead-end note 标记 SUPERSEDED（§2b rig 证据落地）
+  * 新增 alpha.3 amendment 指针节：本 spec 保留 transport/observability/游标写机械，consumed 判定归新 spec
+
+* **specs:** 新增 bot 入站韧性 spec（3.14.5-alpha.3，spec-first） ([ea88c4a](https://github.com/yeyuan98/zodex/commit/ea88c4a033306289861a908b0e007033b83a3cbd))
+  * specs/bot-inbound-resilience.md：§2b 毒消息死锁的契约化——consumed 语义（通知送达或会话信号确认 ⇒ 游标推进，全 provider 含 webhook 200）
+  * 洞规则精确化：去重保留后毒批在一次重投周期内静默丢弃（有界自愈）
+  * B2 会话失败信号：整组一次 resolve、布尔判别重构、CLI broker content 透传前置条件
+  * 13 个红测先行验收场景（新增 feishu 同步卡片失败路径、中段 elicitation 整组 resolve）
+  * Fix D backoff 5→60s 纯状态机 + 每次 fail 一行 warn（rig T6 可读）
+
 ## [3.14.5-alpha.2](https://github.com/yeyuan98/zodex/compare/v3.14.5-alpha.1...v3.14.5-alpha.2) (2026-10-03)
 
 ### Features
