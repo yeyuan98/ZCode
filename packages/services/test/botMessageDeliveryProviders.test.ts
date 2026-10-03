@@ -289,3 +289,139 @@ test("F6 Feishu 凭据缺失：send 显式抛错（不得静默返回谎报成�
     stub.restore();
   }
 });
+
+// ---- alpha.2 观测（specs/bot-provider-network.md Amendment / log-diagnostics-hygiene.md）----
+
+interface CapturedConsole {
+  logs: string[];
+  warns: string[];
+  debugs: string[];
+  restore(): void;
+}
+
+/** weixinLogger（createServiceLogger("bots")）默认 sink 是 console——按级别捕获。 */
+function captureConsole(): CapturedConsole {
+  const logs: string[] = [];
+  const warns: string[] = [];
+  const debugs: string[] = [];
+  const realLog = console.log;
+  const realWarn = console.warn;
+  const realDebug = console.debug;
+  console.log = (...args: unknown[]) => {
+    logs.push(args.map(String).join(" "));
+  };
+  console.warn = (...args: unknown[]) => {
+    warns.push(args.map(String).join(" "));
+  };
+  console.debug = (...args: unknown[]) => {
+    debugs.push(args.map(String).join(" "));
+  };
+  return {
+    logs,
+    warns,
+    debugs,
+    restore() {
+      console.log = realLog;
+      console.warn = realWarn;
+      console.debug = realDebug;
+    },
+  };
+}
+
+test("alpha.2 观测：协议错误打标 weixinRet/weixinErrcode，HTTP !ok 打标 weixinHttpStatus", async () => {
+  const stub = installProviderStub((call) => {
+    assert.ok(call.url.includes("/ilink/bot/"), `unexpected url: ${call.url}`);
+    if (call.url.endsWith("/sendmessage")) {
+      // 首次与无 token 重试都失败（R1 死窗形态）——上抛的才是打标后的错误。
+      return jsonResponse({ ret: -2, errcode: 1001, message: "prepare failed" });
+    }
+    return jsonResponse({ ret: 0 });
+  });
+  try {
+    const provider = createWeixinBotProvider({
+      loadCredential: async () => "wx-token-value",
+      requester: createBotProviderRequester(),
+    });
+    // 协议错误：ret + errcode 都必须是结构化字段（旧实现 errcode 只进 message 文本）。
+    await assert.rejects(
+      provider.send(
+        buildWeixinBot(),
+        buildOutboundMessage("weixin", { providerContextToken: "token-expired" }),
+      ),
+      (error: unknown) => {
+        const tagged = error as { weixinRet?: number; weixinErrcode?: number };
+        assert.equal(tagged.weixinRet, -2);
+        assert.equal(tagged.weixinErrcode, 1001);
+        return true;
+      },
+    );
+  } finally {
+    stub.restore();
+  }
+
+  const httpStub = installProviderStub(() => jsonResponse({ ret: 0 }, 503));
+  try {
+    const provider = createWeixinBotProvider({
+      loadCredential: async () => "wx-token-value",
+      requester: createBotProviderRequester(),
+    });
+    await assert.rejects(
+      provider.send(buildWeixinBot(), buildOutboundMessage("weixin")),
+      (error: unknown) => {
+        assert.equal((error as { weixinHttpStatus?: number }).weixinHttpStatus, 503);
+        return true;
+      },
+    );
+  } finally {
+    httpStub.restore();
+  }
+});
+
+test("alpha.2 观测：typing 成功 debug、失败 warn 30s 限频、getconfig token 只记布尔变化", async () => {
+  let getconfigFails = false;
+  const stub = installProviderStub((call) => {
+    if (call.url.endsWith("/getconfig")) {
+      if (getconfigFails) {
+        return jsonResponse({ ret: -2, message: "prepare failed" });
+      }
+      return jsonResponse({ ret: 0, typing_ticket: "ticket-1", context_token: "tok-abc" });
+    }
+    assert.ok(call.url.endsWith("/sendtyping"), `unexpected url: ${call.url}`);
+    return jsonResponse({ ret: 0 });
+  });
+  const captured = captureConsole();
+  try {
+    const provider = createWeixinBotProvider({
+      loadCredential: async () => "wx-token-value",
+      requester: createBotProviderRequester(),
+    });
+    const target = {
+      providerUserId: "peer-user-1",
+      providerMessageId: undefined,
+      providerContextToken: undefined,
+    };
+    // 首次成功：context_token presence 变化记一次布尔（值绝不入日志）。
+    await provider.sendTyping?.(buildWeixinBot(), target);
+    assert.equal(
+      captured.logs.filter((line) =>
+        line.includes("weixin typing getconfig context_token present=true"),
+      ).length,
+      1,
+    );
+    // 第二次成功：布尔未变化，不再记录。
+    await provider.sendTyping?.(buildWeixinBot(), target);
+    assert.equal(captured.logs.filter((line) => line.includes("context_token present=")).length, 1);
+    // 失败：warn 30s 限频——两次失败只留一条。
+    getconfigFails = true;
+    await provider.sendTyping?.(buildWeixinBot(), target).catch(() => undefined);
+    await provider.sendTyping?.(buildWeixinBot(), target).catch(() => undefined);
+    const typingWarns = captured.warns.filter((line) => line.includes("weixin typing"));
+    assert.equal(typingWarns.length, 1, "30s 内重复失败必须限频");
+    assert.match(typingWarns[0] ?? "", /ret=-2/u);
+    // 成功路径不产生任何 warn/info（成功行是 debug 级——生产不落盘，测试环境亦关闭）。
+    assert.equal(captured.warns.filter((line) => line.includes("weixin typing")).length, 1);
+  } finally {
+    captured.restore();
+    stub.restore();
+  }
+});

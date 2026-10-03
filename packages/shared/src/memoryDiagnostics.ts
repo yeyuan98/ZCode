@@ -32,8 +32,14 @@ export interface MemorySampleWriteGateOptions {
    * 只看 heap 的门控把这一分钟判成 heartbeat 静默丢掉；native / external 内存必须单独参与判定。
    */
   nativeDeltaRatio?: number;
-  /** 无变化时的心跳间隔，默认 5 分钟。 */
+  /** 无变化时的心跳间隔，默认 15 分钟。 */
   heartbeatMs?: number;
+  /**
+   * 哪些计数器键的变化允许触发提前写盘（reason=changed）；默认只认诊断相关键
+   * （isDiagnosticMemoryCounterKey）。R1 前“任意计数器变化都写盘”让活动任务的
+   * 高频计数器把心跳行刷成每分钟一条。
+   */
+  counterChangeKeys?: (key: string) => boolean;
 }
 
 export interface MemorySampleWriteGate {
@@ -46,7 +52,31 @@ export interface MemorySampleWriteGate {
 export const MEMORY_SAMPLE_INTERVAL_MS = 60_000;
 export const MEMORY_SAMPLE_HEAP_DELTA_RATIO = 0.05;
 export const MEMORY_SAMPLE_NATIVE_DELTA_RATIO = 0.1;
-export const MEMORY_SAMPLE_HEARTBEAT_MS = 300_000;
+// D2（specs/log-diagnostics-hygiene.md）：无变化心跳间隔 5 分钟 → 15 分钟。
+// 内存比例阈值不动——真机 RSS/external 突增检测（见上方注释）仍按分钟级生效。
+export const MEMORY_SAMPLE_HEARTBEAT_MS = 900_000;
+
+/**
+ * D2：触发提前写盘（reason=changed）的“诊断相关”计数器键集合（按最后一段匹配，
+ * 覆盖 agent.* 与 bots.* 两族）。其余计数器变化不触发写盘，随心跳/其他原因落盘；
+ * 行格式中恒零的非诊断计数器也会被跳过（回到 0 的诊断键仍然输出——R1 中
+ * `agent.pendingUserInputs=2 → 0` 正是关键恢复证据）。
+ */
+const MEMORY_DIAGNOSTIC_COUNTER_KEY_SUFFIXES: readonly string[] = [
+  "pendingUserInputs",
+  "pendingPermissions",
+  "sessionEmitters",
+  "seqStates",
+  "typingIntervals",
+  "runningTasks",
+  "streamSubs",
+  "liveStatusProgress",
+];
+
+export function isDiagnosticMemoryCounterKey(key: string): boolean {
+  const suffix = key.slice(key.lastIndexOf(".") + 1);
+  return MEMORY_DIAGNOSTIC_COUNTER_KEY_SUFFIXES.includes(suffix);
+}
 
 const MEMORY_FIELD_ORDER: readonly (keyof MemorySampleFields)[] = [
   "rssKb",
@@ -56,10 +86,14 @@ const MEMORY_FIELD_ORDER: readonly (keyof MemorySampleFields)[] = [
   "arrayBuffersKb",
 ];
 
-function countersDiffer(a: Record<string, number>, b: Record<string, number>): boolean {
+function countersDiffer(
+  a: Record<string, number>,
+  b: Record<string, number>,
+  keyMatters: (key: string) => boolean,
+): boolean {
   const keys = new Set([...Object.keys(a), ...Object.keys(b)]);
   for (const key of keys) {
-    if (a[key] !== b[key]) {
+    if (keyMatters(key) && a[key] !== b[key]) {
       return true;
     }
   }
@@ -84,6 +118,7 @@ export function createMemorySampleWriteGate(
   const heapDeltaRatio = options.heapDeltaRatio ?? MEMORY_SAMPLE_HEAP_DELTA_RATIO;
   const nativeDeltaRatio = options.nativeDeltaRatio ?? MEMORY_SAMPLE_NATIVE_DELTA_RATIO;
   const heartbeatMs = options.heartbeatMs ?? MEMORY_SAMPLE_HEARTBEAT_MS;
+  const counterChangeKeys = options.counterChangeKeys ?? isDiagnosticMemoryCounterKey;
   let lastWritten: MemorySample | undefined;
   let lastWrittenAt = 0;
 
@@ -98,7 +133,7 @@ export function createMemorySampleWriteGate(
         exceedsRatio(sample.externalKb, lastWritten.externalKb, nativeDeltaRatio)
       ) {
         reason = "changed";
-      } else if (countersDiffer(sample.counters, lastWritten.counters)) {
+      } else if (countersDiffer(sample.counters, lastWritten.counters, counterChangeKeys)) {
         reason = "changed";
       } else if (nowMs - lastWrittenAt >= heartbeatMs) {
         reason = "heartbeat";
@@ -153,6 +188,10 @@ export function formatMemorySampleLine(
   for (const key of Object.keys(sample.counters).sort()) {
     const value = sample.counters[key];
     if (typeof value === "number" && Number.isFinite(value)) {
+      // D3：恒零的非诊断计数器跳过；诊断键即使为 0 也输出（恢复信号）。
+      if (value === 0 && !isDiagnosticMemoryCounterKey(key)) {
+        continue;
+      }
       parts.push(`${key}=${Math.round(value)}`);
     }
   }
@@ -162,20 +201,35 @@ export function formatMemorySampleLine(
 export type MemoryDiagnosticsProvider = () => Record<string, number>;
 
 export interface MemoryDiagnosticsRegistry {
-  /** 同名重复注册时后者覆盖前者；返回的 dispose 只在仍是自己时才移除。 */
+  /**
+   * 同名允许多次注册（R1 根修：同进程多实例同名覆盖导致 bots.* 恒零）；
+   * collect 时同名键求和。dispose 按 provider 身份移除，不影响其他注册。
+   */
   register(name: string, provider: MemoryDiagnosticsProvider): { dispose(): void };
-  /** 逐个调用 provider，键以 `<name>.` 为前缀；单个 provider 抛错只跳过它自己。 */
+  /** 逐个调用 provider，键以 `<name>.` 为前缀、同名键跨实例求和；单个 provider 抛错只跳过它自己。 */
   collect(): Record<string, number>;
 }
 
 export function createMemoryDiagnosticsRegistry(): MemoryDiagnosticsRegistry {
-  const providers = new Map<string, MemoryDiagnosticsProvider>();
+  const providers = new Map<string, MemoryDiagnosticsProvider[]>();
   return {
     register(name, provider) {
-      providers.set(name, provider);
+      const existing = providers.get(name);
+      if (existing) {
+        existing.push(provider);
+      } else {
+        providers.set(name, [provider]);
+      }
       return {
         dispose() {
-          if (providers.get(name) === provider) {
+          const list = providers.get(name);
+          if (!list) {
+            return;
+          }
+          const next = list.filter((item) => item !== provider);
+          if (next.length > 0) {
+            providers.set(name, next);
+          } else {
             providers.delete(name);
           }
         },
@@ -183,15 +237,18 @@ export function createMemoryDiagnosticsRegistry(): MemoryDiagnosticsRegistry {
     },
     collect() {
       const result: Record<string, number> = {};
-      for (const [name, provider] of providers) {
-        try {
-          for (const [key, value] of Object.entries(provider())) {
-            if (typeof value === "number" && Number.isFinite(value)) {
-              result[`${name}.${key}`] = value;
+      for (const [name, list] of providers) {
+        for (const provider of list) {
+          try {
+            for (const [key, value] of Object.entries(provider())) {
+              if (typeof value === "number" && Number.isFinite(value)) {
+                const prefixed = `${name}.${key}`;
+                result[prefixed] = (result[prefixed] ?? 0) + value;
+              }
             }
+          } catch {
+            // 诊断 provider 只做纯读取；任一 provider 异常不能影响其他计数器或业务。
           }
-        } catch {
-          // 诊断 provider 只做纯读取；任一 provider 异常不能影响其他计数器或业务。
         }
       }
       return result;

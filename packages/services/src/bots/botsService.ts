@@ -1706,6 +1706,19 @@ export function createBotsService(
     return state?.bots[botId]?.weixinContextTokens?.[normalizedPeerKey]?.token;
   }
 
+  async function readPersistedWeixinPeerTokenEntry(
+    botId: string,
+    peerKey: string,
+  ): Promise<{ token: string; updatedAt: number } | undefined> {
+    // alpha.2 观测（specs/log-diagnostics-hygiene.md）：updatedAt 是该 peer token 的
+    // 真实轮换时间（写入侧仅在 token 变化时更新），sendOutbound 用它计算 tokenAgeMs——
+    // 探针测 TTL 的数据源。只读，不改任何发送语义。
+    const normalizedPeerKey = peerKey.trim();
+    if (!normalizedPeerKey) return undefined;
+    const state = await repo.readState().catch(() => null);
+    return state?.bots[botId]?.weixinContextTokens?.[normalizedPeerKey];
+  }
+
   /**
    * Phase B 单一媒体写出核心（specs/bot-file-delivery.md Phase B 不变量）：/file
    * （source "command"）与 bots/shareFile RPC（source "tool"）都汇聚到这里，是唯一的
@@ -2943,16 +2956,47 @@ export function createBotsService(
     // 与媒体路径（deliverWorkspaceFile tool 分支）对齐：发送前优先读最新持久化 token
     // （任何入站 ping 都会刷新该表），捕获 token 只作兜底；ret=-2 无 token 重试仍由
     // provider 兜底。peerKey 与持久化写入侧一致（chatId 优先）。
+    //
+    // alpha.2 观测（specs/bot-message-delivery.md F10 amendment）：sendOutbound 是两条
+    // 出站路径（缓冲流式回复 + 终态文书）的唯一汇合点，每次调用记一条结果线——成功
+    // info、失败 warn 附打标字段与 tokenAgeMs（探针测 TTL 的双侧数据：成功侧给出
+    // "仍有效"下界，失败侧给出"已失效"上界）。失败照常上抛，零行为变化。
+    let outbound = message;
+    let tokenAgeMs: number | undefined;
     if (bot.provider === "weixin") {
-      const freshToken = await readPersistedWeixinPeerToken(bot.id, message.providerUserId);
-      const providerContextToken = freshToken ?? message.providerContextToken;
-      await adapter.send(
-        bot,
-        providerContextToken ? { ...message, providerContextToken } : message,
-      );
-      return;
+      const entry = await readPersistedWeixinPeerTokenEntry(bot.id, message.providerUserId);
+      if (entry?.token) {
+        outbound = { ...message, providerContextToken: entry.token };
+        tokenAgeMs = Date.now() - entry.updatedAt;
+      }
     }
-    await adapter.send(bot, message);
+    const bytes = Buffer.byteLength(message.text ?? "", "utf8");
+    const ageSuffix = tokenAgeMs !== undefined ? ` tokenAgeMs=${tokenAgeMs}` : "";
+    try {
+      await adapter.send(bot, outbound);
+      botsLogger.info(
+        undefined,
+        `bot outbound send provider=${bot.provider} peer=${message.providerUserId} bytes=${bytes} ok${ageSuffix}`,
+      );
+    } catch (error) {
+      const tagged = error as {
+        weixinRet?: number;
+        weixinErrcode?: number;
+        weixinHttpStatus?: number;
+      };
+      const fields = [
+        tagged.weixinRet !== undefined ? `ret=${tagged.weixinRet}` : "",
+        tagged.weixinErrcode !== undefined ? `errcode=${tagged.weixinErrcode}` : "",
+        tagged.weixinHttpStatus !== undefined ? `httpStatus=${tagged.weixinHttpStatus}` : "",
+      ]
+        .filter(Boolean)
+        .join(" ");
+      botsLogger.warn(
+        undefined,
+        `bot outbound send provider=${bot.provider} peer=${message.providerUserId} bytes=${bytes} failed${ageSuffix}${fields ? ` ${fields}` : ""}: ${error instanceof Error ? error.message : String(error)}`,
+      );
+      throw error;
+    }
   }
 
   function buildInboundDeliveryKey(message: BotInboundMessage): string | null {

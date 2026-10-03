@@ -766,3 +766,64 @@ test("F2 单次多分块 flush：兄弟分块已送达则不丢弃，失败分�
     await harness.dispose();
   }
 });
+
+// ---- alpha.2 观测：sendOutbound 结果线（specs/bot-message-delivery.md F10 amendment）----
+
+test("alpha.2 观测：sendOutbound 每次调用一条结果线（成功含 tokenAgeMs，失败附错误文本）", async () => {
+  const realLog = console.log;
+  const realWarn = console.warn;
+  const logs: string[] = [];
+  const warns: string[] = [];
+  console.log = (...args: unknown[]) => {
+    logs.push(args.map(String).join(" "));
+  };
+  console.warn = (...args: unknown[]) => {
+    warns.push(args.map(String).join(" "));
+  };
+  try {
+    const harness = await createHarness();
+    try {
+      await harness.triggerMessage({ providerContextToken: "token-stale" });
+      const enqueue = await requireEnqueue(harness);
+      await harness.overwritePersistedWeixinToken("token-fresh");
+      await enqueue(chunkEvent("观测正文"));
+      await enqueue(toolCallEvent("tool-obs-1"));
+      const sent = harness.sentMessages.find((message) => message.text === "观测正文");
+      assert.ok(sent, "正文必须送达");
+      assert.ok(
+        logs.some(
+          (line) =>
+            line.includes("bot outbound send provider=weixin") &&
+            line.includes("bytes=") &&
+            line.includes("ok tokenAgeMs="),
+        ),
+        `成功结果线必须带 tokenAgeMs：\n${logs.join("\n")}`,
+      );
+
+      // 失败路径：适配器抛错 → warn 结果线（错误文本随行）+ 照常上抛（flush 预算接住）。
+      harness.sendControl.failTextPattern = /观测失败正文/u;
+      await enqueue(chunkEvent("观测失败正文"));
+      await enqueue(toolCallEvent("tool-obs-2"));
+      await waitForCondition(
+        () => harness.sentMessages.some((message) => message.text === REPLY_DELIVERY_FAILED_ZH),
+        2500,
+        "flush 丢弃通知必须送达（失败被预算接住的证明）",
+      );
+      assert.ok(
+        warns.some(
+          (line) =>
+            line.includes("bot outbound send provider=weixin") &&
+            line.includes("failed") &&
+            line.includes("bytes="),
+        ),
+        `失败结果线必须存在：\n${warns.join("\n")}`,
+      );
+    } finally {
+      harness.sendControl.failTextPattern = undefined;
+      await harness.dispose();
+    }
+  } finally {
+    console.log = realLog;
+    console.warn = realWarn;
+  }
+});

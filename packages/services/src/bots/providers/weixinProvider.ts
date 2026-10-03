@@ -64,6 +64,8 @@ interface WeixinTestResponse {
   profile?: unknown;
   ret?: number;
   typing_ticket?: string;
+  /** alpha.2 探针观测点：getconfig 响应是否携带 context_token（只记布尔，永不记值）。 */
+  context_token?: string;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -210,7 +212,11 @@ async function requestWeixinJson(
     timeoutMs,
   );
   if (!response.ok) {
-    throw new Error(`Weixin iLink ${path} failed: HTTP ${response.status}`);
+    const error = new Error(`Weixin iLink ${path} failed: HTTP ${response.status}`);
+    // alpha.2 观测（specs/bot-provider-network.md amendment）：HTTP 状态码打标，
+    // 上层日志与分类器按字段读取，不解析 message 文本。
+    (error as Error & { weixinHttpStatus?: number }).weixinHttpStatus = response.status;
+    throw error;
   }
   const payload = response.payload;
   const data = isRecord(payload) ? payload : null;
@@ -224,8 +230,9 @@ async function requestWeixinJson(
     const error = new Error(`Weixin iLink ${path} failed: ${message}`);
     // Bugfix（specs/bot-provider-network.md Alpha 1 F4）：文本路径此前不带 weixinRet 标记，
     // 调用方无法按协议 ret 码分支；与 requestWeixinMediaJson 对齐打标，文本 /sendmessage
-    // 的 ret=-2 无 token 重试依赖它。
+    // 的 ret=-2 无 token 重试依赖它。alpha.2 追加 weixinErrcode（此前只进 message）。
     (error as Error & { weixinRet?: number }).weixinRet = ret ?? undefined;
+    (error as Error & { weixinErrcode?: number }).weixinErrcode = errcode ?? undefined;
     throw error;
   }
   return payload;
@@ -281,7 +288,9 @@ async function requestWeixinMediaJson(
     timeoutMs,
   );
   if (!response.ok) {
-    throw new Error(`Weixin iLink ${path} failed: HTTP ${response.status}`);
+    const error = new Error(`Weixin iLink ${path} failed: HTTP ${response.status}`);
+    (error as Error & { weixinHttpStatus?: number }).weixinHttpStatus = response.status;
+    throw error;
   }
   const payload = response.payload;
   const data = isRecord(payload) ? payload : null;
@@ -294,6 +303,7 @@ async function requestWeixinMediaJson(
       `ret=${ret ?? ""} errcode=${errcode ?? ""}`.trim();
     const error = new Error(`Weixin iLink ${path} failed: ${message}`);
     (error as Error & { weixinRet?: number }).weixinRet = ret ?? undefined;
+    (error as Error & { weixinErrcode?: number }).weixinErrcode = errcode ?? undefined;
     throw error;
   }
   return data ?? {};
@@ -1024,6 +1034,12 @@ export async function getWeixinUpdates(params: {
 }
 
 export function createWeixinBotProvider(deps: WeixinProviderDeps): BotProviderAdapter {
+  // alpha.2 观测（specs/bot-provider-network.md amendment / log-diagnostics-hygiene.md）：
+  // typing 每 4s 一次，成功走 debug（生产不落盘）；失败 warn 按 30s 限频（惰性时间戳
+  // 比较，非 timer）——死窗内 typing 是否存活、getconfig 是否仍发新 context_token，
+  // 是探针判定"通道死 vs 仅 token 死"的关键证据。token 值永不入日志。
+  let lastTypingWarnAtMs = 0;
+  let lastTypingTokenPresence: boolean | undefined;
   return {
     async test(bot) {
       if (!bot.enabled) {
@@ -1106,18 +1122,58 @@ export function createWeixinBotProvider(deps: WeixinProviderDeps): BotProviderAd
     },
 
     async sendTyping(bot, target: BotTypingTarget) {
-      const config = (await requestWeixinJson(bot, deps, "/getconfig", {
-        ilink_user_id: target.providerUserId,
-        ...(target.providerContextToken ? { context_token: target.providerContextToken } : {}),
-      })) as WeixinTestResponse;
-      if (!config.typing_ticket) {
-        return;
+      const warnTypingFailure = (stage: string, error: unknown): void => {
+        const now = Date.now();
+        if (now - lastTypingWarnAtMs < 30_000) {
+          return;
+        }
+        lastTypingWarnAtMs = now;
+        const tagged = error as {
+          weixinRet?: number;
+          weixinErrcode?: number;
+          weixinHttpStatus?: number;
+        };
+        const fields = [
+          tagged.weixinRet !== undefined ? `ret=${tagged.weixinRet}` : "",
+          tagged.weixinErrcode !== undefined ? `errcode=${tagged.weixinErrcode}` : "",
+          tagged.weixinHttpStatus !== undefined ? `httpStatus=${tagged.weixinHttpStatus}` : "",
+        ]
+          .filter(Boolean)
+          .join(" ");
+        weixinLogger.warn(
+          undefined,
+          `weixin typing ${stage} failed: ${error instanceof Error ? error.message : String(error)}${fields ? ` ${fields}` : ""}`,
+        );
+      };
+      let stage = "getconfig";
+      try {
+        const config = (await requestWeixinJson(bot, deps, "/getconfig", {
+          ilink_user_id: target.providerUserId,
+          ...(target.providerContextToken ? { context_token: target.providerContextToken } : {}),
+        })) as WeixinTestResponse;
+        const tokenPresence =
+          typeof config.context_token === "string" && config.context_token.length > 0;
+        if (tokenPresence !== lastTypingTokenPresence) {
+          lastTypingTokenPresence = tokenPresence;
+          weixinLogger.info(
+            undefined,
+            `weixin typing getconfig context_token present=${tokenPresence}`,
+          );
+        }
+        if (!config.typing_ticket) {
+          return;
+        }
+        stage = "sendtyping";
+        await requestWeixinJson(bot, deps, "/sendtyping", {
+          ilink_user_id: target.providerUserId,
+          typing_ticket: config.typing_ticket,
+          status: 1,
+        });
+        weixinLogger.debug(undefined, "weixin typing send ok");
+      } catch (error) {
+        warnTypingFailure(stage, error);
+        throw error;
       }
-      await requestWeixinJson(bot, deps, "/sendtyping", {
-        ilink_user_id: target.providerUserId,
-        typing_ticket: config.typing_ticket,
-        status: 1,
-      });
     },
 
     async downloadAttachment(_bot, attachment) {

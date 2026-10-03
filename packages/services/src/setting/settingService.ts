@@ -19,6 +19,143 @@ const MAX_RECENT_PROJECTS = 10;
 const DEFAULT_PROJECT_NAME = "ZCodeProject";
 const SETTINGS_PARSE_RETRY_DELAY_MS = 300;
 const SETTINGS_PARSE_RETRY_COUNT = 3;
+/** D4（specs/log-diagnostics-hygiene.md）：单条增量行最多列出的变更键数。 */
+const SETTINGS_DELTA_MAX_ENTRIES = 30;
+
+// D4 状态（模块级、每进程一份；多 host 进程各出一条基线，行内 pid 前缀可区分）：
+// lastKnownSettings 只作日志对照（读取/写盘成功后更新），不参与任何业务判定。
+let lastKnownSettings: AppSettings | undefined;
+let lastSettingsSnapshotDay = "";
+
+const SETTINGS_REDACTED_PATTERN =
+  /token|secret|password|passwd|credential|key|proxy|authorization/i;
+const SETTINGS_REDACTED = "<redacted>";
+
+function localDayString(date = new Date()): string {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(
+    date.getDate(),
+  ).padStart(2, "0")}`;
+}
+
+function isSensitiveSettingsPath(path: string): boolean {
+  return path.split(".").some((segment) => SETTINGS_REDACTED_PATTERN.test(segment));
+}
+
+/** 深拷贝并按路径段名脱敏（httpProxy URL 可内嵌凭据——评审修复项）。 */
+function redactSettingsValue(value: unknown, path = ""): unknown {
+  if (Array.isArray(value)) {
+    return value.map((item) => redactSettingsValue(item, path));
+  }
+  if (value && typeof value === "object") {
+    const result: Record<string, unknown> = {};
+    for (const [key, inner] of Object.entries(value as Record<string, unknown>)) {
+      result[key] = redactSettingsValue(inner, path ? `${path}.${key}` : key);
+    }
+    return result;
+  }
+  return isSensitiveSettingsPath(path) ? SETTINGS_REDACTED : value;
+}
+
+function formatSettingsValue(value: unknown): string {
+  if (typeof value === "string") {
+    return value.length > 80 ? `"${value.slice(0, 77)}…"` : `"${value}"`;
+  }
+  if (Array.isArray(value)) {
+    return `[${value.length} items]`;
+  }
+  if (value && typeof value === "object") {
+    return `{${Object.keys(value as Record<string, unknown>).length} keys}`;
+  }
+  return String(value);
+}
+
+/** 生成 `path: old -> new` 增量项；数组以长度对比，避免刷屏。 */
+function diffSettingsEntries(
+  previous: unknown,
+  next: unknown,
+  path: string,
+  entries: string[],
+): void {
+  if (entries.length >= SETTINGS_DELTA_MAX_ENTRIES) {
+    return;
+  }
+  const prevObj = previous && typeof previous === "object" && !Array.isArray(previous);
+  const nextObj = next && typeof next === "object" && !Array.isArray(next);
+  if (prevObj && nextObj) {
+    const keys = new Set([
+      ...Object.keys(previous as Record<string, unknown>),
+      ...Object.keys(next as Record<string, unknown>),
+    ]);
+    for (const key of keys) {
+      const prevValue = (previous as Record<string, unknown>)[key];
+      const nextValue = (next as Record<string, unknown>)[key];
+      if (prevValue === undefined || nextValue === undefined) {
+        entries.push(
+          `${path ? `${path}.${key}` : key}: ${formatSettingsValue(prevValue ?? nextValue)} ${nextValue === undefined ? "removed" : "added"}`,
+        );
+      } else {
+        diffSettingsEntries(prevValue, nextValue, path ? `${path}.${key}` : key, entries);
+      }
+    }
+    return;
+  }
+  if (JSON.stringify(previous) !== JSON.stringify(next)) {
+    entries.push(`${path}: ${formatSettingsValue(previous)} -> ${formatSettingsValue(next)}`);
+  }
+}
+
+function redactSettingsEntry(entry: string): string {
+  // `path: old -> new` 形态：敏感路径的值在生成侧已经由 redactSettingsValue 处理；
+  // 这里兜底替换敏感路径行的值（双保险，代价极低）。
+  const colonAt = entry.indexOf(":");
+  if (colonAt > 0 && isSensitiveSettingsPath(entry.slice(0, colonAt))) {
+    return `${entry.slice(0, colonAt)}: ${SETTINGS_REDACTED}`;
+  }
+  return entry;
+}
+
+/**
+ * D4：设置写盘日志。每个本地自然日第一条（或进程内第一条）输出全量快照（脱敏），
+ * 同日后续写盘只输出变更键；跨日由 maybeLogSettingsDailyBaseline 在 60s 诊断 tick
+ * 上补发基线，保证“只导出某一天的日志也自包含”。
+ */
+function logSettingsWrite(settings: AppSettings): void {
+  const day = localDayString();
+  if (day !== lastSettingsSnapshotDay) {
+    lastSettingsSnapshotDay = day;
+    log("settings daily snapshot:", JSON.stringify(redactSettingsValue(settings)));
+    return;
+  }
+  if (!lastKnownSettings) {
+    return;
+  }
+  const entries: string[] = [];
+  diffSettingsEntries(lastKnownSettings, settings, "", entries);
+  if (entries.length === 0) {
+    return;
+  }
+  const suffix =
+    entries.length >= SETTINGS_DELTA_MAX_ENTRIES
+      ? ` …(+more, capped ${SETTINGS_DELTA_MAX_ENTRIES})`
+      : "";
+  log("settings changed:", entries.map(redactSettingsEntry).join("; ") + suffix);
+}
+
+/**
+ * D4 跨日补发（desktop host 在既有 60s 诊断 tick 上调用；见
+ * packages/desktop/src/host/hostMemoryDiagnosticsLog.ts onTick）。只读内存缓存，
+ * 无 IO；进程尚不知道任何设置时不输出（当天首次读/写会触发快照）。
+ */
+export function maybeLogSettingsDailyBaseline(): void {
+  if (!lastKnownSettings) {
+    return;
+  }
+  const day = localDayString();
+  if (day !== lastSettingsSnapshotDay) {
+    lastSettingsSnapshotDay = day;
+    log("settings daily snapshot:", JSON.stringify(redactSettingsValue(lastKnownSettings)));
+  }
+}
 
 const log = (...args: unknown[]) =>
   console.log(formatLogPrefix("settingService", process.pid), ...args);
@@ -143,6 +280,8 @@ async function readSettingsWithMeta(): Promise<ReadSettingsResult> {
       };
     }
     debugLog("read result:", JSON.stringify(result.data));
+    // D4：成功解析到真实落盘配置后更新日志对照缓存（只作日志用途）。
+    lastKnownSettings = result.data;
     return {
       settings: result.data,
       needsMigrationPersist: shouldPersistSettingsMigrations(rawValue),
@@ -184,7 +323,9 @@ async function writeSettings(
   const settingsFile = getSettingsFile();
   // Windows 下测试只改了 HOME，模块顶层常量如果在导入时就把 homedir() 固化，
   // 后续读写仍会串到真实用户目录。这里改成每次按当前环境解析配置路径，保证本地和测试都稳定。
-  log("writing settings to:", settingsFile, JSON.stringify(settings));
+  // D4（specs/log-diagnostics-hygiene.md）：此前每次写盘都全量 dump（~65KB/天且含路径
+  // 等细节）；改为每日一条脱敏快照 + 当日增量行。
+  logSettingsWrite(settings);
   maybeThrowInjectedFsFault({ operation: "mkdir", path: settingsDir });
   await mkdir(settingsDir, { recursive: true });
   if (!shouldCommit()) return;
@@ -205,6 +346,8 @@ async function writeSettings(
         await renameFile();
       }),
   });
+  // D4：写盘成功后推进日志对照缓存（增量 diff 的旧值来源）。
+  lastKnownSettings = settings;
   log("write done");
 }
 

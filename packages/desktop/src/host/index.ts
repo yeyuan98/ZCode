@@ -62,6 +62,8 @@ import {
   OffPeakPermanentDispatchError,
   createDesktopBotShareFileForwardService,
   type HostApiNetworkTransport,
+  // D4：挂诊断 tick 的设置每日基线补发（node 入口——浏览器入口守卫）。
+  maybeLogSettingsDailyBaseline,
 } from "@zcode/services/node";
 import { createHostResourceUsageResponder } from "./hostResourceUsage.js";
 import {
@@ -112,7 +114,8 @@ import type {
 import type { RemoteTarget } from "@zcode/shared";
 import { wrapElectronPort } from "./electronPort.js";
 import { createTaskRealtimeBridgeForHostInit } from "./taskRealtimeBridge.js";
-import { resolveRpcLogLevel } from "./rpcLogLevel.js";
+import { resolveRpcLogLevel, parseRpcCallSummary } from "./rpcLogLevel.js";
+import { createRpcLivenessTracker } from "./rpcLiveness.js";
 import { createHostWorkspaceTaskTracker } from "./hostWorkspaceTaskTracker.js";
 import {
   createRemoteMediaPreviewProxy,
@@ -991,9 +994,16 @@ process.on("warning", (warning) => logger.warn(`${warning.name}: ${warning.messa
 
 // 已移除厂商资源遥测：Host 仅保留本地 60 秒内存诊断日志（`[memory]` 行）。
 // services 计数器由各 service 工厂自注册。
+// D1/D4（specs/log-diagnostics-hygiene.md）：rpc 存活汇总与设置每日基线都挂在本
+// 诊断定时器的 onTick 上——不新增 timer；60s 心跳里只做时间戳比较。
+const rpcLivenessTracker = createRpcLivenessTracker();
 const hostMemoryDiagnosticsLog = startHostMemoryDiagnosticsLog({
   logger,
   collectCounters: collectServiceMemoryDiagnostics,
+  onTick: () => {
+    rpcLivenessTracker.maybeEmit(logger);
+    maybeLogSettingsDailyBaseline();
+  },
 });
 
 const runtimeProcessLifecycleReporter = {
@@ -1484,6 +1494,12 @@ const rpcDebugLogger = createServiceLogger("rpc");
 
 function logRpc(message: string, ...args: unknown[]): void {
   const level = resolveRpcLogLevel(message, ...args);
+  // D1（specs/log-diagnostics-hygiene.md）：无论级别如何都记入存活统计——
+  // OK 行降为 debug 后，生产日志的轮询存活信号由 15 分钟汇总补回。
+  const summary = parseRpcCallSummary(message);
+  if (summary) {
+    rpcLivenessTracker.record(summary.method, summary.ok);
+  }
   if (level === "debug") {
     rpcDebugLogger.debug(undefined, message, ...args);
     return;
