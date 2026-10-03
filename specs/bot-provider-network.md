@@ -160,20 +160,32 @@ contracts:
    `send` throws a quiet credential error (no retry machinery, no
    notice-over-broken-channel — failures surface via the existing catch→warn paths;
    credential-not-configured stays quiet to avoid spam). No new retry loops.
-   **Telegram cursor dead-end (recorded)**: a callback whose reply send throws skips
-   that update's offset commit (per-update commit-after-success,
-   `telegramChannelRuntime`), so a PERSISTENTLY failing send (e.g. 403 bot-blocked
-   while `getUpdates` stays healthy) redelivers the same update every ~5s until the
-   send recovers. Self-limiting in practice (a token-less bot never starts polling —
-   the same token feeds `getUpdates`); retry-on-failure cursor semantics is the
-   pre-existing deliberate choice (never lose an update); revisit only with rig
-   evidence of a real loop.
-3. **Cursor rescope decision note (DEFERRED to alpha.2, owner §4.8 — do NOT implement in
-   alpha.1)**: the WeChat poll protocol has ONE marker per batch (no per-message markers
-   like Telegram's update_ids), so per-message commit would ack unprocessed messages
-   (silent loss). The sound rescope is skip-failing-message-with-notice + commit — a real
-   trade-off vs today's retry-forever. Design + decision land in alpha.2 in this spec's
-   F4 (cursor) section.
+   **Telegram cursor dead-end (SUPERSEDED in 3.14.5-alpha.3)**: a callback whose reply
+   send throws used to skip that update's offset commit, redelivering the same update
+   every ~5s. The alpha.1 text said "revisit only with rig evidence of a real loop" —
+   that evidence arrived (§2b poison-message deadlock, 52 reprocessings in 7 min) and
+   the rescope LANDED as the shared consumed semantics owned by
+   `specs/bot-inbound-resilience.md` (B): business-failure-with-delivered-notice (or
+   confirmed session signal) = consumed ⇒ offset/buf/ACK advance; infra failures and
+   the notice-undeliverable hole keep abort-no-commit.
+3. **Cursor rescope decision — LANDED in 3.14.5-alpha.3** (supersedes the former
+   "deferred to alpha.2" note): the WeChat poll protocol has ONE marker per batch (no
+   per-message markers like Telegram's update_ids), so per-message commit would ack
+   unprocessed messages. The sound rescope — skip-failing-message-with-notice + commit
+   — is now specified and owned by `specs/bot-inbound-resilience.md` §B (consumed
+   semantics, all providers incl. webhook status-as-cursor). Do not re-implement here.
+
+## Amendment (3.14.5-alpha.3) — inbound consumed semantics (pointer)
+
+Cursor-rescope ownership moved to `specs/bot-inbound-resilience.md` (spec-first,
+owner decisions §7.12–15): business failure with DELIVERED notice or CONFIRMED session
+signal = consumed ⇒ weixin buf / telegram offset / feishu ACK / webhook HTTP 200
+advance; notice-undeliverable hole and infra failures keep abort-no-commit; failure-path
+dedupe retention; poll-error backoff 5→60s. This spec keeps the provider transport,
+observability and cursor-write-mechanics sections above; nothing in them changes in
+alpha.3 (the F4 "cursor writes never silently dropped" mechanics are untouched — only
+the decision of WHEN a batch counts as processed changed, and that lives in the new
+spec).
 
 ## Amendment (3.14.5-alpha.2) — provider send observability (instrumentation-only)
 

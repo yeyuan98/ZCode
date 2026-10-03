@@ -133,6 +133,9 @@ export function createFeishuChannelRuntime(deps: FeishuChannelRuntimeDeps) {
               `feishu websocket payload bot=${bot.id} ${deps.summarizeCallbackPayload(payload)}`,
             );
             const callbackResult = await deps.processProviderCallback(bot.provider, payload);
+            // ACK 策略（specs/bot-inbound-resilience.md §B.5）：失败带通知（通知已送达）= 已消费 = ok=true
+            // ⇒ 此处 assert 通过 ⇒ WS 正常 ACK；旧交互按钮可能残留，requestId first-wins 使其无害。
+            // 仅未消费失败（洞）保持 assert 抛错 ⇒ 不 ACK ⇒ 飞书按自身节奏重投。
             assertBotCallbackSucceeded(bot.provider === "lark" ? "Lark" : "Feishu", callbackResult);
             return callbackResult.replies[0];
           },

@@ -417,8 +417,9 @@ export function createHttpServer(
       return c.json(responseBody, 401);
     }
     if (result.status === 503) {
-      // Bugfix：Bot 业务失败必须把可重试状态透传给 HTTP provider；返回 200 会让
-      // webhook/网关误以为消息已消费，效果与提前提交 Telegram offset 相同。
+      // specs/bot-inbound-resilience.md §B.6：业务失败只有“未消费”（失败通知未送达且无
+      // 会话信号确认）才保持 503 重试语义；已消费的失败（通知已送达）不携带错误状态、
+      // 走下方 200——webhook 的“游标”即该 HTTP 状态，200 等价于游标提交。
       return c.json(responseBody, 503);
     }
     return c.json(responseBody, 200);

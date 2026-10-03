@@ -275,6 +275,62 @@ export function waitFor(ms: number, signal: AbortSignal): Promise<void> {
   });
 }
 
+// specs/bot-inbound-resilience.md §D：连续 poll 错误按 5s→10s→20s→40s→60s（封顶）退避，
+// 任一成功 poll 周期复位到 5s。纯状态机（无 timer、无时钟依赖），等待本身仍由调用方把
+// nextDelayMs() 的结果传入 waitFor；仅 error-catch 等待使用，lock 竞争等待与
+// telegram 409 专属等待保持既有语义、不进此状态。
+const BOT_POLL_ERROR_BACKOFF_DELAYS_MS = [5_000, 10_000, 20_000, 40_000, 60_000] as const;
+
+export interface PollErrorBackoff {
+  /** 最近一次 nextDelayMs() 对应的连续失败次数（从 1 起；封顶后延迟不变、计数仍递增供日志观测）。 */
+  readonly attempt: number;
+  /** 返回本次失败的退避等待时长，并把连续失败计数 +1（第 6 次起封顶 60s）。 */
+  nextDelayMs(): number;
+  /** 任一成功 poll 周期调用：连续失败计数归零（下次失败回到 5s）。 */
+  recordSuccess(): void;
+}
+
+export function createPollErrorBackoff(): PollErrorBackoff {
+  let attempt = 0;
+  return {
+    nextDelayMs(): number {
+      // 索引已由 Math.min 钳制到末位，?? 兜底仅为满足 noUncheckedIndexedAccess，值即封顶。
+      const delayMs =
+        BOT_POLL_ERROR_BACKOFF_DELAYS_MS[
+          Math.min(attempt, BOT_POLL_ERROR_BACKOFF_DELAYS_MS.length - 1)
+        ] ?? 60_000;
+      attempt += 1;
+      return delayMs;
+    },
+    recordSuccess(): void {
+      attempt = 0;
+    },
+    get attempt(): number {
+      return attempt;
+    },
+  };
+}
+
+/**
+ * specs/bot-inbound-resilience.md §D：error-catch 等待的统一 warn+等待入口。
+ * 每次失败 poll 恰好一行 warn（连续次数 + 下次等待，rig T6 直接读日志验证节奏）；
+ * 等待复用既有 waitFor；telegram 409 专属 10s 与 lock 竞争等待不经此函数、不进退避状态。
+ */
+export function waitForPollErrorBackoff(
+  logger: BotRuntimeLogger,
+  backoff: PollErrorBackoff,
+  provider: "weixin" | "telegram",
+  botId: string,
+  signal: AbortSignal,
+): Promise<void> {
+  const nextMs = backoff.nextDelayMs();
+  logger.warn(
+    undefined,
+    `${provider} poll error backoff attempt=${backoff.attempt} nextMs=${nextMs} bot=${botId}`,
+  );
+  return waitFor(nextMs, signal);
+}
+
 export async function waitForAbort(signal: AbortSignal): Promise<void> {
   if (signal.aborted) {
     return;

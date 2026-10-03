@@ -8,9 +8,11 @@ import {
   BOT_RUNTIME_LOCK_RETRY_MS,
   createBotConnectionFingerprint,
   createLatestRuntimeRefreshQueue,
+  createPollErrorBackoff,
   type BotRuntimeLogger,
   type BotRuntimeStatusSink,
   waitFor,
+  waitForPollErrorBackoff,
 } from "./channelRuntime.js";
 
 interface TelegramGetUpdatesResponse {
@@ -99,6 +101,17 @@ export function createTelegramChannelRuntime(deps: TelegramChannelRuntimeDeps) {
     // getUpdates 周期（error→polling 转换）后补一次 syncCommands。必须声明在外层
     // while 之外：catch-all 路径会退出内层循环并重启外层迭代，标记不能随之丢失。
     let needsCommandResync = false;
+    // specs/bot-inbound-resilience.md §D：poll 错误退避与 needsCommandResync 同理，必须声明在
+    // 外层 while 之外跨 catch 周期存活（且在使用它的 try 块之外，TS2304 块级作用域）。
+    // 内层 getUpdates 循环的三个 error-catch 等待共用一个实例；409 专属 10s 与
+    // lock 竞争等待保持既有语义、不进此状态。
+    const pollErrorBackoff = createPollErrorBackoff();
+    // §D：内层 getUpdates 循环三个 error-catch 等待的统一入口——409 保持专属 10s、
+    // 不进退避状态；其余错误递增退避，每次失败恰好一行 warn（次数 + 下次等待）。
+    const waitForPollError = (status?: number): Promise<void> =>
+      status === 409
+        ? waitFor(10_000, signal)
+        : waitForPollErrorBackoff(deps.logger, pollErrorBackoff, "telegram", bot.id, signal);
     while (!signal.aborted) {
       let lock: Awaited<ReturnType<typeof acquireTelegramPollingLock>>;
       try {
@@ -189,7 +202,8 @@ export function createTelegramChannelRuntime(deps: TelegramChannelRuntimeDeps) {
                   : `Telegram getUpdates failed: HTTP ${response.status}`,
               offset,
             });
-            await waitFor(response.status === 409 ? 10_000 : 5_000, signal);
+            // §D：409（另一轮询客户端冲突）保持专属 10s、不进退避；其余 HTTP 错误递增退避。
+            await waitForPollError(response.status);
             continue;
           }
           const payload = response.payload;
@@ -202,7 +216,8 @@ export function createTelegramChannelRuntime(deps: TelegramChannelRuntimeDeps) {
               message: payload?.description ?? "Telegram getUpdates returned an invalid response.",
               offset,
             });
-            await waitFor(5_000, signal);
+            // §D：无效响应计入递增退避；每次失败恰好一行 warn（次数 + 下次等待）。
+            await waitForPollError();
             continue;
           }
           if (signal.aborted) {
@@ -232,6 +247,8 @@ export function createTelegramChannelRuntime(deps: TelegramChannelRuntimeDeps) {
             needsCommandResync = false;
             void syncCommands(bot);
           }
+          // §D：本周期 getUpdates 成功且 update 全部处理完毕，视为成功 poll 周期，复位退避。
+          pollErrorBackoff.recordSuccess();
           deps.statusSink.setRuntimeStatus({
             botId: bot.id,
             provider: "telegram",
@@ -261,7 +278,8 @@ export function createTelegramChannelRuntime(deps: TelegramChannelRuntimeDeps) {
           message: `Telegram polling failed; retrying. (${cause})`,
           offset: await deps.readTelegramOffset(bot.id),
         });
-        await waitFor(5_000, signal);
+        // §D：catch-all 网络异常与内层两个错误分支共用同一退避实例；每次失败恰好一行 warn。
+        await waitForPollError();
       } finally {
         await lock.release().catch((error: unknown) => {
           deps.logger.debug(
