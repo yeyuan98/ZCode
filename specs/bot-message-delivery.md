@@ -161,8 +161,9 @@ drops (handoff §2 telemetry defects). Full logging contract:
 - The flush budget is bounded per invocation by construction (first failing chunk stops
   the loop: ≤2 attempts + one ~1s backoff sleep; wall-clock ≤ 2× send timeout + one
   notice send). **3.14.5-alpha.4**：首块失败即停止尝试（同预算）；channel-dead
-  保留全部未送达内容至 per-peer 保留缓冲（~64KB **字节**尾部截断，UTF-16 缓冲按
-  2 字节/字符换算）；仅 content-poison 丢弃剩余。
+  保留全部未送达内容至 per-peer 保留缓冲（~64KB 尾部截断，**utf8 字节口径**——
+  `Buffer.byteLength`；缓冲内部是 UTF-16 字符，若按 `.length` 计数 cap 会翻倍，
+  测试已钉住字节口径）；仅 content-poison 丢弃剩余。
 - Provider parity: text providers flush at interaction boundaries; card providers seal
   (unchanged); `summary_changes` never streams (unchanged).
 - No new timers; no new background processes; no polling.
@@ -177,7 +178,8 @@ drops (handoff §2 telemetry defects). Full logging contract:
 ## Retention buffer（channel-dead 保留缓冲，3.14.5-alpha.4）
 
 - 权限提示**不进入**保留缓冲（alpha.3 的 stop-deny 语义不变）；
-  `summary_changes`/`streaming_card` 模式无文本缓冲，不适用保留。
+  `summary_changes`/`streaming_card` 模式无文本缓冲，不适用**缓冲保留**（终态
+  文书直发缝隙的保留不受模式限制——共享的 change-summary 直发即 16:42 丢失类）。
 - 服务进程 dispose 时保留缓冲静默丢失（接受的残余，与桌面会话一致）。
 - 保留缓冲 cap 为**字节**口径（~64KB 尾部 + 头部截断标记）；per-peer 串行化
   （promise chain，botId+peerKey）覆盖 streamEventQueue / 入站队列 / 出队 drain
