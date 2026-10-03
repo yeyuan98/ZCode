@@ -2498,9 +2498,12 @@ export function createBotsService(
   async function formatStatusModelLabel(
     model: string | undefined,
     context: Pick<BotContextState, "workspacePath" | "workspaceIdentity">,
+    locale: Locale | undefined,
   ): Promise<string> {
     if (!model) {
-      return "-";
+      // specs/bot-inbound-resilience.md §A.2：无模型时显示明确本地化“未设置 / not set”，
+      // 替代裸 "-"——让陷阱在首个 prompt 前可见（/status 与 /new ack 共用此处）。
+      return msg(locale, "statusModelUnset");
     }
     const customModel = decodeCustomModelValue(model);
     if (customModel?.providerId) {
@@ -6003,6 +6006,7 @@ export function createBotsService(
           await formatStatusModelLabel(
             formatBotModelSelectionValue(draftOptions?.modelSelection),
             context,
+            locale,
           ),
         ),
         "------",
@@ -6058,12 +6062,13 @@ export function createBotsService(
     const draftEffectiveSelection = draftOptions?.modelSelection
       ? draftView?.effectiveSelection
       : draftView?.preferredSelection;
+    // specs/bot-inbound-resilience.md §A.2：无解析结果时不再兜底裸 "-"，
+    // 交给 formatStatusModelLabel 显示明确本地化“未设置”文案。
     const statusModel =
       readConfigSelectCurrentValue(activeTaskConfigOptions, "model") ??
       statusTask?.model ??
-      formatBotModelSelectionValue(draftEffectiveSelection ?? undefined) ??
-      "-";
-    const statusModelLabel = await formatStatusModelLabel(statusModel, context);
+      formatBotModelSelectionValue(draftEffectiveSelection ?? undefined);
+    const statusModelLabel = await formatStatusModelLabel(statusModel, context, locale);
     return (
       [
         formatStatusLine(locale, "statusWorkspace", workspace?.label ?? context.workspacePath),
@@ -6219,7 +6224,19 @@ export function createBotsService(
         !submissionModelSelection ||
         (draftOptions.modelSelection && selectionView?.selectionIssue)
       ) {
-        throw new Error("Bot 无法从目标 Host 解析 Submission 模型");
+        // specs/bot-inbound-resilience.md §A.1：无模型/失效选择草稿不得 throw——§2b 事故中
+        // 该 throw 经通用 catch 变成失败通知，曾驱动无限重投死锁。改为与其他用户可见回复
+        // 相同的出站链路返回本地化指引；无有效模型时无法启动，不创建 task（保持不变）。
+        // 文案区分“从未选择”（无 preferred 可解析）与“已保存但失效”（selectionIssue）。
+        return [
+          createOutbound(
+            message.actor,
+            msg(
+              auth.locale,
+              draftOptions.modelSelection ? "draftModelInvalid" : "draftModelMissing",
+            ),
+          ),
+        ];
       }
       const submissionDraftOptions: BotDraftOptions = {
         ...draftOptions,
@@ -7062,6 +7079,7 @@ export function createBotsService(
                     model: await formatStatusModelLabel(
                       formatBotModelSelectionValue(draftOptions.modelSelection),
                       auth.context,
+                      auth.locale,
                     ),
                   }),
                   currentId: currentProviderId,
@@ -7095,7 +7113,7 @@ export function createBotsService(
               {
                 id: `model-${Date.now()}`,
                 title: msg(auth.locale, "modelProviderSelectTitle", {
-                  model: await formatStatusModelLabel(currentValue, active.task),
+                  model: await formatStatusModelLabel(currentValue, active.task, auth.locale),
                 }),
                 currentId: currentProviderId,
                 action: "model.provider.set",

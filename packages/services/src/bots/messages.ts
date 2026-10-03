@@ -66,6 +66,12 @@ const messages = {
     modelModelSelectTitle: "当前模型 {model}\n选择模型",
     modelMissing: "未找到 model。",
     sessionModelUnavailable: "当前会话的模型选择不可用，请使用 /model 重新选择。原选择已保留。",
+    // 3.14.5-alpha.3（specs/bot-inbound-resilience.md §A）：无模型草稿的可执行指引与可见陷阱。
+    draftModelMissing:
+      "当前项目还没有选择模型。请先发送 **/模型** 选择一个模型（或在桌面端设置默认模型），然后重新发送你的消息。",
+    draftModelInvalid:
+      "当前草稿保存的模型选择已不可用（模型或供应商可能已变化）。请发送 **/模型** 重新选择后重发；原选择已保留。",
+    statusModelUnset: "未设置",
     modeSelectTitle: "当前模式 {mode}\n选择模式",
     modeMissing: "未找到模式。",
     modeChanged: "当前任务模式已切换为 {mode}。",
@@ -201,6 +207,12 @@ const messages = {
     modelMissing: "Model not found.",
     sessionModelUnavailable:
       "The session's model selection is unavailable. Use /model to choose again. Your saved selection has been preserved.",
+    // 3.14.5-alpha.3 (specs/bot-inbound-resilience.md §A): actionable guidance + visible trap for model-less drafts.
+    draftModelMissing:
+      "This project has no model selected yet. Pick one with **/model** (or set a default in the desktop app), then resend your message.",
+    draftModelInvalid:
+      "The model selection saved in this draft is no longer available (the model or provider may have changed). Pick one again with **/model** and resend; your saved selection is preserved.",
+    statusModelUnset: "not set",
     modeSelectTitle: "Current mode {mode}\nSelect mode",
     modeMissing: "Mode option not found.",
     modeChanged: "Current task mode changed to {mode}.",

@@ -19,7 +19,9 @@ import type { IBotsService } from "../src/bots/bots.js";
 import type { IZCodeTaskService } from "../src/session/zcodeTaskService.js";
 import type { ICredentialService } from "../src/credential/credential.js";
 import type { IModelSelectionService } from "../src/model-provider/providerFacadeServices.js";
+import type { ISettingService } from "../src/setting/setting.js";
 import type { BotProviderAdapter } from "../src/bots/providers/types.js";
+import { formatBotMessage } from "../src/bots/messages.js";
 
 // specs/bot-inbound-resilience.md（3.14.5-alpha.3）验收场景 1/2/3/4/5/11（Worker A：
 // B1 consumed 契约 + C 去重键保留）+ 场景 7/8/9/12/13（Worker C：B2 会话失败信号）。
@@ -235,6 +237,30 @@ function buildModelSelectionService() {
   };
 }
 
+/** 场景 6（Fix A）：无可解析 preferred 选择的目标 Host——无模型 workspace 形态。 */
+function buildNoModelSelectionService() {
+  return {
+    getView: async () =>
+      ({
+        revision: 1,
+        providers: [],
+      }) as unknown as Awaited<ReturnType<IModelSelectionService["getView"]>>,
+  };
+}
+
+/** 场景 6（Fix A）：草稿已保存选择但 Host 解析失败（selectionIssue 形态）。 */
+function buildInvalidSelectionService() {
+  return {
+    getView: async () =>
+      ({
+        revision: 1,
+        providers: [],
+        effectiveSelection: null,
+        selectionIssue: "model-not-found",
+      }) as unknown as Awaited<ReturnType<IModelSelectionService["getView"]>>,
+  };
+}
+
 async function prepareWorkspaceDirs(prefix: string): Promise<{
   dataRoot: string;
   workspace: string;
@@ -259,13 +285,26 @@ function botDefaults() {
 }
 
 /** 草稿模式 state entry：普通消息走 createTask 首发路径（activeTaskId 必须显式 null）。 */
-function draftStateEntry(botId: string, workspace: string, isWeixin: boolean) {
+function draftStateEntry(
+  botId: string,
+  workspace: string,
+  isWeixin: boolean,
+  withStaleSelection = false,
+) {
   return {
     botId,
     workspacePath: workspace,
     mode: "draft",
     activeTaskId: null,
     ...(isWeixin ? { weixinActivatedAt: 1 } : {}),
+    ...(withStaleSelection
+      ? {
+          draftOptions: {
+            provider: ZCODE_AGENT_PROVIDER,
+            modelSelection: { providerId: ZCODE_AGENT_PROVIDER, modelId: "glm-gone" },
+          },
+        }
+      : {}),
     updatedAt: 1,
   };
 }
@@ -362,6 +401,12 @@ interface CallbackHarnessOptions {
   prepareCallbackFails?: boolean;
   /** 覆盖默认草稿 state entry（B2 用 task 模式 + pending 交互 fixture）。 */
   stateEntry?: (botId: string, workspace: string) => Record<string, unknown>;
+  /** 场景 6（Fix A）：Host 无可解析 preferred 选择——无模型草稿形态。 */
+  noModelSelection?: boolean;
+  /** 场景 6（Fix A）：草稿带已保存但失效的 modelSelection（selectionIssue 形态）。 */
+  invalidDraftSelection?: boolean;
+  /** 场景 6（Fix A）：经 settingService 注入 bot locale（缺省 zh-CN）。 */
+  locale?: "en-US";
 }
 
 interface CallbackHarness {
@@ -416,7 +461,12 @@ async function createCallbackHarness(options: CallbackHarnessOptions): Promise<C
     configDir,
     botConfig,
     options.stateEntry?.(botConfig.id, workspace) ??
-      draftStateEntry(botConfig.id, workspace, provider === "weixin"),
+      draftStateEntry(
+        botConfig.id,
+        workspace,
+        provider === "weixin",
+        options.invalidDraftSelection,
+      ),
   );
 
   const controls: TaskServiceControls = {
@@ -433,7 +483,11 @@ async function createCallbackHarness(options: CallbackHarnessOptions): Promise<C
     options.createTaskFailures ?? 0,
     options.respondElicitationFailures ?? 0,
   );
-  const modelSelectionService = buildModelSelectionService();
+  const modelSelectionService = options.noModelSelection
+    ? buildNoModelSelectionService()
+    : options.invalidDraftSelection
+      ? buildInvalidSelectionService()
+      : buildModelSelectionService();
   const credentialValues: Record<string, string> = {
     "weixin-token-ref": "wx-token-inbound",
     "telegram-token-ref": "tg-token-inbound",
@@ -573,6 +627,13 @@ async function createCallbackHarness(options: CallbackHarnessOptions): Promise<C
     zcodeTaskService: fakeTaskService as unknown as IZCodeTaskService,
     modelSelectionService,
     runStartupBackgroundTasks: false,
+    ...(options.locale
+      ? {
+          settingService: {
+            get: async () => ({ locale: options.locale }),
+          } as unknown as ISettingService,
+        }
+      : {}),
     ...(provider === "feishu"
       ? { providerFetch: feishuRecorder.fetch }
       : {
@@ -1025,6 +1086,134 @@ test("场景5：consumed 失败后同 id 在 TTL 内重投 ⇒ 去重吞并、�
     );
   } finally {
     await harness.dispose();
+  }
+});
+
+// ---- 场景 6：无模型草稿（Fix A：可执行指引 + 可见陷阱）----
+
+test("场景6（无模型草稿）：prompt ⇒ 本地化指引回复（zh/en 经 locale key 断言）、不 throw、不创建 task", async () => {
+  // zh（缺省 locale）：§2b 事故的原始形态——无 draftOptions.modelSelection 且 Host 无 preferred。
+  const zhHarness = await createCallbackHarness({ provider: "weixin", noModelSelection: true });
+  try {
+    const zh = await zhHarness.service.handleProviderCallbackResponse(
+      "weixin",
+      weixinInboundPayload([{ id: "wx-msg-nomodel-1", text: "帮我分析一下这个项目" }]),
+    );
+    assert.equal(zh.ok, true, "指引回复是正常业务结果（非失败），ok=true");
+    assert.equal(zh.status, undefined);
+    assert.equal(
+      zh.replies[0]?.text,
+      formatBotMessage("zh-CN", "draftModelMissing"),
+      "回复必须是 draftModelMissing 的 zh 文案（可执行指引，不是 throw 转译的 callbackFailed）",
+    );
+    assert.equal(
+      zhHarness.sentMessages.filter((message) => message.text.includes(NOTICE_MARKER)).length,
+      0,
+      "不得走失败通知通道（不 throw）",
+    );
+    assert.equal(zhHarness.sentMessages[0]?.text, formatBotMessage("zh-CN", "draftModelMissing"));
+    assert.equal(zhHarness.createTaskCalls.length, 0, "无模型 ⇒ 不创建 task");
+  } finally {
+    await zhHarness.dispose();
+  }
+
+  // en：同一指引跟随 bot locale。
+  const enHarness = await createCallbackHarness({
+    provider: "weixin",
+    noModelSelection: true,
+    locale: "en-US",
+  });
+  try {
+    const en = await enHarness.service.handleProviderCallbackResponse(
+      "weixin",
+      weixinInboundPayload([{ id: "wx-msg-nomodel-en-1", text: "analyze this project" }]),
+    );
+    assert.equal(en.ok, true);
+    assert.equal(en.replies[0]?.text, formatBotMessage("en-US", "draftModelMissing"));
+    assert.equal(enHarness.createTaskCalls.length, 0);
+  } finally {
+    await enHarness.dispose();
+  }
+});
+
+test("场景6（无效选择）：草稿保存的 modelSelection 失效 ⇒ 本地化指引回复、不创建 task", async () => {
+  const harness = await createCallbackHarness({
+    provider: "weixin",
+    invalidDraftSelection: true,
+  });
+  try {
+    const result = await harness.service.handleProviderCallbackResponse(
+      "weixin",
+      weixinInboundPayload([{ id: "wx-msg-invalid-sel-1", text: "继续上一个任务" }]),
+    );
+    assert.equal(result.ok, true, "selectionIssue 与无模型同构：正常指引回复，不 throw");
+    assert.equal(
+      result.replies[0]?.text,
+      formatBotMessage("zh-CN", "draftModelInvalid"),
+      "已保存但失效的选择必须用 draftModelInvalid 文案（区别于从未选择）",
+    );
+    assert.equal(harness.createTaskCalls.length, 0, "失效选择 ⇒ 不创建 task");
+  } finally {
+    await harness.dispose();
+  }
+});
+
+test("场景6（可见陷阱）：无模型项目 /status 与 /new ack 的模型行显示明确“未设置/not set”文案", async () => {
+  // zh（缺省 locale）：模型行不再是裸 "-"。
+  const zhHarness = await createCallbackHarness({ provider: "weixin", noModelSelection: true });
+  try {
+    const zhUnsetLine = `${formatBotMessage("zh-CN", "statusModel")}: ${formatBotMessage("zh-CN", "statusModelUnset")}`;
+    const statusResult = await zhHarness.service.handleProviderCallbackResponse(
+      "weixin",
+      weixinInboundPayload([{ id: "wx-msg-status-1", text: "/status" }]),
+    );
+    assert.equal(statusResult.ok, true);
+    assert.ok(
+      statusResult.replies[0]?.text.split("\n").includes(zhUnsetLine),
+      `/status 模型行必须显式显示“${zhUnsetLine}”`,
+    );
+    const newResult = await zhHarness.service.handleProviderCallbackResponse(
+      "weixin",
+      weixinInboundPayload([{ id: "wx-msg-new-1", text: "/new" }]),
+    );
+    assert.equal(newResult.ok, true);
+    // /new ack 即 createStatusReply——同一 buildStatusText 链路。
+    assert.ok(
+      newResult.replies[0]?.text.split("\n").includes(zhUnsetLine),
+      `/new ack 模型行必须显式显示“${zhUnsetLine}”（首个 prompt 前可见陷阱）`,
+    );
+    assert.equal(zhHarness.createTaskCalls.length, 0);
+  } finally {
+    await zhHarness.dispose();
+  }
+
+  // en：同一标签跟随 bot locale。
+  const enHarness = await createCallbackHarness({
+    provider: "weixin",
+    noModelSelection: true,
+    locale: "en-US",
+  });
+  try {
+    const enUnsetLine = `${formatBotMessage("en-US", "statusModel")}: ${formatBotMessage("en-US", "statusModelUnset")}`;
+    const statusResult = await enHarness.service.handleProviderCallbackResponse(
+      "weixin",
+      weixinInboundPayload([{ id: "wx-msg-status-en-1", text: "/status" }]),
+    );
+    assert.equal(statusResult.ok, true);
+    assert.ok(
+      statusResult.replies[0]?.text.split("\n").includes(enUnsetLine),
+      `/status en 模型行必须显式显示“${enUnsetLine}”`,
+    );
+    const newResult = await enHarness.service.handleProviderCallbackResponse(
+      "weixin",
+      weixinInboundPayload([{ id: "wx-msg-new-en-1", text: "/new" }]),
+    );
+    assert.ok(
+      newResult.replies[0]?.text.split("\n").includes(enUnsetLine),
+      `/new ack en 模型行必须显式显示“${enUnsetLine}”`,
+    );
+  } finally {
+    await enHarness.dispose();
   }
 });
 
