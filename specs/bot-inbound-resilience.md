@@ -44,6 +44,9 @@ Related: `bot-message-delivery.md`（出站管线不在此 spec 范围）、`log
 6. **webhook provider**：`packages/server/src/http.ts` 以 `result.status` 映射 HTTP
    状态——consumed 的业务失败（通知已送达）返回 200；仅未消费失败保持 503/错误
    形态。webhook 的"游标"即该 HTTP 状态语义；同步更新 http.ts 中的过时注释。
+   验收证据口径（review 2026-10-03）：服务级断言 `status === undefined`（consumed
+   失败不携带错误状态）为接受的 proxy——http.ts 的映射逻辑（无 status ⇒ 200）
+   本 alpha 未改动且无现成 server 路由测试 harness，不为其新建。
 
 ## B2. 会话失败信号（§7.13）
 
@@ -54,7 +57,9 @@ content:{failureReason:"<原因>"}` resolve 该 pending（复用 respondElicitat
      "未获得用户回答：<原因>"并可改道（重问/默认/放弃）。
    - 入站方向（用户回答处理失败）：失败 catch 中，若该 actor 的 context 存在
      owned pendingElicitation（pending 存在时所有文本即回答路径），同样以
-     decline+failureReason resolve；resolve 成功 ⇒ consumed（B1(b)）。
+     decline+failureReason resolve；resolve 成功 ⇒ consumed（B1(b)）。resolve
+     产生的用户侧回复**不进入失败通知机械**（本分支的用户可见回复就是失败通知
+     本身；resolve 回复丢弃——review 2026-10-03 补记）。
    - **整组语义**：`submitPendingElicitation` 一次 respondElicitation 调用 resolve
      整个 pending 组（多题一组）——不存在逐题 resolve 的机械；中段失败（第 2/3 题）
      即整组一次 resolve。实现需为"确认送达"提供布尔判别（现返回

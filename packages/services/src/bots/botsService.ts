@@ -3028,7 +3028,17 @@ export function createBotsService(
 
   function isInboundSessionSignalConfirmed(message: BotInboundMessage): boolean {
     const deliveryKey = buildInboundDeliveryKey(message);
-    return deliveryKey !== null && inboundSessionSignalConfirmedKeys.has(deliveryKey);
+    // 一次性读取即删除（review 2026-10-03）：标记只对应"本次失败判定"这一次消费。
+    // 若业务处理慢于 2 分钟 TTL，去重键可能先被 prune 而标记残留——delete-on-read
+    // 保证孤儿标记不会把同 id 的后续重投误判为 consumed-session-confirmed。
+    if (deliveryKey === null) {
+      return false;
+    }
+    if (!inboundSessionSignalConfirmedKeys.has(deliveryKey)) {
+      return false;
+    }
+    inboundSessionSignalConfirmedKeys.delete(deliveryKey);
+    return true;
   }
 
   async function enqueueInboundProcessing<T>(actor: BotActor, task: () => Promise<T>): Promise<T> {
@@ -5307,7 +5317,13 @@ export function createBotsService(
               await permissionTaskService.respondPermission({
                 taskId: event.taskId,
                 requestId: event.requestId,
-                optionId: denyOption?.optionId ?? "deny",
+                optionId:
+                  denyOption?.optionId ??
+                  // 合成兜底 optionId（review 2026-10-03）：正常 pendingPermissionOptions
+                  // 必含 deny 选项；缺失属异常形态，合成 "deny" 仅作 deny-shaped 终局
+                  // 记录的占位（respondPermission 消费的是 requestId 寻址，非选项校验）。
+                  // Track B（3.15.0）继承此分支时应知晓该合成形状。
+                  "deny",
                 response:
                   denyOption?.response ??
                   ({ decision: "deny", reason: "Permission prompt delivery failed" } as const),
