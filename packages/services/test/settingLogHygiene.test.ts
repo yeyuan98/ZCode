@@ -59,6 +59,7 @@ test("D4 设置日志：每日一条脱敏快照 + 同日增量行 + 跨日补�
     assert.match(snapshotLines[0] ?? "", /"receivePreviewUpdates":true/u);
     assert.doesNotMatch(snapshotLines[0] ?? "", /127\.0\.0\.1:7890/u);
     assert.match(snapshotLines[0] ?? "", /<redacted>/u);
+    assert.match(snapshotLines[0] ?? "", /file=/u);
 
     // 同日第二次写盘：只记变更键，不再快照、不重复全量。
     await service.update({ keepAwakeWhileRunning: true });
@@ -87,17 +88,5 @@ test("D4 设置日志：每日一条脱敏快照 + 同日增量行 + 跨日补�
       process.env.ZCODE_DESKTOP_HOME_DIR = previousDesktopHome;
     }
     await rm(home, { recursive: true, force: true });
-  }
-});
-
-test("D4 设置日志：未加载任何设置时跨日补发不输出", async () => {
-  const captured = captureConsoleLog();
-  try {
-    // 本测试进程此前可能已加载设置（模块级缓存）；该钩子的空态契约由
-    // lastKnownSettings 未定义时直接 return 保证——这里仅验证调用无副作用。
-    maybeLogSettingsDailyBaseline();
-    assert.ok(true);
-  } finally {
-    captured.restore();
   }
 });

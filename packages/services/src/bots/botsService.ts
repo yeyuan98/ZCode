@@ -1699,11 +1699,9 @@ export function createBotsService(
     peerKey: string,
   ): Promise<string | undefined> {
     // Review NIT：与持久化写入侧的键派生对齐（chatId 优先 + trim 归一），
-    // 避免空白差异导致读不到最新 token。
-    const normalizedPeerKey = peerKey.trim();
-    if (!normalizedPeerKey) return undefined;
-    const state = await repo.readState().catch(() => null);
-    return state?.bots[botId]?.weixinContextTokens?.[normalizedPeerKey]?.token;
+    // 避免空白差异导致读不到最新 token。派生自 entry 读取器，读/写两侧口径唯一。
+    const entry = await readPersistedWeixinPeerTokenEntry(botId, peerKey);
+    return entry?.token;
   }
 
   async function readPersistedWeixinPeerTokenEntry(
