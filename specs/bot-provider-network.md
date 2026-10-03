@@ -144,10 +144,10 @@ contracts:
    resilience the media path already has (`weixinProvider`):
    - `requestWeixinJson` tags `weixinRet` on thrown errors (mirror of
      `requestWeixinMediaJson`), so callers can branch on protocol ret codes.
-    - Text `/sendmessage` retries ONCE WITHOUT `context_token` when the first attempt
-      fails with `ret=-2` (mirror of the media retry; the original "~40 min token
-      expiry" figure is SUPERSEDED — measured lifecycle in the alpha.2 amendment
-      item 3, updated 3.14.5-alpha.4). Honest
+   - Text `/sendmessage` retries ONCE WITHOUT `context_token` when the first attempt
+     fails with `ret=-2` (mirror of the media retry; the original "~40 min token
+     expiry" figure is SUPERSEDED — measured lifecycle in the alpha.2 amendment
+     item 3, updated 3.14.5-alpha.4). Honest
      coverage note: the persisted-token read only helps when an inbound ping occurred
      mid-task; the token-less retry is the guarantee for zero-inbound >40-min tasks.
    - The text `/sendmessage` request carries an explicit 15s timeout (parity with other
@@ -237,7 +237,7 @@ CLI→host 会话事件 schema 漂移在 v3 线上整事件丢弃（host `.stric
 六键清单闭合：`readOnly`/`sideEffectScope`/`display`/`skillMetadata`
 （tool.updated）、`executionStartedAt`（turn.started）、`fullAccessSupported`
 （permission.requested）。三个 strip 站点：`mapPermissionRequestedPayload`、
-ToolCall* raw-spread、`default:` 透过的 key 定向剥除（非一刀切）。(b) host schema
+ToolCall\* raw-spread、`default:` 透过的 key 定向剥除（非一刀切）。(b) host schema
 additive widen（optional 字段）。**End-state 诚实**：strip-at-source 使 CLI 发射端
 永不携带这些键过 v3 线——widen 仅为宽容性接收（对同仓库 emitter/测试/未来路径
 有意义）；**Track B 不能经 v3 消费 `fullAccessSupported`**，记录在案。契约测试
