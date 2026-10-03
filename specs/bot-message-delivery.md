@@ -1,6 +1,8 @@
 # Spec: Bot Outbound Message Delivery Reliability (3.14.5 Alpha 1)
 
-Status: **IN FLIGHT — 3.14.5-alpha.1**. Owner-reported (2026-10-02, on 3.14.5-alpha.0 but
+Status: **IN FLIGHT — 3.14.5-alpha.1**. **Amended in 3.14.5-alpha.4（channel-death
+retention 三分类 + revival 语义——证据锁定 §2d；见 F1.4/F2/Typing/Invariants 各条修订
+与"Retention buffer"小节）**. Owner-reported (2026-10-02, on 3.14.5-alpha.0 but
 PREEXISTENT and code-confirmed): bot session messages get stuck on the desktop and arrive
 late or only after the user sends another message; frequently MULTIPLE messages arrive as
 ONE bubble concatenated with no separator; persistent "typing"; tight repro on
@@ -48,6 +50,9 @@ token-less retry, request timeouts, Telegram/Feishu honest failures) amend
    immediately as its own message (as-is — it is already visible in the desktop UI;
    discarding it is information loss, holding it hostage was the stuck-message bug),
    then `/stop`'s status reply; the late terminal notice is REPLACED by it. No timers.
+   **Channel-dead 修订（3.14.5-alpha.4，§7.7 修订）**：死窗内 `/stop` 的部分回复不再
+   "立即送达"（死通道必然失败）——部分回复进入 per-peer 保留缓冲，revival 时补发
+   （顺序：补发序言 → 积压内容 → 新回合回复）。
 5. **Cross-chat stale closure**: because the watcher key is workspace+task, a watcher
    whose task is persisted-terminal but whose terminal event was lost replies to the OLD
    chat forever; the stale-cleanup drain now removes it, so the next chat's
@@ -59,16 +64,22 @@ token-less retry, request timeouts, Telegram/Feishu honest failures) amend
    successfully sent chunks (trim-on-success). It never re-prepends failed text into a
    retry-on-every-event loop.
 2. **Per-invocation budget**: at most 2 send attempts per failing chunk with a single
-   ~1s backoff sleep between attempts; because the FIRST failing chunk drops the
-   remainder and returns, at most one chunk per invocation burns the budget. The
-   structural bound: cumulative added SLEEP ≤~1s per invocation; wall-clock is bounded
-   by 2× the provider send timeout (15s explicit on WeChat text) plus one notice send.
-   A poison message can never wedge the serial event queue.
-3. **Final failure**: on budget exhaustion the remainder (unsent chunks + unsent buffer
-   tail) is DROPPED and a localized notice (`replyDeliveryFailed`, zh/en) is sent via a
-   catch-wrapped `sendOutbound` plus a warn log. The notice fires at most once per failed
-   flush invocation. Decided semantics: drop-with-notice, NOT retain-for-next-boundary —
-   a poison remainder must not linger.
+   ~1s backoff sleep between attempts; the FIRST failing chunk stops the attempt loop
+   and returns, so at most one chunk per invocation burns the budget. **3.14.5-alpha.4
+   修订**：预算耗尽仅在 content-poison 类丢弃剩余；channel-dead 类预算耗尽即停止
+   尝试并保留（缓冲 + 未发送分块全部进入 per-peer 保留缓冲）。The structural bound:
+   cumulative added SLEEP ≤~1s per invocation; wall-clock is bounded by 2× the provider
+   send timeout (15s explicit on WeChat text) plus one notice send. A poison message
+   can never wedge the serial event queue.
+3. **Final failure (content-poison 类)**: on budget exhaustion the remainder (unsent
+   chunks + unsent buffer tail) is DROPPED and a localized notice (`replyDeliveryFailed`,
+   zh/en) is sent via a catch-wrapped `sendOutbound` plus a warn log. The notice fires at
+   most once per failed flush invocation. **3.14.5-alpha.4 修订（替换原
+   "drop-with-notice, NOT retain" 决定语义句）**——发送失败按类别决定语义：
+   `channel-dead`（weixinRet=-2 或网络类：HTTP 5xx/超时/AbortError）⇒ **保留**
+   （进入 per-peer 保留缓冲，等待 revival 补发，不做任何死通道通知尝试——通知不可能
+   送达，§8.7）；`content-poison`（其余，如 4xx）⇒ 维持 drop-with-notice。分类判别源
+   （weixinRet 标签字段 / HTTP status / 错误名）必须在测试中可构造。
 4. Non-forced flushes keep today's semantics: they only normalize the buffer; extraction
    (and thus any send) happens at force boundaries.
 
@@ -106,6 +117,9 @@ Nothing else in the terminal handler is reordered.
 - Typing starts at watcher creation and stops at watcher drain (inside `disposeTaskWatcher`)
   or at interaction boundaries as today. `/stop` clears typing immediately even when the
   serial event queue is parked — the drain call is never enqueued.
+- **实测（§2d，3.14.5-alpha.4 记录）**：typing 在 sendmessage 死窗内存活（两窗
+  25/12 分钟零 typing 失败行）——typing 是用户唯一的"仍在工作"信号，**不做暂停**；
+  typing 成败日志维持现状（成功 debug、失败 warn 限频）。owner 决定 §7.19。
 - **Same-process-only caveat (documented deferred decision)**: the Feishu typing-reaction
   handle lives in an in-memory map; an app restart can leave a stale typing reaction in
   the Feishu client until its own TTL. Out of scope for this alpha (owner: accepted).
@@ -144,18 +158,37 @@ drops (handoff §2 telemetry defects). Full logging contract:
   fires all drains best-effort and then clears both maps synchronously (shutdown must
   not be delayed by send chains).
 - The drain is never enqueued onto `streamEventQueue`.
-- The flush budget is bounded per invocation by construction (first failing chunk drops
-  the remainder: ≤2 attempts + one ~1s backoff sleep; wall-clock ≤ 2× send timeout +
-  one notice send).
+- The flush budget is bounded per invocation by construction (first failing chunk stops
+  the loop: ≤2 attempts + one ~1s backoff sleep; wall-clock ≤ 2× send timeout + one
+  notice send). **3.14.5-alpha.4**：首块失败即停止尝试（同预算）；channel-dead
+  保留全部未送达内容至 per-peer 保留缓冲（~64KB **字节**尾部截断，UTF-16 缓冲按
+  2 字节/字符换算）；仅 content-poison 丢弃剩余。
 - Provider parity: text providers flush at interaction boundaries; card providers seal
   (unchanged); `summary_changes` never streams (unchanged).
 - No new timers; no new background processes; no polling.
 - Reply-pipeline behavior for streaming_card and summary_changes modes is byte-identical
   except where F5 explicitly amends the final render.
 - Known future work (recorded, not this alpha): memoize the per-send persisted-token
-  state read for weixin outbound bursts; consider invalidating the persisted weixin
-  token after a successful ret=-2 token-less retry (today a stale persisted token keeps
-  every send two-request until the next inbound ping).
+  state read for weixin outbound bursts. **原"成功 ret=-2 tokenless retry 后再失效
+  持久化 token"的延期项已由 3.14.5-alpha.4 落地并超越**：ret=-2 即无条件失效——
+  tokenless retry 实测死态永不成功（0/131），不再作为依据（见
+  `bot-provider-network.md` alpha.2 amendment 第 3 条的实测块）。
+
+## Retention buffer（channel-dead 保留缓冲，3.14.5-alpha.4）
+
+- 权限提示**不进入**保留缓冲（alpha.3 的 stop-deny 语义不变）；
+  `summary_changes`/`streaming_card` 模式无文本缓冲，不适用保留。
+- 服务进程 dispose 时保留缓冲静默丢失（接受的残余，与桌面会话一致）。
+- 保留缓冲 cap 为**字节**口径（~64KB 尾部 + 头部截断标记）；per-peer 串行化
+  （promise chain，botId+peerKey）覆盖 streamEventQueue / 入站队列 / 出队 drain
+  三个异步触点。
+- revival 触发 = 该 bot+peer 的**任意** weixin 入站（非 token 值变化——实测存在
+  不轮换的入站）；revival flush 在入站队列内、命令处理前执行，保证积压先于
+  新回合回复；flush 自身重新分类，首块仍死即停止（同预算），一次 ping 不复活
+  时代价有界。另：下一个 force 边界的 flush 对保留文本做一次有界重试。
+- revival 补发前发送**一条**本地化序言（"断线期间积压的 N 条消息已补发" /
+  "Delivered N messages queued during the outage"，zh/en）走存活通道，先于积压
+  内容；`/status` 在保留缓冲非空期间显示待补发行（约 KB 数）。owner 决定 §7.20。
 
 ## Acceptance scenarios
 
@@ -169,9 +202,14 @@ fake task service with captured stream enqueue, providerOverrides adapters):
    the next message dumps old+new glued.
 2. **Poison chunk budget**: a send that always fails cannot delay subsequent queued events
    beyond the F2 budget (≤2 attempts + ~1s backoff); remainder dropped; one
-   `replyDeliveryFailed` notice; queue continues.
+   `replyDeliveryFailed` notice; queue continues. **3.14.5-alpha.4 变体**：always-fail
+   若为 channel-dead 类（weixinRet=-2 标签 / 网络类错误名可构造）⇒ retained-待补发
+   （不丢弃、无通知尝试、进入 per-peer 保留缓冲）；后续任意入站 ⇒ 序言先行 +
+   积压补发（revive-补发）；一次不复活的 ping ⇒ 一次有界尝试后重新保留。
 3. **Trim-on-success**: first chunk send succeeds, second fails twice → first chunk
    delivered, second dropped with notice, no re-send of the first on later events.
+   **3.14.5-alpha.4 变体**：first chunk 成功、second 为 channel-dead 类 ⇒ first
+   照常送达，second 及尾部进入保留缓冲（不丢弃、无通知）——健康路径逐字节不变。
 4. **Boundary flush at permission (text providers)**: buffered pre-question text is
    delivered as its own message before the permission prompt message.
 5. **WeChat text ret=-2 retry + persisted-token read** (fetch-mocked provider tests):
@@ -198,9 +236,7 @@ multi-message bubbles anywhere; logs show flush/dispose reasons.
 
 ## Deferred decisions (recorded, NOT this alpha)
 
-- **WeChat batch-cursor rescope (owner §4.8, alpha.2)**: per-message commit is
-  protocol-infeasible (ONE marker per batch); committing early acks unprocessed messages
-  (silent loss). The sound rescope is skip-failing-message-with-notice + commit; decision
-  note lives in `specs/bot-provider-network.md` (F4 cursor section), design lands in
-  alpha.2. Do not implement here.
+- **WeChat batch-cursor rescope（原 owner §4.8 延期项）——已由 3.14.5-alpha.3 落地**：
+  共享 consumed 语义见 `specs/bot-inbound-resilience.md` §B（游标归属已迁移至该
+  spec）；此处的过时 alpha.2 引用已删除。不要在此重新实现。
 - **Feishu typing-reaction surviving app restarts**: out of scope (same-process only).
