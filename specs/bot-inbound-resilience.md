@@ -49,7 +49,7 @@ Related: `bot-message-delivery.md`（出站管线不在此 spec 范围）、`log
 
 1. **问题/elicitation，双向**：
    - 出站方向（问题发送失败，死通道）：立即以 `action:"decline" +
-     content:{failureReason:"<原因>"}` resolve 该 pending（复用 respondElicitation
+content:{failureReason:"<原因>"}` resolve 该 pending（复用 respondElicitation
      seam，additive，无新 wire 类型），清除 pending，warn 日志。agent 看到
      "未获得用户回答：<原因>"并可改道（重问/默认/放弃）。
    - 入站方向（用户回答处理失败）：失败 catch 中，若该 actor 的 context 存在
@@ -60,10 +60,10 @@ Related: `bot-message-delivery.md`（出站管线不在此 spec 范围）、`log
      即整组一次 resolve。实现需为"确认送达"提供布尔判别（现返回
      `BotOutboundMessage[]` 无成功判别——小规模 result-object 重构或包装）。
 2. **CLI broker 透传（前置条件）**：`v4AnswerToUserInputResponse`
-     （zcode-cli interaction-broker.ts）对 decline/cancel 仅返回 `{action}`，
-     **丢弃 content**——failureReason 永远到不了 agent，B2 语义空转。两个映射
-     （普通 + plan-approval 变体）需透传 content（或映射 failureReason→reason）；
-     wire schema 已接受 content（zcode-protocol-v4/command.ts），无 wire 改动。
+   （zcode-cli interaction-broker.ts）对 decline/cancel 仅返回 `{action}`，
+   **丢弃 content**——failureReason 永远到不了 agent，B2 语义空转。两个映射
+   （普通 + plan-approval 变体）需透传 content（或映射 failureReason→reason）；
+   wire schema 已接受 content（zcode-protocol-v4/command.ts），无 wire 改动。
 3. **权限请求，双向**（在 bot force-yolo 下 CLI 不发权限事件，分支休眠；为
    3.15.0 Track B 预铺）：提示发送失败 ⇒ `stopGeneration`（task）+
    `respondPermission` deny-shaped 记录，清除 `pendingPermissionOptions`，warn。

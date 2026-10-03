@@ -160,14 +160,14 @@ contracts:
    `send` throws a quiet credential error (no retry machinery, no
    notice-over-broken-channel — failures surface via the existing catch→warn paths;
    credential-not-configured stays quiet to avoid spam). No new retry loops.
-    **Telegram cursor dead-end (SUPERSEDED in 3.14.5-alpha.3)**: a callback whose reply
-    send throws used to skip that update's offset commit, redelivering the same update
-    every ~5s. The alpha.1 text said "revisit only with rig evidence of a real loop" —
-    that evidence arrived (§2b poison-message deadlock, 52 reprocessings in 7 min) and
-    the rescope LANDED as the shared consumed semantics owned by
-    `specs/bot-inbound-resilience.md` (B): business-failure-with-delivered-notice (or
-    confirmed session signal) = consumed ⇒ offset/buf/ACK advance; infra failures and
-    the notice-undeliverable hole keep abort-no-commit.
+   **Telegram cursor dead-end (SUPERSEDED in 3.14.5-alpha.3)**: a callback whose reply
+   send throws used to skip that update's offset commit, redelivering the same update
+   every ~5s. The alpha.1 text said "revisit only with rig evidence of a real loop" —
+   that evidence arrived (§2b poison-message deadlock, 52 reprocessings in 7 min) and
+   the rescope LANDED as the shared consumed semantics owned by
+   `specs/bot-inbound-resilience.md` (B): business-failure-with-delivered-notice (or
+   confirmed session signal) = consumed ⇒ offset/buf/ACK advance; infra failures and
+   the notice-undeliverable hole keep abort-no-commit.
 3. **Cursor rescope decision — LANDED in 3.14.5-alpha.3** (supersedes the former
    "deferred to alpha.2" note): the WeChat poll protocol has ONE marker per batch (no
    per-message markers like Telegram's update_ids), so per-message commit would ack
