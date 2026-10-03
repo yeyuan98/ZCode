@@ -4,7 +4,13 @@ import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { IDisposable } from "@zcode/rpc";
-import type { BotConfig, BotInboundMessage, BotOutboundMessage } from "@zcode/shared";
+import type {
+  BotConfig,
+  BotInboundMessage,
+  BotOutboundMessage,
+  BotPendingElicitation,
+  BotStructuredElicitationResponse,
+} from "@zcode/shared";
 import { ZCODE_AGENT_PROVIDER } from "@zcode/shared";
 import { createBotsService } from "../src/bots/botsService.js";
 import { BOTS_CONFIG_FILE, BOTS_STATE_FILE } from "../src/bots/config.js";
@@ -16,9 +22,10 @@ import type { IModelSelectionService } from "../src/model-provider/providerFacad
 import type { BotProviderAdapter } from "../src/bots/providers/types.js";
 
 // specs/bot-inbound-resilience.md（3.14.5-alpha.3）验收场景 1/2/3/4/5/11（Worker A：
-// B1 consumed 契约 + C 去重键保留）。失败注入走 createTask stub（草稿首发路径的确定性
-// 业务失败，§2b 事故同层）；ok 断言一律经 handleProviderCallbackResponse——
-// handleProviderCallback 只返回 replies，无法表达 ok=false。
+// B1 consumed 契约 + C 去重键保留）+ 场景 7/8/9/12/13（Worker C：B2 会话失败信号）。
+// 失败注入走 createTask stub（草稿首发路径的确定性业务失败，§2b 事故同层）；
+// ok 断言一律经 handleProviderCallbackResponse——handleProviderCallback 只返回
+// replies，无法表达 ok=false。
 
 const WEIXIN_BOT_ID = "bot-wx-inbound";
 const TELEGRAM_BOT_ID = "bot-tg-inbound";
@@ -117,10 +124,31 @@ interface TaskServiceControls {
   sentMessages: BotOutboundMessage[];
   createTaskCalls: string[];
   sendPromptCalls: string[];
+  /** respondElicitation 调用记录（含抛错的那次——先记录再失败）。 */
+  respondElicitationCalls: Array<{
+    taskId: string;
+    requestId: string;
+    action: "accept" | "decline" | "cancel";
+    content: Record<string, unknown> | undefined;
+  }>;
+  respondPermissionCalls: Array<{
+    taskId: string;
+    requestId: string;
+    optionId: string;
+    response: Record<string, unknown>;
+  }>;
+  stopGenerationCalls: string[];
+  /** taskId → watchTaskStream 注册的 stream event handler（测试直接投递事件）。 */
+  streamEventHandlers: Map<string, (event: unknown) => Promise<void>>;
 }
 
-function buildFakeTaskService(controls: TaskServiceControls, createTaskFailures: number) {
+function buildFakeTaskService(
+  controls: TaskServiceControls,
+  createTaskFailures: number,
+  respondElicitationFailures: number,
+) {
   let failuresLeft = createTaskFailures;
+  let respondElicitationFailuresLeft = respondElicitationFailures;
   let createdCount = 0;
   return {
     listDeletedTaskIds: async () => [] as string[],
@@ -135,7 +163,41 @@ function buildFakeTaskService(controls: TaskServiceControls, createTaskFailures:
       return { taskId: `task-created-${createdCount}` };
     },
     deleteTask: async () => undefined,
-    stopGeneration: async () => undefined,
+    stopGeneration: async (params: { taskId: string }) => {
+      controls.stopGenerationCalls.push(params.taskId);
+    },
+    respondPermission: async (params: {
+      taskId: string;
+      requestId: string;
+      optionId: string;
+      response: Record<string, unknown>;
+    }) => {
+      controls.respondPermissionCalls.push({
+        taskId: params.taskId,
+        requestId: params.requestId,
+        optionId: params.optionId,
+        response: params.response,
+      });
+      return true;
+    },
+    respondElicitation: async (params: {
+      taskId: string;
+      requestId: string;
+      action: "accept" | "decline" | "cancel";
+      content?: Record<string, unknown>;
+    }) => {
+      controls.respondElicitationCalls.push({
+        taskId: params.taskId,
+        requestId: params.requestId,
+        action: params.action,
+        content: params.content,
+      });
+      if (respondElicitationFailuresLeft > 0) {
+        respondElicitationFailuresLeft -= 1;
+        throw new Error(BUSINESS_FAILURE);
+      }
+      return true;
+    },
     getTaskModelSelection: async () => ({
       providerId: ZCODE_AGENT_PROVIDER,
       modelId: "glm-test",
@@ -147,7 +209,16 @@ function buildFakeTaskService(controls: TaskServiceControls, createTaskFailures:
       controls.sendPromptCalls.push(request.taskId);
     },
     setMode: async () => undefined,
-    onDynamicStreamEvent: () => (): IDisposable => ({ dispose: () => undefined }),
+    onDynamicStreamEvent:
+      (taskId: string) =>
+      (handler: (event: unknown) => Promise<void>): IDisposable => {
+        controls.streamEventHandlers.set(taskId, handler);
+        return {
+          dispose: () => {
+            controls.streamEventHandlers.delete(taskId);
+          },
+        };
+      },
   };
 }
 
@@ -199,6 +270,69 @@ function draftStateEntry(botId: string, workspace: string, isWeixin: boolean) {
   };
 }
 
+interface TaskStateEntryOptions {
+  activeTaskId: string;
+  isWeixin?: boolean;
+  pendingElicitation?: Record<string, unknown>;
+  pendingPermissionOptions?: Array<Record<string, unknown>>;
+}
+
+/** task 模式 state entry：B2 场景在既有任务上回答 pending 交互（activeTaskId 必须命中）。 */
+function taskStateEntry(botId: string, workspace: string, options: TaskStateEntryOptions) {
+  return {
+    botId,
+    workspacePath: workspace,
+    mode: "task",
+    activeTaskId: options.activeTaskId,
+    ...(options.isWeixin ? { weixinActivatedAt: 1 } : {}),
+    ...(options.pendingElicitation ? { pendingElicitation: options.pendingElicitation } : {}),
+    ...(options.pendingPermissionOptions
+      ? { pendingPermissionOptions: options.pendingPermissionOptions }
+      : {}),
+    updatedAt: 1,
+  };
+}
+
+/**
+ * pendingElicitation fixture。actorKey 必须与 getActorContextKey(actor) 同构：
+ * [botId, provider, chatId ?? providerUserId]——私聊约定统一省略 chatId（pitfall 2/12）。
+ */
+function pendingElicitationFixture(params: {
+  botId: string;
+  provider: string;
+  providerUserId: string;
+  taskId: string;
+  requestId: string;
+  questionCount?: number;
+  currentQuestionIndex?: number;
+}): Record<string, unknown> {
+  const questionCount = params.questionCount ?? 1;
+  return {
+    taskId: params.taskId,
+    requestId: params.requestId,
+    runId: `run-${params.requestId}`,
+    actorKey: [params.botId, params.provider, params.providerUserId].join("::"),
+    currentQuestionIndex: params.currentQuestionIndex ?? questionCount - 1,
+    questions: Array.from({ length: questionCount }, (_, index) => ({
+      question: `问题${index + 1}：选颜色？`,
+      header: "颜色",
+      options: [
+        { value: "red", label: "红" },
+        { value: "blue", label: "蓝" },
+      ],
+    })),
+    answers: {},
+  } satisfies BotPendingElicitation;
+}
+
+/** 读取 bot-state.v3.json 中指定 bot entry（断言持久化交互状态的最终事实）。 */
+async function readStateBotEntry(botId: string): Promise<Record<string, unknown>> {
+  const state = JSON.parse(await readFile(join(getAppConfigDir(), BOTS_STATE_FILE), "utf8")) as {
+    bots?: Record<string, Record<string, unknown>>;
+  };
+  return state.bots?.[botId] ?? {};
+}
+
 async function writeBotFiles(
   configDir: string,
   botConfig: BotConfig,
@@ -220,10 +354,14 @@ interface CallbackHarnessOptions {
   provider: CallbackProvider;
   /** 前 N 次 createTask 抛错——确定性业务失败注入。 */
   createTaskFailures?: number;
-  /** 匹配文本的出站 send 抛错——死通道（通知未送达）注入。 */
+  /** 前 N 次 respondElicitation 抛错——B2 入站方向的回答处理失败注入。 */
+  respondElicitationFailures?: number;
+  /** 匹配文本的出站 send 抛错——死通道（通知未送达/提问发不出）注入。 */
   failNoticeSendPattern?: RegExp;
   /** prepareCallbackPayload 抛错——基础设施失败（401 形态）注入。 */
   prepareCallbackFails?: boolean;
+  /** 覆盖默认草稿 state entry（B2 用 task 模式 + pending 交互 fixture）。 */
+  stateEntry?: (botId: string, workspace: string) => Record<string, unknown>;
 }
 
 interface CallbackHarness {
@@ -231,6 +369,10 @@ interface CallbackHarness {
   sentMessages: BotOutboundMessage[];
   createTaskCalls: string[];
   sendPromptCalls: string[];
+  respondElicitationCalls: TaskServiceControls["respondElicitationCalls"];
+  respondPermissionCalls: TaskServiceControls["respondPermissionCalls"];
+  stopGenerationCalls: string[];
+  streamEventHandlers: Map<string, (event: unknown) => Promise<void>>;
   dispose(): Promise<void>;
 }
 
@@ -273,15 +415,24 @@ async function createCallbackHarness(options: CallbackHarnessOptions): Promise<C
   await writeBotFiles(
     configDir,
     botConfig,
-    draftStateEntry(botConfig.id, workspace, provider === "weixin"),
+    options.stateEntry?.(botConfig.id, workspace) ??
+      draftStateEntry(botConfig.id, workspace, provider === "weixin"),
   );
 
   const controls: TaskServiceControls = {
     sentMessages: [],
     createTaskCalls: [],
     sendPromptCalls: [],
+    respondElicitationCalls: [],
+    respondPermissionCalls: [],
+    stopGenerationCalls: [],
+    streamEventHandlers: new Map(),
   };
-  const fakeTaskService = buildFakeTaskService(controls, options.createTaskFailures ?? 0);
+  const fakeTaskService = buildFakeTaskService(
+    controls,
+    options.createTaskFailures ?? 0,
+    options.respondElicitationFailures ?? 0,
+  );
   const modelSelectionService = buildModelSelectionService();
   const credentialValues: Record<string, string> = {
     "weixin-token-ref": "wx-token-inbound",
@@ -331,6 +482,13 @@ async function createCallbackHarness(options: CallbackHarnessOptions): Promise<C
         parsed.push({
           botId,
           text,
+          // webhook provider 的结构化问答回执（parseWebhookElicitationResponse 同构）：
+          // 场景 13 用它在中段（第 2/3 题）触发整组 submit。
+          ...(isRecord(raw.elicitationResponse)
+            ? {
+                elicitationResponse: raw.elicitationResponse as BotStructuredElicitationResponse,
+              }
+            : {}),
           actor: {
             provider: "weixin",
             botId,
@@ -430,6 +588,10 @@ async function createCallbackHarness(options: CallbackHarnessOptions): Promise<C
     sentMessages: controls.sentMessages,
     createTaskCalls: controls.createTaskCalls,
     sendPromptCalls: controls.sendPromptCalls,
+    respondElicitationCalls: controls.respondElicitationCalls,
+    respondPermissionCalls: controls.respondPermissionCalls,
+    stopGenerationCalls: controls.stopGenerationCalls,
+    streamEventHandlers: controls.streamEventHandlers,
     async dispose() {
       await service.disposeAllAndWait().catch(() => undefined);
       setDataBaseDir(null);
@@ -442,7 +604,12 @@ async function createCallbackHarness(options: CallbackHarnessOptions): Promise<C
 // 原始回调 payload 构造（与各 channel runtime 转发形状一致）。
 
 function weixinInboundPayload(
-  messages: Array<{ id: string; text: string; from?: string }>,
+  messages: Array<{
+    id: string;
+    text: string;
+    from?: string;
+    elicitationResponse?: Record<string, unknown>;
+  }>,
 ): unknown {
   return {
     botId: WEIXIN_BOT_ID,
@@ -450,6 +617,7 @@ function weixinInboundPayload(
       id: message.id,
       from: message.from ?? "wx-user-1",
       text: message.text,
+      ...(message.elicitationResponse ? { elicitationResponse: message.elicitationResponse } : {}),
     })),
   };
 }
@@ -538,8 +706,12 @@ async function createPollerHarness(options: PollerHarnessOptions): Promise<Polle
     sentMessages: [],
     createTaskCalls: [],
     sendPromptCalls: [],
+    respondElicitationCalls: [],
+    respondPermissionCalls: [],
+    stopGenerationCalls: [],
+    streamEventHandlers: new Map(),
   };
-  const fakeTaskService = buildFakeTaskService(controls, options.createTaskFailures ?? 0);
+  const fakeTaskService = buildFakeTaskService(controls, options.createTaskFailures ?? 0, 0);
   const modelSelectionService = buildModelSelectionService();
   const credentialValues: Record<string, string> = {
     "weixin-token-ref": "wx-token-inbound",
@@ -908,5 +1080,301 @@ test("场景11（回归）：完全成功批次行为不变；prepare 401 基础
     assert.equal(infraHarness.createTaskCalls.length, 0, "基础设施失败不得进入业务处理");
   } finally {
     await infraHarness.dispose();
+  }
+});
+
+// ---- 场景 7：B2 出站方向（提问发送失败，死通道） ----
+
+test("场景7（B2 出站）：pending elicitation 的提问发送失败 ⇒ respondElicitation 收到 decline+failureReason 且 pending 清除", async () => {
+  const harness = await createCallbackHarness({
+    provider: "weixin",
+    // 提问文本含"选颜色"——只让提问发送失败（死通道），其余出站不受影响。
+    failNoticeSendPattern: /选颜色/u,
+    stateEntry: (botId, workspace) =>
+      taskStateEntry(botId, workspace, { activeTaskId: "task-b2-out", isWeixin: true }),
+  });
+  try {
+    // 1) 普通消息续跑任务并建立 stream watcher（fake onDynamicStreamEvent 捕获 handler）。
+    const result = await harness.service.handleProviderCallbackResponse(
+      "weixin",
+      weixinInboundPayload([{ id: "wx-msg-b2-out-1", text: "开始分析" }]),
+    );
+    assert.equal(result.ok, true);
+    assert.ok(
+      await waitForCondition(() => harness.streamEventHandlers.has("task-b2-out"), 5000),
+      "必须建立 task stream watcher",
+    );
+    // 2) agent 发起 AskUserQuestion——提问发送撞死通道。
+    await harness.streamEventHandlers.get("task-b2-out")?.({
+      type: "elicitation_request",
+      taskId: "task-b2-out",
+      traceId: "run-b2-out",
+      requestId: "req-b2-out",
+      message: "问题1：选颜色？",
+      header: "颜色",
+      options: [
+        { value: "red", label: "红" },
+        { value: "blue", label: "蓝" },
+      ],
+    });
+    assert.ok(
+      await waitForCondition(
+        () => harness.respondElicitationCalls.some((call) => call.action === "decline"),
+        5000,
+      ),
+      "提问发送失败必须立即以 decline resolve 该 pending（会话失败信号）",
+    );
+    const decline = harness.respondElicitationCalls.find((call) => call.action === "decline");
+    assert.equal(decline?.requestId, "req-b2-out");
+    assert.equal(
+      typeof decline?.content?.failureReason,
+      "string",
+      "failureReason 必须随 decline content 送达会话（复用既有 respondElicitation seam，无新 wire 类型）",
+    );
+    const entry = await readStateBotEntry(WEIXIN_BOT_ID);
+    assert.equal(
+      entry.pendingElicitation,
+      undefined,
+      "resolve 后 pending 必须清除（agent 可改道重问/默认/放弃）",
+    );
+  } finally {
+    await harness.dispose();
+  }
+});
+
+// ---- 场景 8：B2 入站方向（回答处理失败） ----
+
+test("场景8（B2 入站）：owned pending 的回答处理失败 ⇒ decline+failureReason resolve 确认 ⇒ consumed(B1(b)) ⇒ ok=true", async () => {
+  const harness = await createCallbackHarness({
+    provider: "weixin",
+    // 首次 respondElicitation（回答 submit）抛错 = 回答处理失败注入。
+    respondElicitationFailures: 1,
+    // 死通道：失败通知发不出去——consumed 只能经会话失败信号（B1(b)）成立，
+    // 使 outcome=consumed-session-confirmed 可观测。
+    failNoticeSendPattern: new RegExp(NOTICE_MARKER, "u"),
+    stateEntry: (botId, workspace) =>
+      taskStateEntry(botId, workspace, {
+        activeTaskId: "task-b2-in",
+        isWeixin: true,
+        pendingElicitation: pendingElicitationFixture({
+          botId,
+          provider: "weixin",
+          providerUserId: "wx-user-1",
+          taskId: "task-b2-in",
+          requestId: "req-b2-in",
+          questionCount: 1,
+          currentQuestionIndex: 0,
+        }),
+      }),
+  });
+  const logCapture = captureConsoleLog();
+  try {
+    const result = await harness.service.handleProviderCallbackResponse(
+      "weixin",
+      weixinInboundPayload([{ id: "wx-msg-b2-in-1", text: "red" }]),
+    );
+    assert.equal(result.ok, true, "会话失败信号确认送达 ⇒ consumed（B1(b)）⇒ ok=true");
+    assert.equal(result.status, undefined);
+    assert.ok(
+      logCapture.lines.some(
+        (line) =>
+          line.includes("outcome=consumed-session-confirmed") &&
+          line.includes("messageId=wx-msg-b2-in-1"),
+      ),
+      "consumed 判定必须落 outcome=consumed-session-confirmed 一行 info",
+    );
+    assert.equal(
+      harness.respondElicitationCalls.length,
+      2,
+      "恰好两次：首发 accept（业务失败注入点）+ B2 decline+failureReason 补偿 resolve",
+    );
+    assert.equal(harness.respondElicitationCalls[0]?.action, "accept");
+    const decline = harness.respondElicitationCalls[1];
+    assert.equal(decline?.action, "decline");
+    assert.equal(typeof decline?.content?.failureReason, "string");
+    const entry = await readStateBotEntry(WEIXIN_BOT_ID);
+    assert.equal(entry.pendingElicitation, undefined, "pending 必须随整组 resolve 清除");
+  } finally {
+    logCapture.restore();
+    await harness.dispose();
+  }
+});
+
+// ---- 场景 9：B2 权限（休眠分支直测） ----
+
+test("场景9（B2 权限休眠分支）：权限提示发送失败 ⇒ stopGeneration + respondPermission deny-shaped + pendingPermissionOptions 清除", async () => {
+  const harness = await createCallbackHarness({
+    provider: "weixin",
+    // 全量出站 send 失败：驱动休眠分支（bot force-yolo 下生产不触发，测试直驱）。
+    failNoticeSendPattern: /./u,
+    stateEntry: (botId, workspace) =>
+      taskStateEntry(botId, workspace, { activeTaskId: "task-b2-perm", isWeixin: true }),
+  });
+  try {
+    const result = await harness.service.handleProviderCallbackResponse(
+      "weixin",
+      weixinInboundPayload([{ id: "wx-msg-b2-perm-1", text: "开始分析" }]),
+    );
+    assert.equal(result.ok, true);
+    assert.ok(
+      await waitForCondition(() => harness.streamEventHandlers.has("task-b2-perm"), 5000),
+      "必须建立 task stream watcher",
+    );
+    await harness.streamEventHandlers.get("task-b2-perm")?.({
+      type: "permission_request",
+      taskId: "task-b2-perm",
+      traceId: "run-b2-perm",
+      requestId: "req-b2-perm",
+      description: "Run bash command",
+      kind: "bash",
+      raw: null,
+      options: [
+        {
+          optionId: "allow_once",
+          kind: "allow_once",
+          name: "Allow",
+          response: { decision: "allow" },
+        },
+        {
+          optionId: "reject_once",
+          kind: "reject_once",
+          name: "Deny",
+          response: { decision: "deny", reason: "拒绝执行" },
+        },
+      ],
+    });
+    assert.ok(
+      await waitForCondition(() => harness.stopGenerationCalls.length >= 1, 5000),
+      "提示发送失败必须 stopGeneration（agent 停止，owner 决策 13）",
+    );
+    assert.deepEqual(harness.stopGenerationCalls, ["task-b2-perm"]);
+    assert.ok(
+      await waitForCondition(() => harness.respondPermissionCalls.length >= 1, 5000),
+      "必须落 respondPermission deny-shaped 记录",
+    );
+    const deny = harness.respondPermissionCalls[0];
+    assert.equal(deny?.requestId, "req-b2-perm");
+    assert.equal(deny?.optionId, "reject_once", "必须复用 deny 选项的 optionId（/deny seam 同构）");
+    assert.equal((deny?.response as { decision?: string })?.decision, "deny");
+    const cleared = await waitForStateBotField(
+      WEIXIN_BOT_ID,
+      (entry) => (entry.pendingPermissionOptions === undefined ? "cleared" : undefined),
+      5000,
+    );
+    assert.equal(cleared, "cleared", "pendingPermissionOptions 必须清除");
+  } finally {
+    await harness.dispose();
+  }
+});
+
+// ---- 场景 12：feishu 同步卡片 ----
+
+test("场景12（feishu 同步卡片）：card.action.trigger 回答处理失败 ⇒ 经既有 sync reply 返回失败卡片，handler 不 reject", async () => {
+  const harness = await createCallbackHarness({
+    provider: "feishu",
+    respondElicitationFailures: 1,
+    stateEntry: (botId, workspace) =>
+      taskStateEntry(botId, workspace, {
+        activeTaskId: "task-b2-feishu",
+        pendingElicitation: pendingElicitationFixture({
+          botId,
+          provider: "feishu",
+          providerUserId: "ou_inbound_1",
+          taskId: "task-b2-feishu",
+          requestId: "req-b2-feishu",
+          questionCount: 1,
+          currentQuestionIndex: 0,
+        }),
+      }),
+  });
+  try {
+    // 手工构造 card.action.trigger（zcodeFeishuSynchronousCardAction 同步回执路径；
+    // bot 配置不带 webhookSecretRef，跳过 token 校验）。
+    const result = await harness.service.handleProviderCallbackResponse("feishu", {
+      botId: FEISHU_BOT_ID,
+      zcodeFeishuSynchronousCardAction: true,
+      event: {
+        event_id: "ev-fs-card-1",
+        action: { value: { command: "red" } },
+        operator: { operator_id: { open_id: "ou_inbound_1" } },
+        context: { chat_type: "p2p", open_message_id: "om_fs_card_1" },
+      },
+    });
+    assert.equal(
+      result.ok,
+      true,
+      "回答失败但会话信号确认 ⇒ consumed ⇒ WS ACK 语义成立（onPayload 不 assert 即 handler 不 reject）",
+    );
+    assert.ok(
+      result.replies[0]?.text.includes(NOTICE_MARKER),
+      "失败结果必须经既有 sync reply（replies[0]）返回失败卡片",
+    );
+    const decline = harness.respondElicitationCalls.find((call) => call.action === "decline");
+    assert.ok(decline, "B2 入站方向必须补 decline resolve");
+    assert.equal(typeof decline?.content?.failureReason, "string");
+    const entry = await readStateBotEntry(FEISHU_BOT_ID);
+    assert.equal(entry.pendingElicitation, undefined);
+  } finally {
+    await harness.dispose();
+  }
+});
+
+// ---- 场景 13：中段 elicitation（整组一次 resolve） ----
+
+test("场景13（中段 elicitation）：3 题组在回答第 2 题时失败 ⇒ 整组恰好一次 decline+failureReason resolve（无逐题 resolve）", async () => {
+  const harness = await createCallbackHarness({
+    provider: "weixin",
+    respondElicitationFailures: 1,
+    stateEntry: (botId, workspace) =>
+      taskStateEntry(botId, workspace, {
+        activeTaskId: "task-b2-mid",
+        isWeixin: true,
+        // 3 题一组，正停在第 2 题（currentQuestionIndex=1）。
+        pendingElicitation: pendingElicitationFixture({
+          botId,
+          provider: "weixin",
+          providerUserId: "wx-user-1",
+          taskId: "task-b2-mid",
+          requestId: "req-b2-mid",
+          questionCount: 3,
+          currentQuestionIndex: 1,
+        }),
+      }),
+  });
+  try {
+    // 结构化应答（webhook provider 同构回执）在第 2 题直达整组 submit；submit 失败
+    // 即"回答第 2 题时失败"——submitPendingElicitation 一次 respondElicitation resolve
+    // 整个 pending 组，逐题 resolve 机械上不存在。
+    const result = await harness.service.handleProviderCallbackResponse("weixin", {
+      botId: WEIXIN_BOT_ID,
+      messages: [
+        {
+          id: "wx-msg-b2-mid-1",
+          from: "wx-user-1",
+          text: "structured-accept",
+          elicitationResponse: { requestId: "req-b2-mid", action: "accept", content: {} },
+        },
+      ],
+    });
+    assert.equal(result.ok, true);
+    const declineCalls = harness.respondElicitationCalls.filter(
+      (call) => call.action === "decline",
+    );
+    assert.equal(
+      declineCalls.length,
+      1,
+      "整组必须恰好一次 resolve（submitPendingElicitation 一次调用 resolve 全组，无逐题 resolve）",
+    );
+    assert.equal(declineCalls[0]?.requestId, "req-b2-mid");
+    assert.equal(typeof declineCalls[0]?.content?.failureReason, "string");
+    assert.equal(
+      harness.respondElicitationCalls.length,
+      2,
+      "总共恰好两次调用：失败的 accept + 一次 decline 补偿",
+    );
+    const entry = await readStateBotEntry(WEIXIN_BOT_ID);
+    assert.equal(entry.pendingElicitation, undefined, "整组 pending 清除");
+  } finally {
+    await harness.dispose();
   }
 });

@@ -247,14 +247,28 @@ async function requestUserInput(
   return userInputResponseToBrokerResult(request, response);
 }
 
-function v4AnswerToUserInputResponse(answer: V4InteractionAnswer): ZCodeUserInputResponse {
+// 导出供 test/interactionBroker.test.ts 直测映射（B2 broker 透传钉住）；仅测试消费，
+// 不属于包对外 API（包出口见 package.json exports）。
+export function v4AnswerToUserInputResponse(answer: V4InteractionAnswer): ZCodeUserInputResponse {
   // answer.action 存在（host adapter respondElicitation 收敛路径）
   // 时按旧 respondUserInput 语义精确直传——content 携带多题 answers/annotations，
   // normalizeAskUserQuestionResponseContent 继续负责 schema 收敛。
   if (answer.action) {
-    return answer.action === "accept"
-      ? { action: "accept", content: answer.content ?? {} }
-      : { action: answer.action };
+    if (answer.action === "accept") {
+      return { action: "accept", content: answer.content ?? {} };
+    }
+    // specs/bot-inbound-resilience.md §B2.2：decline/cancel 不得丢弃 content——
+    // B2 会话失败信号经 respondElicitation 收敛为 decline+{failureReason}，旧映射只回
+    // {action} 会让 failureReason 永远到不了 agent。content 原样直传（wire schema
+    // zcodeUserInputResponseSchema 已接受），failureReason → reason——消费方
+    // userInputResponseToBrokerResult / planApprovalResponseToBrokerResult 只读 reason。
+    return {
+      action: answer.action,
+      ...(answer.content ? { content: answer.content } : {}),
+      ...(typeof answer.content?.failureReason === "string"
+        ? { reason: answer.content.failureReason }
+        : {}),
+    };
   }
   const text = answer.freeText?.trim();
   if (text) {
@@ -302,13 +316,25 @@ async function requestExitPlanModeApproval(
   return planApprovalResponseToBrokerResult(response);
 }
 
-function v4AnswerToPlanApprovalResponse(answer: V4InteractionAnswer): ZCodeUserInputResponse {
+// 同 v4AnswerToUserInputResponse——导出仅供测试直测映射。
+export function v4AnswerToPlanApprovalResponse(
+  answer: V4InteractionAnswer,
+): ZCodeUserInputResponse {
   // 同 v4AnswerToUserInputResponse——host adapter 收敛路径直传
   // action/content，planApprovalResponseToBrokerResult 继续做 approve/feedback 归一。
   if (answer.action) {
-    return answer.action === "accept"
-      ? { action: "accept", content: answer.content ?? {} }
-      : { action: answer.action };
+    if (answer.action === "accept") {
+      return { action: "accept", content: answer.content ?? {} };
+    }
+    // specs/bot-inbound-resilience.md §B2.2：与普通问答映射同构的 content 透传 +
+    // failureReason → reason（planApprovalResponseToBrokerResult 只读 reason）。
+    return {
+      action: answer.action,
+      ...(answer.content ? { content: answer.content } : {}),
+      ...(typeof answer.content?.failureReason === "string"
+        ? { reason: answer.content.failureReason }
+        : {}),
+    };
   }
   if (answer.optionId === "allowOnce" || answer.optionId === "allowAlways") {
     return {

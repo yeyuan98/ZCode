@@ -3028,9 +3028,6 @@ export function createBotsService(
     return deliveryKey !== null && inboundSessionSignalConfirmedKeys.has(deliveryKey);
   }
 
-  // B2 wiring（Worker C）接入前暂无调用方；显式引用避免 unused 告警，接入后删除本行。
-  void markInboundSessionSignalConfirmed;
-
   async function enqueueInboundProcessing<T>(actor: BotActor, task: () => Promise<T>): Promise<T> {
     const actorContextKey = getActorContextKey(actor);
     const previous = inboundProcessingQueuesByContext.get(actorContextKey) ?? Promise.resolve();
@@ -3697,6 +3694,9 @@ export function createBotsService(
       let outbound: BotOutboundMessage[];
       let reconnectStartingReply: BotOutboundMessage | null = null;
       let inboundBusinessFailure = false;
+      // specs/bot-inbound-resilience.md §B2.1 入站方向：业务失败原因需传入下方失败分支，
+      // 作为 decline+failureReason 会话失败信号的 failureReason 载荷。
+      let inboundBusinessFailureMessage = "";
       try {
         const command = parseBotCommand(inboundMessage.text);
         if (bot && command.type === "reconnect") {
@@ -3721,6 +3721,7 @@ export function createBotsService(
         // 是否计入未消费失败（最终 ok=false）由下方 failure 分支的 consumed 判定决定。
         inboundBusinessFailure = true;
         const message = error instanceof Error ? error.message : String(error);
+        inboundBusinessFailureMessage = message;
         const userFacingMessage = formatUserFacingBotError(error, locale);
         botsLogger.warn(
           undefined,
@@ -3740,6 +3741,46 @@ export function createBotsService(
       }
       replies.push(...outbound);
       if (inboundBusinessFailure) {
+        // specs/bot-inbound-resilience.md §B2.1 入站方向（先于 consumed 判定）：
+        // pending 存在时所有文本即回答路径——回答处理失败时，若该 actor 的 context
+        // 存在 owned pendingElicitation，同样以 decline+failureReason resolve（复用
+        // respondElicitation seam，无新 wire 类型；整组一次 resolve，无逐题机械）。
+        // resolve 确认（confirmed）⇒ markInboundSessionSignalConfirmed，下方 consumed
+        // 判定按 B1(b) 分支计为已消费。resolve 的用户侧回复不进入本分支的失败通知
+        // 机械（通知发送与计数保持 Worker A 契约不变，replies 丢弃）。
+        if (bot) {
+          try {
+            const failureContext = await readContext(inboundMessage.actor, bot);
+            const failurePending = failureContext?.pendingElicitation;
+            if (
+              failureContext &&
+              failurePending &&
+              isPendingElicitationOwnedByActor(failurePending, inboundMessage.actor)
+            ) {
+              const resolved = await submitPendingElicitation(
+                { bot, context: failureContext, locale },
+                inboundMessage.actor,
+                failurePending,
+                "decline",
+                { failureReason: `answer processing failed: ${inboundBusinessFailureMessage}` },
+              );
+              if (resolved.confirmed) {
+                markInboundSessionSignalConfirmed(inboundMessage);
+                botsLogger.info(
+                  undefined,
+                  `bot inbound failure resolved session signal provider=${provider} bot=${inboundMessage.botId} task=${failurePending.taskId} requestId=${failurePending.requestId}`,
+                );
+              }
+            }
+          } catch (sessionSignalError) {
+            // resolve 本身失败（如会话链路也断）：pending 保持，consumed 判定回落到
+            // 通知送达/洞规则；不吞错因——一行 warn 留痕。
+            botsLogger.warn(
+              undefined,
+              `bot inbound failure session signal resolve failed provider=${provider} bot=${inboundMessage.botId}: ${sessionSignalError instanceof Error ? sessionSignalError.message : String(sessionSignalError)}`,
+            );
+          }
+        }
         // specs/bot-inbound-resilience.md §B.1：失败消息的 consumed 判定只认“确认送达”：
         // (a) 失败通知 sendOutbound 成功；或 (b) 会话失败信号确认（B2 hook）。“尝试过”不算。
         // consumed ⇒ 消息计入已处理：本条 continue（批内后续消息继续），最终 ok=true 让
@@ -4394,6 +4435,16 @@ export function createBotsService(
     await writeContext({ ...context, pendingElicitation: undefined });
   }
 
+  // specs/bot-inbound-resilience.md §B2.1：submitPendingElicitation 一次 respondElicitation
+  // 调用 resolve 整个 pending 组（多题一组，无逐题机械）。旧返回 BotOutboundMessage[]
+  // 无法区分"respondElicitation 真正 resolve（确认送达）"与 expired/handled 兜底回复——
+  // B2 会话失败信号的 consumed 判定（B1(b)）只认前者，这里改为携带 confirmed 判别。
+  interface SubmitPendingElicitationResult {
+    /** respondElicitation 是否真正 resolve（确认送达）；expired/handled/no-pending ⇒ false。 */
+    confirmed: boolean;
+    replies: BotOutboundMessage[];
+  }
+
   async function submitPendingElicitation(
     auth: {
       bot: BotConfig;
@@ -4404,12 +4455,18 @@ export function createBotsService(
     pending: BotPendingElicitation,
     action: "accept" | "decline" | "cancel",
     content?: Record<string, unknown>,
-  ): Promise<BotOutboundMessage[]> {
+  ): Promise<SubmitPendingElicitationResult> {
     if (!isPendingElicitationOwnedByActor(pending, actor)) {
-      return [createOutbound(actor, msg(auth.locale, "elicitationExpired"))];
+      return {
+        confirmed: false,
+        replies: [createOutbound(actor, msg(auth.locale, "elicitationExpired"))],
+      };
     }
     if (pending.handledAt) {
-      return [createOutbound(actor, msg(auth.locale, "elicitationHandled"))];
+      return {
+        confirmed: false,
+        replies: [createOutbound(actor, msg(auth.locale, "elicitationHandled"))],
+      };
     }
     const zcodeTaskService = await resolveZCodeTaskServiceForContext(auth.context);
     const submitted = await zcodeTaskService.respondElicitation({
@@ -4434,15 +4491,24 @@ export function createBotsService(
       requestId: pending.requestId,
     });
     if (!submitted) {
-      return [createOutbound(actor, msg(auth.locale, "elicitationHandled"))];
+      return {
+        confirmed: false,
+        replies: [createOutbound(actor, msg(auth.locale, "elicitationHandled"))],
+      };
     }
     if (action === "accept") {
       startTyping(auth.bot, actor, pending.taskId);
       // Bugfix: AskUserQuestion 只是在回复问题，不属于命令配置成功；这里保留原问答提交文案，避免误回 /status。
-      return [createCompletedElicitationOutbound(actor, pending, auth.locale, action)];
+      return {
+        confirmed: true,
+        replies: [createCompletedElicitationOutbound(actor, pending, auth.locale, action)],
+      };
     }
     // Bugfix: 取消/拒绝问答也应使用问答自己的结果文案，避免第三方 Bot 里出现无关的任务状态。
-    return [createCompletedElicitationOutbound(actor, pending, auth.locale, action)];
+    return {
+      confirmed: true,
+      replies: [createCompletedElicitationOutbound(actor, pending, auth.locale, action)],
+    };
   }
 
   async function advancePendingElicitation(
@@ -4456,13 +4522,16 @@ export function createBotsService(
     answers: BotPendingElicitation["answers"],
   ): Promise<BotOutboundMessage[]> {
     if (pending.currentQuestionIndex >= pending.questions.length - 1) {
-      return submitPendingElicitation(
+      // B2 重构：submitPendingElicitation 改回 result object；既有回答路径只消费 replies，
+      // confirmed 仅供失败信号路径（B2）消费，行为不变。
+      const submitted = await submitPendingElicitation(
         auth,
         actor,
         { ...pending, answers },
         "accept",
         buildBotElicitationContent(pending, answers),
       );
+      return submitted.replies;
     }
     const nextPending: BotPendingElicitation = {
       ...pending,
@@ -4638,13 +4707,15 @@ export function createBotsService(
     if (!isPendingElicitationOwnedByActor(pending, message.actor)) {
       return [createOutbound(message.actor, msg(auth.locale, "elicitationExpired"))];
     }
-    return submitPendingElicitation(
+    // B2 重构：此处为结构化回执的正常提交路径，只消费 replies（行为不变）。
+    const submitted = await submitPendingElicitation(
       auth,
       message.actor,
       pending,
       response.action,
       response.content,
     );
+    return submitted.replies;
   }
 
   async function handleElicitationRequest(
@@ -4683,12 +4754,41 @@ export function createBotsService(
     Object.assign(context, { pendingElicitation });
     await writeContext({ ...context, pendingElicitation });
     await broadcastPendingElicitationProgress(context, pendingElicitation);
-    for (const reply of await createElicitationReply(actor, pendingElicitation, locale)) {
-      if (shouldUseTransientInteractionCard(bot, user)) {
-        await upsertTransientInteractionCard(bot, actor, event.taskId, reply);
-      } else {
-        await sendOutbound(bot, reply);
+    try {
+      for (const reply of await createElicitationReply(actor, pendingElicitation, locale)) {
+        if (shouldUseTransientInteractionCard(bot, user)) {
+          await upsertTransientInteractionCard(bot, actor, event.taskId, reply);
+        } else {
+          await sendOutbound(bot, reply);
+        }
       }
+    } catch (error) {
+      // specs/bot-inbound-resilience.md §B2.1 出站方向：提问发送失败（死通道）时，
+      // host↔agent 会话链路仍存活——失败信号必须送达会话而非只丢给聊天侧。
+      // 立即以 decline+failureReason resolve 刚写入的该 pending（复用既有
+      // respondElicitation seam，additive，无新 wire 类型）并清除 pending，agent
+      // 看到"未获得用户回答：<原因>"后可改道（重问/默认/放弃）。整组语义：
+      // submitPendingElicitation 一次调用 resolve 整个 pending 组。
+      const sendFailureReason = error instanceof Error ? error.message : String(error);
+      let signalConfirmed = false;
+      let signalFailure: string | undefined;
+      try {
+        const resolved = await submitPendingElicitation(
+          { bot, context, locale },
+          actor,
+          pendingElicitation,
+          "decline",
+          { failureReason: `question send failed: ${sendFailureReason}` },
+        );
+        signalConfirmed = resolved.confirmed;
+      } catch (resolveError) {
+        signalFailure = resolveError instanceof Error ? resolveError.message : String(resolveError);
+      }
+      // 恰好一行 warn（sendOutbound 自身的失败 warn 属既有出站机械，不在此重复）。
+      botsLogger.warn(
+        undefined,
+        `bot elicitation question send failed provider=${bot.provider} bot=${bot.id} task=${event.taskId} requestId=${event.requestId} signalConfirmed=${signalConfirmed}${signalFailure ? ` signalFailure=${signalFailure}` : ""}: ${sendFailureReason}`,
+      );
     }
   }
 
@@ -5173,10 +5273,55 @@ export function createBotsService(
           await readMessageLocale(),
         );
         if (permissionReply) {
-          if (shouldUseTransientInteractionCard(bot, user)) {
-            await upsertTransientInteractionCard(bot, actor, event.taskId, permissionReply);
-          } else {
-            await sendOutbound(bot, permissionReply);
+          try {
+            if (shouldUseTransientInteractionCard(bot, user)) {
+              await upsertTransientInteractionCard(bot, actor, event.taskId, permissionReply);
+            } else {
+              await sendOutbound(bot, permissionReply);
+            }
+          } catch (error) {
+            // specs/bot-inbound-resilience.md §B2.3 权限休眠分支（双向，为 3.15.0 Track B
+            // 预铺；bot force-yolo 下 CLI 不发权限事件，生产不触发，测试直驱）：
+            // 权限提示发送失败（死通道）⇒ 用户永远无法应答 ⇒ 必须 STOP agent
+            // （owner 决策 13）：stopGeneration（task）+ respondPermission deny-shaped
+            // 终局记录（复用 pendingPermissionOptions 中 deny 选项的 optionId+response，
+            // 与 /deny seam 同构）+ 清除 pendingPermissionOptions，恰好一行 warn。
+            const sendFailureReason = error instanceof Error ? error.message : String(error);
+            const denyOption = pendingPermissionOptions.find((option) => option.command === "deny");
+            const permissionTaskService = await resolveZCodeTaskServiceForContext(context);
+            let stopped = false;
+            let denied = false;
+            try {
+              await permissionTaskService.stopGeneration({ taskId: event.taskId });
+              stopped = true;
+            } catch (stopError) {
+              botsLogger.warn(
+                undefined,
+                `bot permission stop after send failure failed provider=${bot.provider} bot=${bot.id} task=${event.taskId}: ${stopError instanceof Error ? stopError.message : String(stopError)}`,
+              );
+            }
+            try {
+              await permissionTaskService.respondPermission({
+                taskId: event.taskId,
+                requestId: event.requestId,
+                optionId: denyOption?.optionId ?? "deny",
+                response:
+                  denyOption?.response ??
+                  ({ decision: "deny", reason: "Permission prompt delivery failed" } as const),
+              });
+              denied = true;
+            } catch (denyError) {
+              botsLogger.warn(
+                undefined,
+                `bot permission deny after send failure failed provider=${bot.provider} bot=${bot.id} task=${event.taskId}: ${denyError instanceof Error ? denyError.message : String(denyError)}`,
+              );
+            }
+            Object.assign(context, { pendingPermissionOptions: undefined });
+            await writeContext({ ...context, pendingPermissionOptions: undefined });
+            botsLogger.warn(
+              undefined,
+              `bot permission prompt send failed provider=${bot.provider} bot=${bot.id} task=${event.taskId} requestId=${event.requestId} stopped=${stopped} denied=${denied}: ${sendFailureReason}`,
+            );
           }
         }
         return;
@@ -5486,17 +5631,20 @@ export function createBotsService(
         return [createOutbound(message.actor, msg(auth.locale, "elicitationExpired"))];
       }
       clearPendingSelection(message.actor);
-      return submitPendingElicitation(auth, message.actor, pending, "cancel");
+      // B2 重构：取消路径只消费 replies（行为不变）。
+      const cancelled = await submitPendingElicitation(auth, message.actor, pending, "cancel");
+      return cancelled.replies;
     }
     if (!pendingSelectionsByContext.has(actorContextKey)) {
       const auth = await withAuthorizedContext(message, "message");
       if (auth.ok && auth.context.pendingElicitation) {
-        return submitPendingElicitation(
+        const cancelled = await submitPendingElicitation(
           auth,
           message.actor,
           auth.context.pendingElicitation,
           "cancel",
         );
+        return cancelled.replies;
       }
       return [createOutbound(message.actor, msg(locale, "unknownCommand", { command: "0" }))];
     }
@@ -7567,13 +7715,15 @@ export function createBotsService(
               // 直接 /elicitation submit 没有轮次标识，可能误提交上一轮 AskUserQuestion。
               return [createOutbound(message.actor, msg(auth.locale, "elicitationExpired"))];
             }
-            return submitPendingElicitation(
+            // B2 重构：微信"完成"直提路径只消费 replies（行为不变）。
+            const submitted = await submitPendingElicitation(
               auth,
               message.actor,
               pending,
               "accept",
               buildBotElicitationContent(pending),
             );
+            return submitted.replies;
           }
           case "approve": {
             const auth = await withAuthorizedContext(message, "approve");
