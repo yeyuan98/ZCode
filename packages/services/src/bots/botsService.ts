@@ -1591,15 +1591,24 @@ export function createBotsService(
     // Bugfix（M5，2026-10-03 §2d 事故）：watcher 闭包捕获的 context 可能是任务开始时代的
     // 旧快照——旧实现整条覆盖会把 weixinContextTokens / weixinGetUpdatesBuf /
     // telegramOffset / weixinActivatedAt 回滚到旧值（实测两次终态 dispose 后 token 表
-    // updatedAt 倒退 2-3 分钟，游标回退还会引发重复投递）。改为从当前持久化状态带回这
-    // 四个字段（仅覆盖有值字段，先例 pickPersistedBotCursors）；单一写入方
-    // （persistWeixinContextToken / 游标写入 / 激活）本来就读改写最新状态，不受影响
-    //（激活写入时持久化项必无 weixinActivatedAt，不会被 undefined-only 的带回覆盖）。
+    // updatedAt 倒退 2-3 分钟，游标回退还会引发重复投递）。
+    // 3.14.5-alpha.4 收紧（M5 复活回归）：weixinContextTokens / weixinGetUpdatesBuf /
+    // telegramOffset 三字段以持久化状态为唯一事实源——writeContext 一律写 existing 的当前值
+    // （缺即保持缺），陈旧 context 不得复活已被 M2 ret=-2 失效或被游标写入方删除的 map/游标
+    // （旧“仅有值才覆盖”的带回会在持久化项缺席时让 context 旧值复活）。weixinActivatedAt
+    // 维持“有值保留、缺值用传入”：激活写入方 handleWeixinFirstActivation 恰在持久化项缺失时
+    // 经 writeContext 落值。单一写入方（persistWeixinContextToken / M2 失效 / 游标写入 / 激活）
+    // 本来就读改写最新状态，不受影响。
     const state = await repo.readState();
     const existing = state.bots[context.botId];
     state.bots[context.botId] = {
       ...context,
-      ...(existing ? pickPersistedBotCursors(existing) : {}),
+      weixinContextTokens: existing?.weixinContextTokens,
+      weixinGetUpdatesBuf: existing?.weixinGetUpdatesBuf,
+      telegramOffset: existing?.telegramOffset,
+      ...(existing?.weixinActivatedAt !== undefined
+        ? { weixinActivatedAt: existing.weixinActivatedAt }
+        : {}),
       updatedAt: Date.now(),
     };
     await repo.writeState(state);
@@ -1773,6 +1782,41 @@ export function createBotsService(
     if (!normalizedPeerKey) return undefined;
     const state = await repo.readState().catch(() => null);
     return state?.bots[botId]?.weixinContextTokens?.[normalizedPeerKey];
+  }
+
+  /**
+   * Bugfix（M2，specs/bot-provider-network.md 3.14.5-alpha.4 实测块）：ret=-2 即失效凭据——
+   * 发送失败边界无条件删除持久化 peer token 条目，停止对死 API 的 double-hammer（tokenless
+   * 重试死态 0/131 永不成功）。瞬时 -2 与会话死 -2 客户端不可分（实测），短暂丢失有效 token
+   * 是已接受的权衡：条目缺席时任何入站都会无条件重新持久化（persistWeixinContextToken 的
+   * 早退仅在条目存在时生效）。防复活竞态：仅当当前持久化条目的 token 仍等于本次发送实际
+   * 尝试的值时才删除——发送在途期间被并发入站刷新的新 token 不得误删。失效不是 revival
+   * 触发（不触碰保留缓冲），自身也不得向调用方抛错（在 sendOutbound catch 内包裹调用）。
+   * 永不记录 token 值。
+   */
+  async function invalidateWeixinContextTokenForPeer(
+    botId: string,
+    peerKey: string,
+    attemptedToken: string,
+  ): Promise<boolean> {
+    const normalizedPeerKey = peerKey.trim();
+    if (!normalizedPeerKey) {
+      return false;
+    }
+    const state = await repo.readState();
+    const existing = state.bots[botId];
+    const tokens = existing?.weixinContextTokens;
+    if (!existing || tokens?.[normalizedPeerKey]?.token !== attemptedToken) {
+      return false;
+    }
+    const nextTokens = { ...tokens };
+    delete nextTokens[normalizedPeerKey];
+    state.bots[botId] = {
+      ...existing,
+      weixinContextTokens: Object.keys(nextTokens).length > 0 ? nextTokens : undefined,
+    };
+    await repo.writeState(state);
+    return true;
   }
 
   /**
@@ -3241,11 +3285,15 @@ export function createBotsService(
     // "仍有效"下界，失败侧给出"已失效"上界）。失败照常上抛，零行为变化。
     let outbound = message;
     let tokenAgeMs: number | undefined;
+    // M2：本次发送实际尝试的持久化 token（与 tokenAgeMs 同点捕获）——ret=-2 失效的防复活
+    // 竞态凭据；无持久化条目（未覆盖 captured token）时为 undefined，无可失效。
+    let attemptedWeixinEntryToken: string | undefined;
     if (bot.provider === "weixin") {
       const entry = await readPersistedWeixinPeerTokenEntry(bot.id, message.providerUserId);
       if (entry?.token) {
         outbound = { ...message, providerContextToken: entry.token };
         tokenAgeMs = Date.now() - entry.updatedAt;
+        attemptedWeixinEntryToken = entry.token;
       }
     }
     const bytes = Buffer.byteLength(message.text ?? "", "utf8");
@@ -3281,6 +3329,32 @@ export function createBotsService(
         const peerKey = message.providerUserId.trim();
         if (peerKey) {
           await retainReplyTexts(bot, peerKey, [message.text ?? ""]);
+        }
+      }
+      // Bugfix（M2，specs/bot-provider-network.md 3.14.5-alpha.4 实测块）：weixin ret=-2 即
+      // 失效凭据——删除本次发送实际尝试的持久化 peer token 条目（防复活竞态：在途被并发入站
+      // 刷新的新 token 保留）。瞬时 -2 的短暂丢失是已接受权衡（条目缺席时任何入站无条件重新
+      // 持久化）；失效不是 revival 触发（不触碰保留缓冲）；失效自身不得掩盖原始错误（包裹
+      // try/catch），也永不记录 token 值。
+      if (bot.provider === "weixin" && tagged.weixinRet === -2 && attemptedWeixinEntryToken) {
+        const invalidationPeerKey = message.providerUserId.trim();
+        try {
+          const invalidated = await invalidateWeixinContextTokenForPeer(
+            bot.id,
+            invalidationPeerKey,
+            attemptedWeixinEntryToken,
+          );
+          if (invalidated) {
+            botsLogger.info(
+              undefined,
+              `bot weixin context token invalidated on ret=-2 bot=${bot.id} peer=${invalidationPeerKey}`,
+            );
+          }
+        } catch (invalidationError) {
+          botsLogger.warn(
+            undefined,
+            `bot weixin context token invalidation failed bot=${bot.id}: ${invalidationError instanceof Error ? invalidationError.message : String(invalidationError)}`,
+          );
         }
       }
       throw error;

@@ -993,6 +993,199 @@ test("场景8 M5 属性：permission_request 写路径（:5282）不回滚四个
   }
 });
 
+// ---- 场景 7（M2）：ret=-2 token 失效策略（specs/bot-provider-network.md 3.14.5-alpha.4 实测块） ----
+
+/** 入站 chatId 优先派生的持久化 peer 键（createOutbound 的 providerUserId 同源）。 */
+const PEER_KEY = "wx-chat-1";
+
+async function readPeerToken(
+  harness: Harness,
+): Promise<{ token: string; updatedAt: number } | undefined> {
+  const entry = await harness.readStateBotEntry();
+  const tokens = entry.weixinContextTokens as
+    | Record<string, { token: string; updatedAt: number } | undefined>
+    | undefined;
+  return tokens?.[PEER_KEY];
+}
+
+test("场景7 M2：ret=-2 flush 失败 ⇒ 持久化 peer token 条目失效（状态文件中该 peer 缺席）", async () => {
+  const harness = await createHarness();
+  try {
+    await harness.triggerMessage({ providerContextToken: "token-a" });
+    assert.equal((await readPeerToken(harness))?.token, "token-a", "前置：入站已持久化 token-a");
+    const enqueue = await requireEnqueue(harness);
+    harness.sendControl.failPattern = /失效正文/u;
+    harness.sendControl.errorFactory = channelDeadWeixinRetError;
+    await enqueue(chunkEvent("失效正文"));
+    await enqueue(toolCallEvent("tool-m2-a"));
+    assert.equal(
+      harness.sendAttempts.filter((text) => text === "失效正文").length,
+      1,
+      "channel-dead 首败即停",
+    );
+    assert.equal(
+      await readPeerToken(harness),
+      undefined,
+      "ret=-2 后持久化 peer token 条目必须失效（该 peer 在状态文件中缺席）",
+    );
+  } finally {
+    await harness.dispose();
+  }
+});
+
+test("场景7 M2：非 -2 失败（content-poison）不失效持久化 token 条目", async () => {
+  const harness = await createHarness();
+  try {
+    await harness.triggerMessage({ providerContextToken: "token-a" });
+    const enqueue = await requireEnqueue(harness);
+    harness.sendControl.failPattern = /毒丸钉/u;
+    harness.sendControl.errorFactory = contentPoisonWeixinRetError;
+    await enqueue(chunkEvent("毒丸钉"));
+    await enqueue(toolCallEvent("tool-m2-pin"));
+    assert.equal(
+      (await readPeerToken(harness))?.token,
+      "token-a",
+      "非 -2 失败不得失效持久化 token 条目",
+    );
+  } finally {
+    await harness.dispose();
+  }
+});
+
+test("场景7 M2 午间形态：瞬时 -2 → 失效 → 同值（未轮换）入站重新持久化 → 后续发送用重新持久化的 token 成功", async () => {
+  const harness = await createHarness();
+  try {
+    await harness.triggerMessage({ providerContextToken: "token-a" });
+    const enqueue = await requireEnqueue(harness);
+    harness.sendControl.failPattern = /午间正文/u;
+    harness.sendControl.errorFactory = channelDeadWeixinRetError;
+    await enqueue(chunkEvent("午间正文"));
+    await enqueue(toolCallEvent("tool-m2-mid"));
+    assert.equal(
+      await readPeerToken(harness),
+      undefined,
+      "瞬时 -2 同样无条件失效（两种 -2 客户端不可分，已接受的权衡）",
+    );
+    // 同值入站（pitfall 14 未轮换形态）：条目缺席 ⇒ persistWeixinContextToken 的早退不生效，重新持久化。
+    harness.sendControl.failPattern = undefined;
+    harness.sendControl.errorFactory = undefined;
+    await harness.triggerMessage({ providerContextToken: "token-a", text: "ping 午间复活" });
+    assert.equal((await readPeerToken(harness))?.token, "token-a", "同值入站必须重新持久化条目");
+    assert.deepEqual(
+      harness.sentMessages.map((message) => message.text),
+      [preambleWithCount(1), "午间正文"],
+      "revival：序言先行 + 积压补发成功",
+    );
+    assert.equal(
+      harness.sentMessages.find((message) => message.text.includes("已补发"))?.providerContextToken,
+      "token-a",
+      "后续发送必须携带重新持久化的 token",
+    );
+  } finally {
+    await harness.dispose();
+  }
+});
+
+test("场景7 M2：失效不是 revival 触发——非空积压下 ret=-2 直发失败仅失效 token，无序言、无积压补发尝试", async () => {
+  const harness = await createHarness();
+  try {
+    await harness.triggerMessage({ providerContextToken: "token-a" });
+    const enqueue = await requireEnqueue(harness);
+    // 先制造非空积压（channel-dead 保留）。
+    harness.sendControl.failPattern = /积压七/u;
+    harness.sendControl.errorFactory = channelDeadWeixinRetError;
+    await enqueue(chunkEvent("积压七"));
+    await enqueue(toolCallEvent("tool-m2-backlog"));
+    // task_error 直发（回复缓冲为空 ⇒ drain 不 flush、不触碰积压）在死通道上失败：
+    // ret=-2 ⇒ 失效 token，但失效本身不得触发任何补发尝试。
+    const attemptsBeforeTerminal = harness.sendAttempts.length;
+    harness.sendControl.failPattern = /.*/u;
+    await enqueue(taskErrorEvent("场景七错误"));
+    const attemptsAfterTerminal = harness.sendAttempts.slice(attemptsBeforeTerminal);
+    const taskFailedText = attemptsAfterTerminal.find((text) => text.includes("场景七错误"));
+    assert.ok(taskFailedText, "task_error 文书必须真实尝试直发");
+    assert.equal(
+      attemptsAfterTerminal.filter((text) => text.includes("已补发")).length,
+      0,
+      "失效不得触发 revival 序言尝试",
+    );
+    assert.equal(attemptsAfterTerminal.includes("积压七"), false, "失效不得触发积压补发尝试");
+    assert.equal(await readPeerToken(harness), undefined, "ret=-2 直发失败同样失效 token");
+  } finally {
+    await harness.dispose();
+  }
+});
+
+test("场景7 M2：防复活竞态——发送在途期间持久化条目被并发刷新为新 token ⇒ 失效跳过（新 token 保留）", async () => {
+  const harness = await createHarness();
+  try {
+    await harness.triggerMessage({ providerContextToken: "token-a" });
+    const enqueue = await requireEnqueue(harness);
+    const gate = createDeferred();
+    harness.sendControl.gate = (text) => (text === "竞态正文" ? gate.promise : undefined);
+    harness.sendControl.failPattern = /竞态正文/u;
+    harness.sendControl.errorFactory = channelDeadWeixinRetError;
+    const flushPromise = (async () => {
+      await enqueue(chunkEvent("竞态正文"));
+      await enqueue(toolCallEvent("tool-m2-race"));
+    })();
+    await waitForCondition(
+      () => harness.sendAttempts.includes("竞态正文"),
+      2000,
+      "flush 发送挂起中（sendOutbound 已读取持久化 token-a）",
+    );
+    // 发送在途：并发入站把条目刷新为新 token-b（失效不得误删并发写入的新值）。
+    await harness.overwritePersistedBotEntry({
+      weixinContextTokens: { [PEER_KEY]: { token: "token-b", updatedAt: Date.now() } },
+    });
+    gate.resolve();
+    await flushPromise;
+    assert.equal(
+      (await readPeerToken(harness))?.token,
+      "token-b",
+      "防复活竞态：失效只删除本次发送实际尝试的 token，在途刷新的新 token 必须保留",
+    );
+  } finally {
+    await harness.dispose();
+  }
+});
+
+// ---- 场景 8（M5 复活回归）：writeContext 不得复活已缺席的 token/游标字段 ----
+
+test("场景8 M5 复活回归：失效/游标写入留下的缺席字段不得被陈旧 context writeContext 复活（elicitation 清除路径）", async () => {
+  const harness = await createHarness();
+  try {
+    // watcher 建立前，持久化状态携带 trio（捕获 context 将带上这些旧值）。
+    await harness.overwritePersistedBotEntry({
+      weixinContextTokens: { [PEER_KEY]: { token: "token-stale", updatedAt: 1 } },
+      weixinGetUpdatesBuf: "buf-stale",
+      telegramOffset: 123,
+    });
+    await harness.triggerMessage({ providerContextToken: "token-stale" });
+    const enqueue = await requireEnqueue(harness);
+    await enqueue(elicitationRequestEvent("req-el-m2"));
+    // M2 失效（token map 缺席）+ 游标写入方删除游标：持久化状态成为“三字段缺席”。
+    await harness.overwritePersistedBotEntry({
+      weixinContextTokens: undefined,
+      weixinGetUpdatesBuf: undefined,
+      telegramOffset: undefined,
+    });
+    // 清除路径 writeContext({...捕获 context（trio 仍在）, pendingElicitation: undefined}）。
+    await enqueue(elicitationResponseEvent("req-el-m2"));
+    const entry = await harness.readStateBotEntry();
+    assert.equal(
+      entry.weixinContextTokens,
+      undefined,
+      "已失效的 token map 不得被陈旧 context 复活",
+    );
+    assert.equal(entry.weixinGetUpdatesBuf, undefined, "已删除的 weixinGetUpdatesBuf 不得被复活");
+    assert.equal(entry.telegramOffset, undefined, "已删除的 telegramOffset 不得被复活");
+    assert.ok(!entry.pendingElicitation, "清除路径自身的写入语义必须保留（pending 已清除）");
+  } finally {
+    await harness.dispose();
+  }
+});
+
 test("场景8 M5 属性：/new 草稿写入（读-写窗口内持久化被并发更新）不回滚四个持久化字段", async () => {
   const harness = await createHarness();
   try {
