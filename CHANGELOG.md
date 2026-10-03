@@ -1,5 +1,43 @@
 # Changelog
 
+## [3.14.5-alpha.4](https://github.com/yeyuan98/zodex/compare/v3.14.5-alpha.3...v3.14.5-alpha.4) (2026-10-03)
+
+### Bug Fixes
+
+* **bots:** channel-dead 保留缓冲 + revival 补发 + /status 待补发行（M1）与 writeContext 陈旧回滚修复（M5） ([9b3ca94](https://github.com/yeyuan98/zodex/commit/9b3ca94119c8e5a3a625b23a2d9e8a27fc8bb028))
+  * sendOutbound 缝隙两分类：新增 classifyBotSendFailure（weixinRet=-2 打标 / HTTP 5xx /
+  * flush 预算修订：channel-dead 首败即停（不再二次尝试、不发死通道通知），当前分块由缝隙保留、
+  * 保留缓冲：service 级 Map（botId::peerKey），watcher dispose 后存活；64KB utf8 字节尾部 cap +
+  * revival：任意 weixin 入站触发（不 key 于 token 值变化），入站队列内、命令处理前补发——
+  * /status 在保留缓冲非空期间追加待补发行（条数 + 约 KB）；zh/en 新增序言/截断标记/待补发文案
+  * 场景 1/2/3/4/6/8/10/12 + 场景 5 分类钉住；scoped 运行
+
+* **bots:** sendOutbound 保留动作包裹 catch，避免掩盖原始发送错误 ([0877950](https://github.com/yeyuan98/zodex/commit/08779502e2b369d28170300c8d4f439d91e14c70))
+  * Worker B 评审发现：M1 缝隙保留的 await retainReplyTexts 若抛错会替换原始 provider 错误上抛，调用方分类失真；与 M2 失效同规则 try/catch 包裹并 warn
+
+* **bots:** weixin ret=-2 即失效持久化 peer token（M2）与 writeContext 三字段唯一事实源收紧（M5 补完） ([8981882](https://github.com/yeyuan98/zodex/commit/8981882770c72cb2257126b93885ee4635625466))
+  * M2：sendOutbound 失败边界对打标 weixinRet=-2 无条件删除持久化 peer token 条目，停止对死 API 的 double-hammer（tokenless 重试死态 0/131 永不成功）；瞬时 -2 短暂丢失有效 token 为已接受权衡（条目缺席时任何入站无条件重新持久化，早退仅在条目存在时生效），午间形态 fail→invalidate→inbound→re-persist→ok 已被测试钉住
+  * M2 防复活竞态：仅当持久化条目 token 仍等于本次发送实际尝试值（与 tokenAgeMs 同点捕获）时才删除，发送在途被并发入站刷新的新 token 不误删；无持久化条目的发送无可失效
+  * M2 失效不作为 revival 触发（不触碰保留缓冲），包裹 try/catch 不掩盖原始错误，日志只记 bot/peer 永不记 token 值
+  * M5 收紧：weixinContextTokens/weixinGetUpdatesBuf/telegramOffset 三字段以持久化状态为唯一事实源——writeContext 一律写 existing 当前值（缺即保持缺），陈旧任务开始时代 context 不得复活已被 M2 失效或被游标写入方删除的 map/游标；weixinActivatedAt 维持有值保留、缺值用传入（激活写入方恰在持久化项缺失时经 writeContext 落值）
+  * 测试（red-first）：场景 7 五用例（-2 失效/非 -2 不失效/午间形态/失效非 revival 触发/防复活竞态）+ M5 复活回归（三字段缺席不被陈旧 context writeContext 复活），沿用 botChannelRetention.test.ts 既有 harness
+
+* **protocol:** M3 CLI→host 会话事件 schema 漂移——mapper 六键源头剥除 + host schema 宽容性 widen + 契约测试矩阵 ([1869dfe](https://github.com/yeyuan98/zodex/commit/1869dfed8536d8a3db9b2c64b2c75fd72c9f9eb8))
+  * v3 session-mapper 源头剥除六键闭合集（specs/bot-provider-network.md alpha.4 修订；2026-10-02/03 两天日志实测）：ToolCall* raw-spread 统一 strip readOnly/sideEffectScope/display/skillMetadata（全部 kind 分支，含 started 的 startedAt 归一化路径），mapPermissionRequestedPayload 解构剔除 fullAccessSupported，default 透传对 turn.started 做 executionStartedAt 的 key 定向剥除（非一刀切，其余 default 事件原样透传）
+  * host schema additive widen（保持 strict）：tool.updated 基座 +readOnly:boolean/sideEffectScope:七值枚举/display:jsonObject/skillMetadata:jsonObject（optional）；turn.started +executionStartedAt:protocolInstant（optional）；permission.requested +fullAccessSupported:boolean（optional）。End-state 诚实：strip-at-source 使 CLI v3 发射端永不带这些键过线，widen 仅为同仓库路径的宽容性接收；Track B 无法经 v3 消费 fullAccessSupported
+  * 新增契约测试矩阵（red-first，修复前 9 断言红）：钉 MAPPER OUTPUT vs HOST SCHEMA——tool.updated 各 kind（含全四键样本）、turn.started（executionStartedAt）、permission.requested（fullAccessSupported）剥除后必须通过 strict schema；冻结 legacy key 白名单（= widen 前 schema 键集）让未来漏进 strip 名单的 emitter 新键在 CI 变红而非运行时静默丢事件；对照 default 透传不变 + 无漂移键 payload 逐字节回归
+
+
+### Documentation
+
+* **specs:** 3.14.5-alpha.4 通道可靠性 spec 修订（证据锁定） ([d9ec387](https://github.com/yeyuan98/zodex/commit/d9ec38785403f01cf2eb8ecd383e19a93af8bceb))
+  * bot-message-delivery.md：F2.3 决定语义句替换为三分类（channel-dead 保留 / content-poison 维持 drop-with-notice）；F2.2 预算语义按类划分；Invariants 预算条目 + 64KB 字节 cap；F1.4 /stop 死窗 carve-out；typing 实测存活事实（§7.19 不暂停）；known-future-work ret=-2 失效项落地声明；deferred alpha.2 游标引用清理；验收场景 2/3 增 channel-dead 变体；新增 Retention buffer 小节（权限提示不保留/无文本缓冲模式/服务 dispose 静默丢失/字节 cap/per-peer 串行化/任意入站 revival + 序言 + /status 待补发行）
+  * bot-provider-network.md：实测 token/会话生命周期块替换 ~40min 与 17.5-22.6min 旧口径及 pending-probe 措辞（15-25min 可变 TTL、年龄是代理、任意入站复活、无带外刷新、tokenless 0/131、typing 存活、ret=-2 无条件失效）；新增 alpha.4 M3 协议 schema strip/widen amendment（sideEffectScope 入名单、六键闭合、widen 宽容性、Track B 不能经 v3 消费 fullAccessSupported）
+
+* **specs:** 评审收口——保留缓冲 cap 明确 utf8 字节口径；summary_changes 排除仅指缓冲保留 ([773a96a](https://github.com/yeyuan98/zodex/commit/773a96a9cb38eaaf7b08616075e2982479000d12))
+  * 评审发现 1：Invariants 的"UTF-16 按 2 字节/字符换算"与实现（Buffer.byteLength utf8 口径，场景 10 测试钉住）表述不一，统一为 utf8 字节口径并说明 .length 翻倍陷阱
+  * 评审发现 4：Retention buffer 小节澄清 summary_changes/streaming_card 排除仅指 flush 缓冲保留，终态文书直发缝隙（16:42 丢失类）不受模式限制
+
 ## [3.14.5-alpha.3](https://github.com/yeyuan98/zodex/compare/v3.14.5-alpha.2...v3.14.5-alpha.3) (2026-10-03)
 
 ### Bug Fixes
