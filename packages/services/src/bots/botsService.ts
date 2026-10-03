@@ -3328,7 +3328,13 @@ export function createBotsService(
       if (opts?.retainOnChannelDead && classifyBotSendFailure(error) === "channel-dead") {
         const peerKey = message.providerUserId.trim();
         if (peerKey) {
-          await retainReplyTexts(bot, peerKey, [message.text ?? ""]);
+          // Review 收口：保留动作自身不得掩盖原始发送错误（与 M2 失效同规则包裹）。
+          await retainReplyTexts(bot, peerKey, [message.text ?? ""]).catch((retainError) => {
+            botsLogger.warn(
+              undefined,
+              `bot retained reply enqueue failed bot=${bot.id} peer=${peerKey}: ${retainError instanceof Error ? retainError.message : String(retainError)}`,
+            );
+          });
         }
       }
       // Bugfix（M2，specs/bot-provider-network.md 3.14.5-alpha.4 实测块）：weixin ret=-2 即
