@@ -72,6 +72,10 @@ export { createSystemService } from "./system/systemService.js";
 export { listSSHConfigAliasesFromLocalConfig } from "./system/sshConfigAlias.js";
 export { createTerminalService } from "./terminal/terminalService.js";
 export { createSettingService } from "./setting/settingService.js";
+// D4（specs/log-diagnostics-hygiene.md）：设置每日基线跨日补发；desktop host 在
+// 既有 60s 诊断 tick 上调用，只读内存缓存。settingService 依赖 node:fs，
+// 只能经 node 入口导出（浏览器入口零 node: 引用守卫）。
+export { maybeLogSettingsDailyBaseline } from "./setting/settingService.js";
 export { createCredentialService } from "./credential/credentialService.js";
 export { createBroadcastService } from "./broadcast/broadcastService.js";
 export { createZCodeAgentService } from "./zcode-agent/zcodeAgentService.js";

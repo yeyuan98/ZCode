@@ -125,6 +125,18 @@ circuit transitions (open/reset/half-open-final), WeChat token-less retry fired.
 logs: F2 drop path, F5 degrade path, notice-send failure. Debug stays reserved for raw
 protocol data (unchanged).
 
+**Amendment (3.14.5-alpha.2 — instrumentation-only; ships as its own alpha release;
+the behavior contract above is unchanged and stays unchanged through alpha.2):** every `sendOutbound` call (the single seam shared by flush sends, terminal
+paperwork sends, notices and command replies — i.e. BOTH delivery paths) logs one info
+outcome line: `bot outbound send provider=… peer=… bytes=… ok|failed`; weixin lines add
+`tokenAgeMs` (age of the persisted peer token actually used — successes AND failures,
+so a dead window's TTL can be bounded from both sides; the token value itself is never
+logged); failed lines add the tagged weixin fields (`weixinRet`/`weixinErrcode`/
+`weixinHttpStatus`) and the error text. Failures still propagate unchanged. Rationale:
+R1's diagnosis had to infer successful sends from silence and lacked ret codes on
+drops (handoff §2 telemetry defects). Full logging contract:
+`specs/log-diagnostics-hygiene.md`.
+
 ## Invariants
 
 - One drain owner: only `disposeTaskWatcher` unsubscribes watchers (terminal/stop/stale/

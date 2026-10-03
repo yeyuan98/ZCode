@@ -15,6 +15,12 @@ import { isEffectiveDevelopmentNodeEnv } from "../runtime-tools/nodeEnv.js";
 import { maybeThrowInjectedFsFault } from "../fs/fsFaultInjection.js";
 import { atomicWriteText } from "../fs/atomicFileUtils.js";
 import { withSettingsWriteQueueTimeout } from "./settingsWriteQueue.js";
+import {
+  logSettingsWrite,
+  maybeLogSettingsDailyBaseline as hygieneMaybeLogSettingsDailyBaseline,
+  noteSettingsLoaded,
+  noteSettingsPersisted,
+} from "./settingLogHygiene.js";
 const MAX_RECENT_PROJECTS = 10;
 const DEFAULT_PROJECT_NAME = "ZCodeProject";
 const SETTINGS_PARSE_RETRY_DELAY_MS = 300;
@@ -143,6 +149,8 @@ async function readSettingsWithMeta(): Promise<ReadSettingsResult> {
       };
     }
     debugLog("read result:", JSON.stringify(result.data));
+    // D4：成功解析到真实落盘配置后更新日志对照缓存（只作日志用途）。
+    noteSettingsLoaded(result.data);
     return {
       settings: result.data,
       needsMigrationPersist: shouldPersistSettingsMigrations(rawValue),
@@ -184,7 +192,9 @@ async function writeSettings(
   const settingsFile = getSettingsFile();
   // Windows 下测试只改了 HOME，模块顶层常量如果在导入时就把 homedir() 固化，
   // 后续读写仍会串到真实用户目录。这里改成每次按当前环境解析配置路径，保证本地和测试都稳定。
-  log("writing settings to:", settingsFile, JSON.stringify(settings));
+  // D4（specs/log-diagnostics-hygiene.md）：此前每次写盘都全量 dump（~65KB/天且含路径
+  // 等细节）；改为每日一条脱敏快照 + 当日增量行。
+  logSettingsWrite(settings, settingsFile);
   maybeThrowInjectedFsFault({ operation: "mkdir", path: settingsDir });
   await mkdir(settingsDir, { recursive: true });
   if (!shouldCommit()) return;
@@ -205,6 +215,8 @@ async function writeSettings(
         await renameFile();
       }),
   });
+  // D4：写盘成功后推进日志对照缓存（增量 diff 的旧值来源）。
+  noteSettingsPersisted(settings);
   log("write done");
 }
 
@@ -330,4 +342,12 @@ export function createSettingService(): ISettingService {
   };
 
   return service;
+}
+
+/**
+ * D4 跨日补发（desktop host 在既有 60s 诊断 tick 上调用；经 services/node 入口
+ * 导出）。路径在此解析，host 无需感知 settings 目录规则。
+ */
+export function maybeLogSettingsDailyBaseline(): void {
+  hygieneMaybeLogSettingsDailyBaseline(getSettingsFile());
 }

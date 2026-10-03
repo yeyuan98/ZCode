@@ -26,6 +26,12 @@ export interface StartHostMemoryDiagnosticsLogOptions {
    * 该回调抛错只丢遥测样本，不影响本地日志。
    */
   onMemoryUsage?: (memoryUsage: NodeJS.MemoryUsage) => void;
+  /**
+   * D1/D4（specs/log-diagnostics-hygiene.md）：挂在既有 60s 采样 tick 上的附加钩子
+   * （rpc 存活 15 分钟汇总、设置每日基线跨日检查）。复用本定时器，不新增 timer；
+   * 回调抛错只跳过本次钩子，不影响采样与写盘。
+   */
+  onTick?: () => void;
   now?: () => number;
   intervalMs?: number;
   timer?: {
@@ -90,10 +96,14 @@ export function startHostMemoryDiagnosticsLog(
     }
   };
 
-  let handle: HostMemoryDiagnosticsTimerHandle | undefined = timer.setInterval(
-    sampleNow,
-    options.intervalMs ?? MEMORY_SAMPLE_INTERVAL_MS,
-  );
+  let handle: HostMemoryDiagnosticsTimerHandle | undefined = timer.setInterval(() => {
+    sampleNow();
+    try {
+      options.onTick?.();
+    } catch {
+      // 附加诊断钩子失败不影响采样本身。
+    }
+  }, options.intervalMs ?? MEMORY_SAMPLE_INTERVAL_MS);
   try {
     handle.unref?.();
   } catch {

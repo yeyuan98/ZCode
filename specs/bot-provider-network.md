@@ -174,3 +174,30 @@ contracts:
    (silent loss). The sound rescope is skip-failing-message-with-notice + commit — a real
    trade-off vs today's retry-forever. Design + decision land in alpha.2 in this spec's
    F4 (cursor) section.
+
+## Amendment (3.14.5-alpha.2) — provider send observability (instrumentation-only)
+
+Ships as its own alpha release (owner ruling: every PR → one alpha). No send/retry/
+cursor semantics change in alpha.2 (behavior fixes land in alpha.3, designed from the
+probe run on the released alpha.2 build). This section owns the new provider-side
+logging contract (pipeline-side lines live in `bot-message-delivery.md` F10; the
+cross-module logging policy lives in `specs/log-diagnostics-hygiene.md`):
+
+1. **Error field tagging**: both weixin request helpers (`requestWeixinJson`,
+   `requestWeixinMediaJson`) attach `weixinRet` (existing), `weixinErrcode` (new) and,
+   on non-OK HTTP, `weixinHttpStatus` (new) to the thrown Error. Message text is
+   unchanged. Consumers may branch on the tagged fields; nothing branches on new fields
+   in PR1.
+2. **Typing outcomes** (`weixin` adapter): sendtyping success → debug; failure → warn,
+   rate-limited to one line per 30s per adapter instance (lazy timestamp compare — no
+   timer), carrying tagged ret/errcode. The getconfig call inside sendtyping logs
+   whether its response contains a `context_token` as a boolean, only on change, at
+   info — the alpha.2 probe uses this to test whether an out-of-band token refresh
+   exists. Token values are never logged.
+3. **Corrected token-lifetime facts** (replaces the ~40-min text figure in item F4
+   above, pending the alpha.2 probe measurement): log-derived bounds from the R1
+   session — token still valid ≥17.5 min after the last inbound; dead by 18.4–22.6 min
+   (range depends on whether WeChat rotates the token per inbound; `updatedAt` in the
+   persisted token map records true rotation time and is now surfaced as `tokenAgeMs`
+   on send outcome lines). The media-probe-era ~40-min figure stays valid for the media
+   path only.
