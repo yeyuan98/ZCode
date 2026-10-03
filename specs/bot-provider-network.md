@@ -145,7 +145,9 @@ contracts:
    - `requestWeixinJson` tags `weixinRet` on thrown errors (mirror of
      `requestWeixinMediaJson`), so callers can branch on protocol ret codes.
    - Text `/sendmessage` retries ONCE WITHOUT `context_token` when the first attempt
-     fails with `ret=-2` (token expired, ~40 min; mirror of the media retry). Honest
+     fails with `ret=-2` (mirror of the media retry; the original "~40 min token
+     expiry" figure is SUPERSEDED — measured lifecycle in the alpha.2 amendment
+     item 3, updated 3.14.5-alpha.4). Honest
      coverage note: the persisted-token read only helps when an inbound ping occurred
      mid-task; the token-less retry is the guarantee for zero-inbound >40-min tasks.
    - The text `/sendmessage` request carries an explicit 15s timeout (parity with other
@@ -207,9 +209,37 @@ cross-module logging policy lives in `specs/log-diagnostics-hygiene.md`):
    info — the alpha.2 probe uses this to test whether an out-of-band token refresh
    exists. Token values are never logged.
 3. **Corrected token-lifetime facts** (replaces the ~40-min text figure in item F4
-   above, pending the alpha.2 probe measurement): log-derived bounds from the R1
-   session — token still valid ≥17.5 min after the last inbound; dead by 18.4–22.6 min
-   (range depends on whether WeChat rotates the token per inbound; `updatedAt` in the
-   persisted token map records true rotation time and is now surfaced as `tokenAgeMs`
-   on send outcome lines). The media-probe-era ~40-min figure stays valid for the media
-   path only.
+   above; 3.14.5-alpha.4 用实测块替换原 "pending the alpha.2 probe measurement"
+   措辞与 R1 的 17.5–22.6 min 区间——探针判据已由 §2d 的 3 次独立观测满足):
+
+   > **实测 token/会话生命周期（2026-10-03 §2d，3 次独立观测，探针判据满足）**：
+   > WeChat 在对端 ~15–25 分钟无入站后杀死 bot 的发送会话；TTL 每次不同（窗口 A
+   > 存活 ≥22.92 min / 死于 23.14 min；窗口 B 存活 ≥14.82 / 死于 16.80——区间不
+   > 交叉）。token **年龄是代理指标而非原因**：9.6 小时的旧 token 在入站后立即
+   > 成功（persistWeixinContextToken 仅在值变化时更新 updatedAt）；午间 3.9-min
+   > token 失败、6.5-min 同一未轮换条目自愈。模型 = 服务端会话空闲超时；**唯一
+   > 复活方式是该 peer 的任意入站**（两次实测均在 ~17 s 内恢复）。**无带外刷新
+   > 机制**：getconfig 的 context_token present=false（3/3 进程生命周期）；
+   > tokenless 重试死态永不成功（0/131）——ping-to-revive 是诚实上限，不建刷新
+   > 机械。**typing 在 sendmessage 死窗内存活**（实测；§7.19：不暂停）。
+   > **ret=-2 失效即失效凭据（alpha.4）**：无条件失效 + 实测权衡记录——瞬时 -2
+   > 与会话死 -2 客户端不可区分（两者均双拒）；失效后任何入站无条件重新持久化
+   > （early-return 仅在条目存在时生效）；失效不作为 revival 触发；失效后
+   > tokenAgeMs 可观测性损失已接受。
+
+   The media-probe-era ~40-min figure stays valid for the media path only.
+
+## Amendment (3.14.5-alpha.4) — M3 协议 schema strip/widen（证据闭合）
+
+CLI→host 会话事件 schema 漂移在 v3 线上整事件丢弃（host `.strict()`）。修复双侧：
+(a) v3 mapper 源头 strip（legacy-desktop 安全，仓库规则：新 CLI 字段须在源头剥除）
+——新漂移键 `sideEffectScope`（tool.updated，553 次/日 2026-10-03）入 strip 名单；
+六键清单闭合：`readOnly`/`sideEffectScope`/`display`/`skillMetadata`
+（tool.updated）、`executionStartedAt`（turn.started）、`fullAccessSupported`
+（permission.requested）。三个 strip 站点：`mapPermissionRequestedPayload`、
+ToolCall\* raw-spread、`default:` 透过的 key 定向剥除（非一刀切）。(b) host schema
+additive widen（optional 字段）。**End-state 诚实**：strip-at-source 使 CLI 发射端
+永不携带这些键过 v3 线——widen 仅为宽容性接收（对同仓库 emitter/测试/未来路径
+有意义）；**Track B 不能经 v3 消费 `fullAccessSupported`**，记录在案。契约测试
+矩阵钉 MAPPER OUTPUT vs host schema（当前 main 红）；schema 保持 strict——只
+widen + strip，从不放松。反向（desktop→CLI）不受影响。

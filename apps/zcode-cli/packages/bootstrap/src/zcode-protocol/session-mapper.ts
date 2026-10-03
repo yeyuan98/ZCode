@@ -56,6 +56,40 @@ import {
 
 const SNAPSHOT_INLINE_IMAGE_DATA_URL_MAX_BYTES = 20 * 1024 * 1024;
 
+// M3（3.14.5-alpha.4，specs/bot-provider-network.md「Amendment (3.14.5-alpha.4)」）：
+// v3 线上已确认的 CLI emitter 漂移键（六键闭合集，2026-10-02/03 两天日志实测无其他键）。
+// 这些新字段经 ToolCall* raw-spread / default 透传 / permission 解构遗漏漏上 v3 线后，
+// 桌面端打包的 strict zod schema（packages/shared 随每个桌面版本发布）会把整条事件
+// safeParse 丢弃（单日 553× tool.updated + 8× turn.started + 4× permission.requested；
+// permission 丢失 = bot 权限提示彻底消失）。仓库规则（见 mapPendingPermission 注释）：
+// 新 CLI 字段必须在 v3 mapper 源头剥离——只允许预览降级，不允许 gate 降级。
+const V3_TOOL_PAYLOAD_STRIP_KEYS = ["readOnly", "sideEffectScope", "display", "skillMetadata"] as const;
+const V3_TURN_STARTED_STRIP_KEYS = ["executionStartedAt"] as const;
+
+/** 按名单剔除键并重建对象（保持剩余键的原有顺序）；无命中键时返回原对象，保证无漂移键的 payload 输出逐字节不变。 */
+function omitKeys(
+  record: Record<string, unknown>,
+  keys: readonly string[],
+): Record<string, unknown> {
+  if (!keys.some((key) => key in record)) {
+    return record;
+  }
+  const result: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(record)) {
+    if (!keys.includes(key)) {
+      result[key] = value;
+    }
+  }
+  return result;
+}
+
+/** ToolCall* raw-spread 的统一漂移键剥离：所有 tool.updated kind 分支共用一个名单。 */
+function stripToolCallV3DriftKeys(payload: unknown): Record<string, unknown> {
+  // 非对象 payload 沿用旧 spread 语义（展开为空），不因 strip 引入新异常。
+  const record = asRecord(payload);
+  return omitKeys(record, V3_TOOL_PAYLOAD_STRIP_KEYS);
+}
+
 export async function buildSessionSnapshot(input: {
   app: ZCodeApp;
   deliveryKind?: ZCodeDeliveryKind;
@@ -407,24 +441,49 @@ function mapSessionEventPayload(event: SessionEvent): unknown {
     case SessionEventType.StreamRecoveryBlocked:
       return mapStreamRecoveryPayload(payload);
     case SessionEventType.ToolCallScheduled:
-      return { ...(payload as Record<string, unknown>), kind: "scheduled" };
+      // raw-spread 会把 emitter 的全部字段搬上 v3 线；漂移键必须在 spread 前剥掉（M3）。
+      return {
+        ...stripToolCallV3DriftKeys(payload),
+        kind: "scheduled",
+      };
     case SessionEventType.ToolCallStarted:
       return mapToolCallStartedPayload(payload, event.timestamp);
     case SessionEventType.ToolCallProgress:
-      return { ...(payload as Record<string, unknown>), kind: "progress" };
+      return {
+        ...stripToolCallV3DriftKeys(payload),
+        kind: "progress",
+      };
     case SessionEventType.ToolCallResult:
-      return { ...(payload as Record<string, unknown>), kind: "result" };
+      return { ...stripToolCallV3DriftKeys(payload), kind: "result" };
     case SessionEventType.ToolCallError:
-      return { ...(payload as Record<string, unknown>), kind: "error" };
+      return { ...stripToolCallV3DriftKeys(payload), kind: "error" };
     case SessionEventType.ToolBatchComplete:
-      return { ...(payload as Record<string, unknown>), kind: "batch" };
+      return { ...stripToolCallV3DriftKeys(payload), kind: "batch" };
     case SessionEventType.PermissionRequested:
       return mapPermissionRequestedPayload(payload);
     case SessionEventType.PermissionDenied:
       return mapPermissionDeniedPayload(payload);
     default:
-      return payload;
+      return mapDefaultEventPayload(event, payload);
   }
+}
+
+function mapDefaultEventPayload(event: SessionEvent, payload: unknown): unknown {
+  if (event.type !== SessionEventType.TurnStarted) {
+    // 对照保证：default 分支对其余事件类型保持原样透传（未知键不剥、对象同一性不变）。
+    return payload;
+  }
+  // M3 key 定向剥除（非一刀切）：turn.started 的 executionStartedAt 是 v4 telemetry 的
+  // 执行入口毫秒时间戳，v3 桌面 schema 不认识，strict 校验会整条丢弃。其他 default 事件
+  // 的未知键不受影响；无该键（或非对象 payload）时原样返回，保证逐字节不变。
+  if (
+    typeof payload !== "object" ||
+    payload === null ||
+    !V3_TURN_STARTED_STRIP_KEYS.some((key) => key in payload)
+  ) {
+    return payload;
+  }
+  return omitKeys(payload as Record<string, unknown>, V3_TURN_STARTED_STRIP_KEYS);
 }
 
 function mapPermissionDeniedPayload(payload: unknown): Record<string, unknown> {
@@ -441,7 +500,7 @@ function mapToolCallStartedPayload(
   payload: unknown,
   eventTimestamp: Date,
 ): Record<string, unknown> {
-  const record = asRecord(payload);
+  const record = stripToolCallV3DriftKeys(payload);
   return {
     ...record,
     // ToolCallStarted 的 startedAt 来自 runtime Date 对象；协议跨进程后必须是
@@ -880,7 +939,16 @@ function mapPendingPermission(permission: PendingPermission): ZCodePendingPermis
 function mapPermissionRequestedPayload(payload: unknown): Record<string, unknown> {
   // 同 mapPendingPermission：这个 payload 是整体 spread 出去的，新字段必须在这里显式解构
   // 剔除，否则会直接漏进 strict 的 zcodePermissionRequestedEventPayloadSchema。
-  const { display: _display, optionsPolicy, ...record } = asRecord(payload);
+  // M3（3.14.5-alpha.4）：fullAccessSupported 是新 CLI 的条件字段（emitter 仅发 true，
+  // core/src/tool/executor/events.ts），漏进 v3 线会让旧桌面整条丢弃 permission.requested
+  // ——bot 权限提示彻底消失（Track-B 阻塞）。host schema 侧已 additive widen 为 optional
+  // boolean，但 v3 线上仍以剥离为准（Track B 无法经 v3 消费该字段）。
+  const {
+    display: _display,
+    optionsPolicy,
+    fullAccessSupported: _fullAccessSupported,
+    ...record
+  } = asRecord(payload);
   const toolName = stringValue(record.toolName) ?? "unknown";
   return {
     ...record,

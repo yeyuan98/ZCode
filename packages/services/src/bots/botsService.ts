@@ -779,6 +779,45 @@ const BOT_ELICITATION_FORM_VALUE_PREFIX = "__form__:";
 // 期间只做一次 ~1s 退避；预算按构造有界，毒丸消息不可能拖住串行事件队列。
 const BOT_REPLY_FLUSH_MAX_ATTEMPTS = 2;
 const BOT_REPLY_FLUSH_RETRY_BACKOFF_MS = 1_000;
+// M1（specs/bot-message-delivery.md 3.14.5-alpha.4 Retention buffer）：per-peer 保留缓冲的
+// 字节 cap（utf8 字节口径——回复缓冲是 UTF-16 字符，必须换算），尾部保留 + 头部截断标记。
+const BOT_RETAINED_BUFFER_MAX_BYTES = 64 * 1024;
+
+/** M1 发送失败两分类（specs/bot-message-delivery.md F2.3 修订）。 */
+type BotSendFailureClass = "channel-dead" | "content-poison";
+
+/**
+ * Bugfix（M1，specs/bot-message-delivery.md 3.14.5-alpha.4 Retention buffer）：发送失败
+ * 按类别决定语义——channel-dead 保留待 revival 补发，content-poison 维持 alpha.1
+ * drop-with-notice。判别源（测试可构造）：
+ * - channel-dead：打标 weixinRet=-2（会话死与瞬态 -2 客户端不可分，一律按死通道）；或网络类——
+ *   打标 weixinHttpStatus>=500、AbortError/TimeoutError/ETIMEDOUT 错误名、HTTP 5xx 状态形状
+ *   或 timed out / fetch failed 网络形状的错误文本（telegram/feishu 适配器现状即文本形态）。
+ * - content-poison：其余（4xx、非 -2 协议码、业务拒绝等）。
+ */
+function classifyBotSendFailure(error: unknown): BotSendFailureClass {
+  if (error !== null && typeof error === "object") {
+    const tagged = error as { weixinRet?: unknown; weixinHttpStatus?: unknown; name?: unknown };
+    if (tagged.weixinRet === -2) {
+      return "channel-dead";
+    }
+    if (typeof tagged.weixinHttpStatus === "number" && tagged.weixinHttpStatus >= 500) {
+      return "channel-dead";
+    }
+    const name = typeof tagged.name === "string" ? tagged.name : "";
+    if (name === "AbortError" || name === "TimeoutError" || name === "ETIMEDOUT") {
+      return "channel-dead";
+    }
+  }
+  const message = error instanceof Error ? error.message : String(error ?? "");
+  if (/HTTP\s+5\d\d/u.test(message)) {
+    return "channel-dead";
+  }
+  if (/\bETIMEDOUT\b/u.test(message) || /timed out|fetch failed/iu.test(message)) {
+    return "channel-dead";
+  }
+  return "content-poison";
+}
 
 /** F1（specs/bot-message-delivery.md）：watcher drain 的四个法定来源，写入观测日志。 */
 type BotTaskWatcherDisposeReason = "terminal" | "stop" | "stale" | "dispose";
@@ -1291,6 +1330,13 @@ export function createBotsService(
   const recentRemoteReconnectDeliveryAtByKey = new Map<string, number>();
   const recentInboundDeliveryAtByKey = new Map<string, number>();
   const inboundProcessingQueuesByContext = new Map<string, Promise<void>>();
+  // M1（specs/bot-message-delivery.md 3.14.5-alpha.4 Retention buffer）：per-peer 保留缓冲
+  // （键 `${botId}::${peerKey}`，peerKey 派生与 persistWeixinContextToken 一致：chatId 优先）。
+  // service 级持有——watcher dispose 后仍存活，直到补发送达或按 content-poison 丢弃。
+  // 所有变更/投递经 retainedReplyBufferQueues 的 per-peer promise chain 串行化
+  // （三个异步触点：streamEventQueue flush、入站队列 revival、队列外 drain）。
+  const retainedReplyBuffers = new Map<string, string[]>();
+  const retainedReplyBufferQueues = new Map<string, Promise<void>>();
   let botStorageMigrationPromise: Promise<void> | null = null;
   const cachedWorkspaceRefsByKey = new Map<
     string,
@@ -1542,8 +1588,29 @@ export function createBotsService(
   }
 
   async function writeContext(context: BotContextState): Promise<void> {
+    // Bugfix（M5，2026-10-03 §2d 事故）：watcher 闭包捕获的 context 可能是任务开始时代的
+    // 旧快照——旧实现整条覆盖会把 weixinContextTokens / weixinGetUpdatesBuf /
+    // telegramOffset / weixinActivatedAt 回滚到旧值（实测两次终态 dispose 后 token 表
+    // updatedAt 倒退 2-3 分钟，游标回退还会引发重复投递）。
+    // 3.14.5-alpha.4 收紧（M5 复活回归）：weixinContextTokens / weixinGetUpdatesBuf /
+    // telegramOffset 三字段以持久化状态为唯一事实源——writeContext 一律写 existing 的当前值
+    // （缺即保持缺），陈旧 context 不得复活已被 M2 ret=-2 失效或被游标写入方删除的 map/游标
+    // （旧“仅有值才覆盖”的带回会在持久化项缺席时让 context 旧值复活）。weixinActivatedAt
+    // 维持“有值保留、缺值用传入”：激活写入方 handleWeixinFirstActivation 恰在持久化项缺失时
+    // 经 writeContext 落值。单一写入方（persistWeixinContextToken / M2 失效 / 游标写入 / 激活）
+    // 本来就读改写最新状态，不受影响。
     const state = await repo.readState();
-    state.bots[context.botId] = { ...context, updatedAt: Date.now() };
+    const existing = state.bots[context.botId];
+    state.bots[context.botId] = {
+      ...context,
+      weixinContextTokens: existing?.weixinContextTokens,
+      weixinGetUpdatesBuf: existing?.weixinGetUpdatesBuf,
+      telegramOffset: existing?.telegramOffset,
+      ...(existing?.weixinActivatedAt !== undefined
+        ? { weixinActivatedAt: existing.weixinActivatedAt }
+        : {}),
+      updatedAt: Date.now(),
+    };
     await repo.writeState(state);
   }
 
@@ -1715,6 +1782,41 @@ export function createBotsService(
     if (!normalizedPeerKey) return undefined;
     const state = await repo.readState().catch(() => null);
     return state?.bots[botId]?.weixinContextTokens?.[normalizedPeerKey];
+  }
+
+  /**
+   * Bugfix（M2，specs/bot-provider-network.md 3.14.5-alpha.4 实测块）：ret=-2 即失效凭据——
+   * 发送失败边界无条件删除持久化 peer token 条目，停止对死 API 的 double-hammer（tokenless
+   * 重试死态 0/131 永不成功）。瞬时 -2 与会话死 -2 客户端不可分（实测），短暂丢失有效 token
+   * 是已接受的权衡：条目缺席时任何入站都会无条件重新持久化（persistWeixinContextToken 的
+   * 早退仅在条目存在时生效）。防复活竞态：仅当当前持久化条目的 token 仍等于本次发送实际
+   * 尝试的值时才删除——发送在途期间被并发入站刷新的新 token 不得误删。失效不是 revival
+   * 触发（不触碰保留缓冲），自身也不得向调用方抛错（在 sendOutbound catch 内包裹调用）。
+   * 永不记录 token 值。
+   */
+  async function invalidateWeixinContextTokenForPeer(
+    botId: string,
+    peerKey: string,
+    attemptedToken: string,
+  ): Promise<boolean> {
+    const normalizedPeerKey = peerKey.trim();
+    if (!normalizedPeerKey) {
+      return false;
+    }
+    const state = await repo.readState();
+    const existing = state.bots[botId];
+    const tokens = existing?.weixinContextTokens;
+    if (!existing || tokens?.[normalizedPeerKey]?.token !== attemptedToken) {
+      return false;
+    }
+    const nextTokens = { ...tokens };
+    delete nextTokens[normalizedPeerKey];
+    state.bots[botId] = {
+      ...existing,
+      weixinContextTokens: Object.keys(nextTokens).length > 0 ? nextTokens : undefined,
+    };
+    await repo.writeState(state);
+    return true;
   }
 
   /**
@@ -2947,7 +3049,226 @@ export function createBotsService(
     return true;
   }
 
-  async function sendOutbound(bot: BotConfig, message: BotOutboundMessage): Promise<void> {
+  function retainedBufferKey(botId: string, peerKey: string): string {
+    return `${botId}::${peerKey}`;
+  }
+
+  function sumRetainedBufferBytes(buffer: string[]): number {
+    return buffer.reduce((total, text) => total + Buffer.byteLength(text, "utf8"), 0);
+  }
+
+  /** per-peer 串行化（先例：enqueueInboundProcessing 的 promise chain）。所有保留缓冲的
+   * 异步变更与投递（flush 保留 / revival 补发 / force 边界重试）都经由这里，避免并发
+   * 取走/追加同一积压造成丢失或重复。 */
+  async function withRetainedBufferLock<T>(key: string, task: () => Promise<T>): Promise<T> {
+    const previous = retainedReplyBufferQueues.get(key) ?? Promise.resolve();
+    let releaseQueue = (): void => undefined;
+    const current = previous
+      .catch(() => undefined)
+      .then(
+        () =>
+          new Promise<void>((resolve) => {
+            releaseQueue = resolve;
+          }),
+      );
+    retainedReplyBufferQueues.set(key, current);
+    await previous.catch(() => undefined);
+    try {
+      return await task();
+    } finally {
+      releaseQueue();
+      if (retainedReplyBufferQueues.get(key) === current) {
+        retainedReplyBufferQueues.delete(key);
+      }
+    }
+  }
+
+  /** 追加保留文本并按 utf8 字节 cap 头部截断（~64KB 尾部 + 一次性截断标记）。
+   * 必须在 withRetainedBufferLock 内调用。 */
+  function appendRetainedTexts(key: string, texts: string[], locale: Locale | undefined): void {
+    const buffer = retainedReplyBuffers.get(key) ?? [];
+    retainedReplyBuffers.set(key, buffer);
+    for (const text of texts) {
+      if (text) {
+        buffer.push(text);
+      }
+    }
+    let totalBytes = sumRetainedBufferBytes(buffer);
+    if (totalBytes <= BOT_RETAINED_BUFFER_MAX_BYTES) {
+      return;
+    }
+    let droppedCount = 0;
+    while (buffer.length > 0 && totalBytes > BOT_RETAINED_BUFFER_MAX_BYTES) {
+      totalBytes -= Buffer.byteLength(buffer[0]!, "utf8");
+      buffer.shift();
+      droppedCount += 1;
+    }
+    const marker = msg(locale, "retainedBacklogTruncatedHead");
+    if (buffer[0] !== marker) {
+      // 一次性标记：已存在（前次截断遗留）则不重复添加；标记本身体积有限，
+      // 允许总量轻微超出 cap（按尾部语义绝不从尾部丢弃）。
+      buffer.unshift(marker);
+    }
+    botsLogger.warn(
+      undefined,
+      `bot retained buffer head-truncated messages=${droppedCount} backlogMessages=${buffer.length} backlogBytes=${sumRetainedBufferBytes(buffer)}`,
+    );
+  }
+
+  async function retainReplyTexts(bot: BotConfig, peerKey: string, texts: string[]): Promise<void> {
+    const meaningful = texts.filter((text) => text.length > 0);
+    if (meaningful.length === 0) {
+      return;
+    }
+    const key = retainedBufferKey(bot.id, peerKey);
+    const locale = await readMessageLocale();
+    await withRetainedBufferLock(key, async () => {
+      appendRetainedTexts(key, meaningful, locale);
+      const buffer = retainedReplyBuffers.get(key) ?? [];
+      botsLogger.info(
+        undefined,
+        `bot retained reply enqueued provider=${bot.provider} bot=${bot.id} peer=${peerKey} messages=${meaningful.length} backlogMessages=${buffer.length} backlogBytes=${sumRetainedBufferBytes(buffer)}`,
+      );
+    });
+  }
+
+  /**
+   * M1 补发核心（revival 与 force 边界重试共用）：先（可选）发一条序言，再按序投递积压。
+   * 逐条分类：channel-dead 停止并重新保留余量（一次不复活代价有界）；content-poison
+   * 丢弃该条 + 一次性通知（alpha.1 语义）并继续余量。积压取走后投递，互斥由
+   * withRetainedBufferLock 保证；补发本身不 retain（避免双重保留）。
+   */
+  async function deliverRetainedBacklog(
+    bot: BotConfig,
+    actor: BotActor,
+    options: { withPreamble: boolean },
+  ): Promise<void> {
+    const peerKey = actor.chatId?.trim() || actor.providerUserId.trim();
+    if (!peerKey) {
+      return;
+    }
+    const key = retainedBufferKey(bot.id, peerKey);
+    const initialBacklog = retainedReplyBuffers.get(key);
+    if (!initialBacklog || initialBacklog.length === 0) {
+      return;
+    }
+    await withRetainedBufferLock(key, async () => {
+      const backlog = retainedReplyBuffers.get(key);
+      if (!backlog || backlog.length === 0) {
+        return;
+      }
+      const locale = await readMessageLocale();
+      if (options.withPreamble) {
+        botsLogger.info(
+          undefined,
+          `bot retained backlog revival attempted bot=${bot.id} peer=${peerKey} messages=${backlog.length}`,
+        );
+        try {
+          // 序言走存活通道且不保留：失败（任意类别）即停止，积压原样保留——
+          // 一次不复活的 ping 代价恰为这一次有界尝试（owner 决定 §7.20 + 评审 F4）。
+          await sendOutbound(
+            bot,
+            createOutbound(
+              actor,
+              msg(locale, "retainedBacklogPreamble", { count: backlog.length }),
+            ),
+          );
+        } catch (error) {
+          botsLogger.info(
+            undefined,
+            `bot retained backlog revival stopped at preamble bot=${bot.id} peer=${peerKey}: ${error instanceof Error ? error.message : String(error)}`,
+          );
+          return;
+        }
+      }
+      const pending = backlog;
+      retainedReplyBuffers.delete(key);
+      let delivered = 0;
+      for (let index = 0; index < pending.length; index += 1) {
+        const text = pending[index]!;
+        try {
+          await sendOutbound(bot, createOutbound(actor, text));
+          delivered += 1;
+        } catch (error) {
+          if (classifyBotSendFailure(error) === "channel-dead") {
+            const remainder = pending.slice(index);
+            appendRetainedTexts(key, remainder, locale);
+            botsLogger.info(
+              undefined,
+              `bot retained backlog delivery stopped channel-dead bot=${bot.id} peer=${peerKey} delivered=${delivered} retained=${remainder.length}`,
+            );
+            return;
+          }
+          // content-poison：丢弃该条 + 一次性通知（通道存活，通知可送达），继续余量。
+          botsLogger.warn(
+            undefined,
+            `bot retained backlog message dropped as content-poison bot=${bot.id} peer=${peerKey} index=${index}: ${error instanceof Error ? error.message : String(error)}`,
+          );
+          await sendOutbound(bot, createOutbound(actor, msg(locale, "replyDeliveryFailed"))).catch(
+            () => undefined,
+          );
+        }
+      }
+      botsLogger.info(
+        undefined,
+        `bot retained backlog revival delivered bot=${bot.id} peer=${peerKey} messages=${delivered}`,
+      );
+    });
+  }
+
+  /**
+   * M1 revival（specs/bot-message-delivery.md Retention buffer）：触发 = 该 bot+peer 的任意
+   * weixin 入站（不 key 于 token 值变化——实测存在不轮换的入站，:1670 早退形态）。
+   * 在入站队列内、命令处理前执行，保证积压先于新回合回复（dual-terminal re-watch 序）。
+   */
+  async function reviveRetainedReplies(message: BotInboundMessage): Promise<void> {
+    if (message.actor.provider !== "weixin") {
+      return;
+    }
+    const peerKey = message.actor.chatId?.trim() || message.actor.providerUserId.trim();
+    if (!peerKey) {
+      return;
+    }
+    const key = retainedBufferKey(message.botId, peerKey);
+    const backlog = retainedReplyBuffers.get(key);
+    if (!backlog || backlog.length === 0) {
+      return;
+    }
+    const bot = findBot(await repo.readConfig(), message.botId);
+    if (!bot) {
+      return;
+    }
+    await deliverRetainedBacklog(bot, message.actor, { withPreamble: true });
+  }
+
+  /** /status 待补发行（保留缓冲非空期间；纯同步读，无 timer）。 */
+  function buildRetainedPendingStatusLine(
+    botId: string,
+    actor: Pick<BotActor, "providerUserId" | "chatId"> | undefined,
+    locale: Locale | undefined,
+  ): string | null {
+    if (!actor) {
+      return null;
+    }
+    const peerKey = actor.chatId?.trim() || actor.providerUserId.trim();
+    if (!peerKey) {
+      return null;
+    }
+    const backlog = retainedReplyBuffers.get(retainedBufferKey(botId, peerKey));
+    if (!backlog || backlog.length === 0) {
+      return null;
+    }
+    return msg(locale, "statusPendingDelivery", {
+      count: backlog.length,
+      kb: (sumRetainedBufferBytes(backlog) / 1024).toFixed(1),
+    });
+  }
+
+  async function sendOutbound(
+    bot: BotConfig,
+    message: BotOutboundMessage,
+    opts?: { retainOnChannelDead?: boolean },
+  ): Promise<void> {
     const adapter = providers[bot.provider];
     if (!adapter) {
       return;
@@ -2964,11 +3285,15 @@ export function createBotsService(
     // "仍有效"下界，失败侧给出"已失效"上界）。失败照常上抛，零行为变化。
     let outbound = message;
     let tokenAgeMs: number | undefined;
+    // M2：本次发送实际尝试的持久化 token（与 tokenAgeMs 同点捕获）——ret=-2 失效的防复活
+    // 竞态凭据；无持久化条目（未覆盖 captured token）时为 undefined，无可失效。
+    let attemptedWeixinEntryToken: string | undefined;
     if (bot.provider === "weixin") {
       const entry = await readPersistedWeixinPeerTokenEntry(bot.id, message.providerUserId);
       if (entry?.token) {
         outbound = { ...message, providerContextToken: entry.token };
         tokenAgeMs = Date.now() - entry.updatedAt;
+        attemptedWeixinEntryToken = entry.token;
       }
     }
     const bytes = Buffer.byteLength(message.text ?? "", "utf8");
@@ -2996,6 +3321,48 @@ export function createBotsService(
         undefined,
         `bot outbound send provider=${bot.provider} peer=${message.providerUserId} bytes=${bytes} failed${ageSuffix}${fields ? ` ${fields}` : ""}: ${error instanceof Error ? error.message : String(error)}`,
       );
+      // Bugfix（M1 缝隙，specs/bot-message-delivery.md 3.14.5-alpha.4）：sendOutbound 是
+      // 缓冲 flush 与终态文书直发（16:42 丢失类）的唯一汇合失败缝隙。channel-dead 类失败
+      // 且调用方选择保留（flush 分块 / 终态文书直发）时，文本进入 per-peer 保留缓冲等待
+      // revival 补发——死通道上重试与通知都必然失败（§8.7）。错误照常上抛，调用方形状不变。
+      if (opts?.retainOnChannelDead && classifyBotSendFailure(error) === "channel-dead") {
+        const peerKey = message.providerUserId.trim();
+        if (peerKey) {
+          // Review 收口：保留动作自身不得掩盖原始发送错误（与 M2 失效同规则包裹）。
+          await retainReplyTexts(bot, peerKey, [message.text ?? ""]).catch((retainError) => {
+            botsLogger.warn(
+              undefined,
+              `bot retained reply enqueue failed bot=${bot.id} peer=${peerKey}: ${retainError instanceof Error ? retainError.message : String(retainError)}`,
+            );
+          });
+        }
+      }
+      // Bugfix（M2，specs/bot-provider-network.md 3.14.5-alpha.4 实测块）：weixin ret=-2 即
+      // 失效凭据——删除本次发送实际尝试的持久化 peer token 条目（防复活竞态：在途被并发入站
+      // 刷新的新 token 保留）。瞬时 -2 的短暂丢失是已接受权衡（条目缺席时任何入站无条件重新
+      // 持久化）；失效不是 revival 触发（不触碰保留缓冲）；失效自身不得掩盖原始错误（包裹
+      // try/catch），也永不记录 token 值。
+      if (bot.provider === "weixin" && tagged.weixinRet === -2 && attemptedWeixinEntryToken) {
+        const invalidationPeerKey = message.providerUserId.trim();
+        try {
+          const invalidated = await invalidateWeixinContextTokenForPeer(
+            bot.id,
+            invalidationPeerKey,
+            attemptedWeixinEntryToken,
+          );
+          if (invalidated) {
+            botsLogger.info(
+              undefined,
+              `bot weixin context token invalidated on ret=-2 bot=${bot.id} peer=${invalidationPeerKey}`,
+            );
+          }
+        } catch (invalidationError) {
+          botsLogger.warn(
+            undefined,
+            `bot weixin context token invalidation failed bot=${bot.id}: ${invalidationError instanceof Error ? invalidationError.message : String(invalidationError)}`,
+          );
+        }
+      }
       throw error;
     }
   }
@@ -5078,11 +5445,15 @@ export function createBotsService(
       streamingCardLastUpdateAt = 0;
     };
     const flushAssistantReplyBuffer = async (force = false): Promise<void> => {
-      if (
-        getMode() === "summary_changes" ||
-        supportsStreamingCardReply() ||
-        !assistantReplyBuffer
-      ) {
+      if (getMode() === "summary_changes" || supportsStreamingCardReply()) {
+        return;
+      }
+      if (force) {
+        // Bugfix（M1，specs/bot-message-delivery.md Retention buffer）：force 边界对保留文本
+        // 做一次有界重试（积压早于当前缓冲 → 先补发再 flush 当前缓冲）；无序言（非 revival）。
+        await deliverRetainedBacklog(bot, actor, { withPreamble: false });
+      }
+      if (!assistantReplyBuffer) {
         return;
       }
       const extracted = extractBotAssistantResponseMessages(assistantReplyBuffer, force);
@@ -5101,6 +5472,7 @@ export function createBotsService(
       }
       for (const [index, text] of extracted.messages.entries()) {
         let delivered = false;
+        let channelDead = false;
         // Bugfix（F2）：旧实现先清缓冲再发送，发送被拒时正文被静默销毁（extract-before-send
         // 丢失）。改为有界重试：每个失败分块至多 BOT_REPLY_FLUSH_MAX_ATTEMPTS 次尝试、
         // 单次 ~1s 退避，预算按构造有界，毒丸消息不可能拖住串行事件队列。
@@ -5109,12 +5481,31 @@ export function createBotsService(
             await delay(BOT_REPLY_FLUSH_RETRY_BACKOFF_MS);
           }
           try {
-            await sendOutbound(bot, createOutbound(actor, text));
+            // M1：flush 分块是法定的缝隙保留调用点（channel-dead 时当前分块文本由
+            // sendOutbound 缝隙保留，下面只需保留兄弟分块与缓冲尾部）。
+            await sendOutbound(bot, createOutbound(actor, text), { retainOnChannelDead: true });
             delivered = true;
             sentAnyAssistantReply = true;
-          } catch {
-            // 落入下方预算判定。
+          } catch (error) {
+            if (classifyBotSendFailure(error) === "channel-dead") {
+              // Bugfix（M1，specs/bot-message-delivery.md F2.3 修订）：channel-dead 首败即停
+              // ——死通道上第二次尝试与丢弃通知都必然失败（§8.7），只重复锤打死 API。
+              channelDead = true;
+              break;
+            }
+            // content-poison 落入下方预算判定（alpha.1 语义不变）。
           }
+        }
+        if (channelDead) {
+          // M1：当前分块已由缝隙保留；未发送的兄弟分块与缓冲尾部一并进入保留缓冲，
+          // 清空回复缓冲（防止滞留到下一 force 边界反复重试）。
+          const unsent = [...extracted.messages.slice(index + 1), extracted.rest];
+          assistantReplyBuffer = "";
+          const peerKey = actor.chatId?.trim() || actor.providerUserId.trim();
+          if (peerKey) {
+            await retainReplyTexts(bot, peerKey, unsent);
+          }
+          return;
         }
         if (!delivered) {
           // 决定语义（owner 已评审）：预算耗尽即丢弃剩余（含未发送分块与缓冲尾部）并送达
@@ -5448,6 +5839,8 @@ export function createBotsService(
             }
             return;
           }
+          // M1：终态文书直发（16:42 丢失类）选择缝隙保留——channel-dead 时由 sendOutbound
+          // 缝隙进入保留缓冲等待 revival；错误仍上抛（enqueueStreamEvent warn 接住）。
           await sendOutbound(
             bot,
             createOutbound(
@@ -5456,6 +5849,7 @@ export function createBotsService(
                 message: event.error,
               }),
             ),
+            { retainOnChannelDead: true },
           );
           return;
         }
@@ -5537,12 +5931,17 @@ export function createBotsService(
           await sendOutbound(
             bot,
             createOutbound(actor, locale === "en-US" ? "Task completed." : "任务已完成。"),
+            // M1：完成回执 fallback 直发同样选择缝隙保留（channel-dead ⇒ 保留）。
+            { retainOnChannelDead: true },
           );
           return;
         }
         for (const text of replyMessages) {
           sentAnyAssistantReply = true;
-          await sendOutbound(bot, createOutbound(actor, text));
+          await sendOutbound(bot, createOutbound(actor, text), {
+            // M1：完成 change-summary 文书直发同样选择缝隙保留（channel-dead ⇒ 保留）。
+            retainOnChannelDead: true,
+          });
         }
       }
     };
@@ -5955,9 +6354,14 @@ export function createBotsService(
       return auth.reply;
     }
     return [
-      createOutbound(message.actor, await buildStatusText(auth.context, auth.locale), undefined, {
-        locale: auth.locale,
-      }),
+      createOutbound(
+        message.actor,
+        await buildStatusText(auth.context, auth.locale, message.actor),
+        undefined,
+        {
+          locale: auth.locale,
+        },
+      ),
     ];
   }
 
@@ -5967,7 +6371,7 @@ export function createBotsService(
     locale: Locale | undefined,
   ): Promise<BotOutboundMessage[]> {
     return [
-      createOutbound(actor, await buildStatusText(context, locale), undefined, {
+      createOutbound(actor, await buildStatusText(context, locale, actor), undefined, {
         locale,
       }),
     ];
@@ -6010,8 +6414,12 @@ export function createBotsService(
   async function buildStatusText(
     context: BotContextState,
     locale: Locale | undefined,
+    actor?: Pick<BotActor, "botId" | "providerUserId" | "chatId">,
   ): Promise<string> {
     const workspace = (await listWorkspaceRefs()).find((item) => item.id === context.workspaceId);
+    // M1（specs/bot-message-delivery.md Retention buffer）：保留缓冲非空期间追加待补发行
+    //（条数 + 约 KB 数，owner 决定 §7.20）；空缓冲时不追加——健康路径逐字节不变。
+    const pendingDeliveryLine = buildRetainedPendingStatusLine(context.botId, actor, locale);
     if (!(await isRemoteWorkspaceConnected(context))) {
       const draftOptions = context.draftOptions;
       return [
@@ -6035,6 +6443,7 @@ export function createBotsService(
         msg(locale, "remoteDisconnectedStatus", {
           workspacePath: context.workspacePath,
         }),
+        ...(pendingDeliveryLine ? [pendingDeliveryLine] : []),
       ].join("\n");
     }
     const zcodeTaskService = await resolveZCodeTaskServiceForContext(context);
@@ -6104,6 +6513,7 @@ export function createBotsService(
           ? formatStatusLine(locale, "statusWorked", formatTaskRunningDuration(workedDurationMs))
           : null,
         latestProgress ? formatStatusLine(locale, "statusProgress", latestProgress) : null,
+        pendingDeliveryLine,
       ].filter(Boolean) as string[]
     ).join("\n");
   }
@@ -6934,6 +7344,11 @@ export function createBotsService(
       return enqueueInboundProcessing(message.actor, async () => {
         // 微信出站媒体依赖新鲜 context_token；必须在任何 context 读改写之前落库，避免被后续 writeContext 覆盖。
         await persistWeixinContextToken(message);
+        // Bugfix（M1 revival，specs/bot-message-delivery.md 3.14.5-alpha.4）：触发 = 该
+        // bot+peer 的任意 weixin 入站（不 key 于 token 值变化——实测存在不轮换的入站）；
+        // 在入站队列内、命令处理前补发积压，保证积压先于新回合回复（dual-terminal
+        // re-watch 序：dispose → ping → 新回合，补发必须先于新回合回复）。
+        await reviveRetainedReplies(message);
         if (message.elicitationResponse) {
           return handleStructuredElicitationResponse(message, message.elicitationResponse);
         }
@@ -7895,6 +8310,10 @@ export function createBotsService(
       recentInboundDeliveryAtByKey.clear();
       automationDeliveryWarningAtByKey.clear();
       inboundProcessingQueuesByContext.clear();
+      // M1（specs/bot-message-delivery.md Retention buffer）：服务 dispose 时保留缓冲静默
+      // 丢失（与桌面会话一致的已接受残余，spec 记录在案）。
+      retainedReplyBuffers.clear();
+      retainedReplyBufferQueues.clear();
       // Bugfix：host 的异步资源回收会优先调用 disposeAllAndWait。保留统一 Promise，确保并发关闭
       // 只执行一次，并在返回前等三类 Provider runtime 的请求、WebSocket 和跨进程锁全部收口。
       shutdownPromise = Promise.allSettled([

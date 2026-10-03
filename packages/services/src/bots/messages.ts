@@ -141,6 +141,12 @@ const messages = {
     replyChanged: "第三方回复颗粒度已切换为 {mode}。",
     // F2（specs/bot-message-delivery.md）：flush 预算耗尽丢弃剩余正文时的一次性本地化通知。
     replyDeliveryFailed: "部分回复未能送达，已跳过。",
+    // 3.14.5-alpha.4（specs/bot-message-delivery.md Retention buffer）：revival 补发序言
+    //（owner 决定 §7.20 文案，先于积压内容走存活通道）与保留缓冲头部截断标记。
+    retainedBacklogPreamble: "断线期间积压的 {count} 条消息已补发",
+    retainedBacklogTruncatedHead: "…(更早的积压消息已截断)",
+    // /status 在保留缓冲非空期间显示的待补发行（条数 + 约 KB 数）。
+    statusPendingDelivery: "待补发：{count} 条断线积压消息（约 {kb} KB）",
   },
   "en-US": {
     botDisabled: "This bot is not enabled.",
@@ -287,6 +293,9 @@ const messages = {
     replyMissing: "Reply detail option not found.",
     replyChanged: "Third-party reply detail changed to {mode}.",
     replyDeliveryFailed: "Part of the reply could not be delivered and was skipped.",
+    retainedBacklogPreamble: "Delivered {count} messages queued during the outage",
+    retainedBacklogTruncatedHead: "…(earlier queued messages were truncated)",
+    statusPendingDelivery: "Pending delivery: {count} messages queued during the outage (~{kb} KB)",
   },
 } as const;
 

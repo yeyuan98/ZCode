@@ -1143,6 +1143,11 @@ export const zcodeTurnStartedEventPayloadSchema = z
     // runtime 会透传后台唤醒来源，strict schema 必须同步声明以免丢弃整条事件。
     backgroundSource: z.enum(["bash", "subagent"]).optional(),
     attachments: z.array(jsonObjectSchema).optional(),
+    // M3（3.14.5-alpha.4）宽容性 widen：executionStartedAt 是执行入口的单调 epoch 毫秒
+    // （v4 telemetry 用）。v3 mapper 已在 turn.started 源头 key 定向剥除，CLI v3 发射端
+    // 不会带它过线——此 optional 仅保护同仓库路径；类型沿用 protocolInstant 约定
+    // （number|string，与 startedAt 同一量纲）。
+    executionStartedAt: protocolInstantSchema.optional(),
   })
   .strict();
 const zcodeTurnSteerSourceSchema = z.enum(["plan_approval_feedback", "workflow_refine_feedback"]);
@@ -1276,6 +1281,17 @@ const zcodeToolCallBasePayloadSchema = z
     childSessionId: nonEmptyString.optional(),
     childToolCallId: nonEmptyString.optional(),
     description: z.string().optional(),
+    // M3（3.14.5-alpha.4）宽容性 widen：新 CLI emitter 会在 tool.updated 上携带
+    // readOnly/sideEffectScope（ToolCallStarted 的解析后副作用能力）、display（展示投影）、
+    // skillMetadata（telemetry）。v3 mapper 已在源头剥离（见 CLI session-mapper 的
+    // V3_TOOL_PAYLOAD_STRIP_KEYS），CLI v3 发射端不会带这些键过线——此处的 optional
+    // 声明只保护同仓库 emitter/测试/未来路径，schema 仍保持 strict。
+    readOnly: z.boolean().optional(),
+    sideEffectScope: z
+      .enum(["none", "workspace", "git", "network", "system", "session", "userInteraction"])
+      .optional(),
+    display: jsonObjectSchema.optional(),
+    skillMetadata: jsonObjectSchema.optional(),
   })
   .strict();
 
@@ -1356,6 +1372,11 @@ export const zcodePermissionRequestedEventPayloadSchema = z
     options: z.array(zcodePermissionOptionSchema).min(1),
     childSessionId: nonEmptyString.optional(),
     background: z.boolean().optional(),
+    // M3（3.14.5-alpha.4）宽容性 widen：fullAccessSupported 由支持 full-access 的
+    // session mode port 条件发出且恒为 true。v3 mapper 已在源头剥离（旧桌面保护），
+    // CLI v3 发射端不会带它过线——Track B 无法经 v3 消费该字段，此 optional 仅保护
+    // 同仓库 emitter/测试/未来路径，schema 仍保持 strict。
+    fullAccessSupported: z.boolean().optional(),
   })
   .strict();
 export const zcodePermissionResolvedEventPayloadSchema = z
