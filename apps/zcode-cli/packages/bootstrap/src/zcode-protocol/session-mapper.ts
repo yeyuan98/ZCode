@@ -63,7 +63,12 @@ const SNAPSHOT_INLINE_IMAGE_DATA_URL_MAX_BYTES = 20 * 1024 * 1024;
 // safeParse 丢弃（单日 553× tool.updated + 8× turn.started + 4× permission.requested；
 // permission 丢失 = bot 权限提示彻底消失）。仓库规则（见 mapPendingPermission 注释）：
 // 新 CLI 字段必须在 v3 mapper 源头剥离——只允许预览降级，不允许 gate 降级。
-const V3_TOOL_PAYLOAD_STRIP_KEYS = ["readOnly", "sideEffectScope", "display", "skillMetadata"] as const;
+const V3_TOOL_PAYLOAD_STRIP_KEYS = [
+  "readOnly",
+  "sideEffectScope",
+  "display",
+  "skillMetadata",
+] as const;
 const V3_TURN_STARTED_STRIP_KEYS = ["executionStartedAt"] as const;
 
 /** 按名单剔除键并重建对象（保持剩余键的原有顺序）；无命中键时返回原对象，保证无漂移键的 payload 输出逐字节不变。 */

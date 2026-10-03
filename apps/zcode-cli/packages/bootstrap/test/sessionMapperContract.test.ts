@@ -16,13 +16,22 @@ import { mapSessionEvent } from "../src/zcode-protocol/session-mapper.js";
 // （2026-10-03 单日 553× tool.updated + 8× turn.started + 4× permission.requested；
 // permission 丢失 = bot 权限提示彻底消失，Track-B 阻塞）。
 // 六键闭合集（两天日志实测，无其他键）：
-const TOOL_UPDATED_DRIFT_KEYS = ["readOnly", "sideEffectScope", "display", "skillMetadata"] as const;
+const TOOL_UPDATED_DRIFT_KEYS = [
+  "readOnly",
+  "sideEffectScope",
+  "display",
+  "skillMetadata",
+] as const;
 const TURN_STARTED_DRIFT_KEYS = ["executionStartedAt"] as const;
 const PERMISSION_REQUESTED_DRIFT_KEYS = ["fullAccessSupported"] as const;
 
 // emitter 实际形状的最小样本（core/src/tool/executor/events.ts、runtime/methods/turn.ts）。
 const SAMPLE_DISPLAY = { kind: "bash_output", output: "ls -la", truncated: false } as const;
-const SAMPLE_SKILL_METADATA = { qualifiedName: "pdf-report", pluginId: "docs", source: "project" } as const;
+const SAMPLE_SKILL_METADATA = {
+  qualifiedName: "pdf-report",
+  pluginId: "docs",
+  source: "project",
+} as const;
 const SAMPLE_ERROR_DETAIL = { type: "tool_execution_error", message: "boom" } as const;
 
 const EVENT_TIMESTAMP_MS = 1760000000000;
