@@ -8,9 +8,11 @@ import {
   BOT_RUNTIME_LOCK_RETRY_MS,
   createBotConnectionFingerprint,
   createLatestRuntimeRefreshQueue,
+  createPollErrorBackoff,
   type BotRuntimeLogger,
   type BotRuntimeStatusSink,
   waitFor,
+  waitForPollErrorBackoff,
 } from "./channelRuntime.js";
 
 interface WeixinChannelRuntimeDeps {
@@ -60,6 +62,10 @@ export function createWeixinChannelRuntime(deps: WeixinChannelRuntimeDeps) {
       return;
     }
 
+    // specs/bot-inbound-resilience.md §D：poll 错误退避状态必须跨外层 while 的 catch 周期存活，
+    // 声明在 try 块之外（TS2304 块级作用域）；下方 lock 等待（含 BOT_RUNTIME_LOCK_RETRY_MS）
+    // 不进此状态，成功 poll 周期在内层循环尾部 recordSuccess 复位。
+    const pollErrorBackoff = createPollErrorBackoff();
     while (!signal.aborted) {
       let lock: Awaited<ReturnType<typeof acquireWeixinPollingLock>>;
       try {
@@ -155,6 +161,8 @@ export function createWeixinChannelRuntime(deps: WeixinChannelRuntimeDeps) {
             // 之前先写游标再处理回复，进程在中途失败会跳过未完成消息，导致 AskUserQuestion 回复顺序错乱或丢失。
             await deps.writeWeixinGetUpdatesBuf(bot.id, result.buf);
           }
+          // §D：本周期读取→处理→游标提交全部完成，视为成功 poll 周期，复位退避。
+          pollErrorBackoff.recordSuccess();
           deps.statusSink.setRuntimeStatus({
             botId: bot.id,
             provider: "weixin",
@@ -174,7 +182,9 @@ export function createWeixinChannelRuntime(deps: WeixinChannelRuntimeDeps) {
           status: "error",
           message: `Weixin polling failed: ${error instanceof Error ? error.message : String(error)}`,
         });
-        await waitFor(5_000, signal);
+        // specs/bot-inbound-resilience.md §D：连续 poll 错误递增退避（5s→60s 封顶）替代固定 5s 重试，
+        // 避免 provider 持续故障时高频轰炸；每次失败恰好一行 warn（次数 + 下次等待），rig T6 读日志验证节奏。
+        await waitForPollErrorBackoff(deps.logger, pollErrorBackoff, "weixin", bot.id, signal);
       } finally {
         // Bugfix：微信 buf 是第三方队列确认点；只有持锁 owner 能消费和写入，退出时必须释放给其他 host 接管。
         await lock.release().catch((error: unknown) => {
